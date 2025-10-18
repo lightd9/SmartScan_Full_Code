@@ -1,0 +1,88 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-frontend-react\\public\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:identeefi-frontend-react\\public\\index.html||{40D31677-CBC0-4297-A9EF-89D907823A98}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-postgres-database\\auth.csv||{8B382828-6202-11D1-8870-0000F87579D2}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:identeefi-postgres-database\\auth.csv||{8B382828-6202-11D1-8870-0000F87579D2}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-smartcontract-solidty\\hardhat.config.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:identeefi-smartcontract-solidty\\hardhat.config.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-backend-node\\postgres.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}",
+      "RelativeMoniker": "D:0:0:{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}|\u003CMiscFiles\u003E|solutionrelative:identeefi-backend-node\\postgres.js||{14D17961-FE51-464D-9111-C4AF11D7D99A}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "index.html",
+              "DocumentMoniker": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-frontend-react\\public\\index.html",
+              "RelativeDocumentMoniker": "identeefi-frontend-react\\public\\index.html",
+              "ToolTip": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-frontend-react\\public\\index.html",
+              "RelativeToolTip": "identeefi-frontend-react\\public\\index.html",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001512|",
+              "WhenOpened": "2025-05-15T15:36:30.958Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "auth.csv",
+              "DocumentMoniker": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-postgres-database\\auth.csv",
+              "RelativeDocumentMoniker": "identeefi-postgres-database\\auth.csv",
+              "ToolTip": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-postgres-database\\auth.csv",
+              "RelativeToolTip": "identeefi-postgres-database\\auth.csv",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.002120|",
+              "WhenOpened": "2025-05-15T15:36:20.38Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 2,
+              "Title": "hardhat.config.js",
+              "DocumentMoniker": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-smartcontract-solidty\\hardhat.config.js",
+              "RelativeDocumentMoniker": "identeefi-smartcontract-solidty\\hardhat.config.js",
+              "ToolTip": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-smartcontract-solidty\\hardhat.config.js",
+              "RelativeToolTip": "identeefi-smartcontract-solidty\\hardhat.config.js",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2025-05-15T15:36:08.176Z",
+              "EditorCaption": ""
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 3,
+              "Title": "postgres.js",
+              "DocumentMoniker": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-backend-node\\postgres.js",
+              "RelativeDocumentMoniker": "identeefi-backend-node\\postgres.js",
+              "ToolTip": "C:\\Users\\HP\\Desktop\\anti-counterfeit-product-identification-system-using-blockchain-main\\identeefi-backend-node\\postgres.js",
+              "RelativeToolTip": "identeefi-backend-node\\postgres.js",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001646|",
+              "WhenOpened": "2025-05-15T15:35:24.89Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
