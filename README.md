@@ -1,9 +1,9 @@
-🧠 SmartScan: Blockchain-Integrated Mobile App for Authenticating Medicines and Consumer Goods
+SmartScan: Blockchain-Integrated Mobile App for Authenticating Medicines and Consumer Goods
 Overview
 
 SmartScan is a blockchain-powered mobile application designed to combat counterfeit products by enabling users to verify the authenticity of medicines and consumer goods. The system leverages QR code scanning and decentralized blockchain records to ensure end-to-end product traceability across the supply chain.
 
-🔍 Key Features
+Key Features
 
 Blockchain-Based Authentication: Ensures product data integrity using smart contracts on the Ethereum (Sepolia) testnet.
 
@@ -17,7 +17,7 @@ Local Storage Integration: Maintains scan history for offline access and quick r
 
 Web & Mobile Friendly: Developed with a responsive React frontend and a Node.js/Express backend.
 
-🧩 System Architecture
+System Architecture
 
 Frontend: React + Vite
 
@@ -28,7 +28,7 @@ Database: PostgreSQL
 Blockchain: Solidity Smart Contract (Deployed on Sepolia Testnet)
 
 
-⚙️ Installation & Setup
+Installation & Setup
 Prerequisites
 
 Node.js (v18 or higher)
@@ -39,11 +39,11 @@ PostgreSQL
 
 ngrok (for temporary backend tunneling during development)
 
-1️⃣ Clone the Repository
+1. Clone the Repository
 git clone https://github.com/lightd9/SmartScan_Full_Code.git
 cd SmartScan_Full_Code
 
-2️⃣ Backend Setup
+2. Backend Setup
 cd smartscan-backend-node
 npm install
 node postgres.js   # Initialize or test database connection
@@ -54,7 +54,7 @@ npm start          # Start backend server
 
 ngrok http 5000
 
-3️⃣ Frontend Setup
+3. Frontend Setup
 
 Open a new terminal:
 
@@ -66,7 +66,7 @@ npm start
 Your app will run locally at:
 http://localhost:3000
 
-🌐 Environment Variables
+Environment Variables
 
 Create a .env file in both the backend and frontend directories:
 
@@ -85,8 +85,7 @@ If using ngrok:
 REACT_APP_API_URL=https://<your-ngrok-id>.ngrok-free.app
 
 
-👨‍💻 Author
-
+Author
 Olafenwa Hassan
 
 Final Year Computer Science Project — 2025
