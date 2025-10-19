@@ -1,5 +1,5 @@
 SmartScan: Blockchain-Integrated Mobile App for Authenticating Medicines and Consumer Goods
-Overview
+
 
 SmartScan is a blockchain-powered mobile application designed to combat counterfeit products by enabling users to verify the authenticity of medicines and consumer goods. The system leverages QR code scanning and decentralized blockchain records to ensure end-to-end product traceability across the supply chain.
 
