@@ -88,6 +88,5 @@ REACT_APP_API_URL=https://<your-ngrok-id>.ngrok-free.app
 Author
 Olafenwa Hassan
 
-Final Year Computer Science Project — 2025
 
 University Project: SmartScan: A Blockchain-Integrated Mobile App for Authenticating Medicines and Consumer Goods
