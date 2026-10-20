@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Environment files (keep templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Build outputs
+build/
+dist/
+coverage/
+artifacts/
+cache/
+typechain-types/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+*.lnk
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Uploaded files (may contain user PII)
+smartscan-backend-node/public/uploads/profile/*
+smartscan-backend-node/public/uploads/product/*
+!smartscan-backend-node/public/uploads/**/.gitkeep
+
+# Android / Capacitor build artifacts
+smartscan-frontend-react/android/.gradle/
+smartscan-frontend-react/android/**/build/
+smartscan-frontend-react/android/.idea/
+smartscan-frontend-react/android/local.properties
+smartscan-frontend-react/android/app/release/
+*.apk
+*.aab
+
+# OS files
+.DS_Store
+Thumbs.db
+

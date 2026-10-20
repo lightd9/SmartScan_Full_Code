@@ -1,201 +1,58 @@
-const express = require('express');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-const { Client } = require('pg')
+require('dotenv').config();
+
 const path = require('path');
-const multer = require('multer');
+const { createPool } = require('./db');
+const { createApp } = require('./app');
 
-const app = express();
-app.use(bodyParser.json());
-app.use(cors());
+const port = process.env.PORT || 5000;
 
-const port = 5000;
-
-const client = new Client({
-    host: "localhost",
-    user: "postgres",
-    port: 5432,
-    password: "postgres",
-    database: "smartscan_db"
-})
-
-client.connect()
-
-// auth
-
-function createAccount(username , password, role){
-    const res =  client.query('INSERT INTO auth (username, password, role) VALUES ($1, $2, $3)', [username, password, role], (err, res)=>{
-        if(err){
-            console.log(err.message);
-        }else{
-            console.log('Data insert successful');
-        }
-    })
+const jwtSecret = process.env.JWT_SECRET;
+if (!jwtSecret && process.env.NODE_ENV === 'production') {
+  console.warn('⚠️  JWT_SECRET is not set. Falling back to an insecure development secret.');
+}
+if (!process.env.DATABASE_URL && process.env.NODE_ENV === 'production') {
+  throw new Error('DATABASE_URL must be configured in production');
 }
 
-function changePassword(username, password){
-    const res =  client.query('UPDATE auth SET password = $1 WHERE username = $2', [password, username], (err, res)=>{
-        if(err){
-            console.log(err.message);
-        }else{
-            console.log('Data update successful');
-        }
-    })
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://10.0.2.2:3000')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const pool = createPool();
+
+pool
+  .query('SELECT 1')
+  .then(() => console.log('✅ Connected to database'))
+  .catch((err) => console.error('❌ Database connection error:', err.message));
+
+const app = createApp({
+  pool,
+  jwtSecret: jwtSecret || 'dev-insecure-secret-change-me',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
+  allowedOrigins,
+  uploadBaseDir: path.join(__dirname, 'public', 'uploads'),
+});
+
+app.get('/health', async (_req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    return res.json({ status: 'ok' });
+  } catch (_error) {
+    return res.status(503).json({ status: 'unavailable' });
+  }
+});
+
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`Server running on http://localhost:${port}`);
+});
+
+function shutdown(signal) {
+  console.log(`${signal} received; shutting down`);
+  server.close(() => pool.end().finally(() => process.exit(0)));
+  setTimeout(() => process.exit(1), 10000).unref();
 }
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
 
-// profile
-
-function createProfile(username, name , description, website, location, image, role){
-    client.query('INSERT INTO profile (username, name, description, website, location, image, role) VALUES ($1, $2, $3, $4, $5, $6, $7)', 
-        [username, name, description, website, location, image, role], (err, res)=>{
-            if(err){
-                console.log(err.message);
-            }else{
-                console.log('Data insert successful');
-            }
-        })
-
-}
-
-// product
-
-const storageProduct = multer.diskStorage({
-    destination: path.join(__dirname, 'public/uploads/product'),
-    filename: (req, file, cb) => {
-        cb(null, file.originalname);
-    }
-})
-
-const storageProfile = multer.diskStorage({
-    destination: path.join(__dirname, 'public/uploads/profile'),
-    filename: (req, file, cb) => {
-        cb(null, file.originalname);
-    }
-})
-
-function addProduct(serialNumber, name , brand){
-    client.query('INSERT INTO product (serialNumber, name, brand) VALUES ($1, $2, $3)', 
-        [serialNumber, name, brand], (err, res)=>{
-            if(err){
-                console.log(err.message);
-            }else{
-                console.log('Data insert successful');
-            }
-        })
-
-}
-
-
-// auth
-app.get('/authAll', async (req, res)=>{
-    const data =  await client.query('Select * from auth');
-    res.header('Access-Control-Allow-Credentials', true);
-    res.send(data.rows);
-    console.log("Data sent successfully");
-});
-
-app.post('/auth/:username/:password', async (req, res)=>{
-    const {username, password} = req.params;
-    const data =  await client.query(`SELECT * FROM auth WHERE username = '${username}' AND password = '${password}'`);
-    res.send(data.rows);
-    console.log("Data sent successfully");
-});
-
-app.post('/addaccount', (req, res)=>{
-    const {username, password, role} = req.body;
-    createAccount(username, password, role);
-    res.send('Data inserted');
-
-});
-
-app.post('/changepsw', (req, res)=>{
-    const {username, password} = req.body;
-    changePassword(username, password);
-    res.send('Data updated');
-});
-
-// profile 
-
-app.get('/profileAll', async (req, res)=>{
-    const data =  await client.query('Select * from profile');
-    res.header('Access-Control-Allow-Credentials', true);
-    res.send(data.rows);
-    console.log("Data sent successfully");
-});
-
-app.get('/profile/:username', async (req, res)=>{
-    const {username} = req.params;
-    const data =  await client.query(`SELECT * FROM profile WHERE username = '${username}'`);
-    res.send(data.rows);
-    console.log("Data sent successfully");
-});
-
-app.post('/addprofile', (req, res)=>{
-    const {username, name, description, website, location, image, role} = req.body;
-    createProfile(username, name, description, website, location, image, role);
-    res.send('Data inserted');
-
-});
-
-// image
-
-app.post('/upload/profile', (req, res)=>{
-
-    let upload = multer({ storage: storageProfile}).single('image');
-
-    upload(req, res, (err)=>{
-        if(!req.file){
-            return res.send('Please select an image to upload')
-        }else if (err instanceof multer.MulterError){
-            return res.send(err);
-        } else if (err) {
-            return res.send(err);
-        }
-    })
-})
-
-// product
-
-app.post('/upload/product', (req, res)=>{
-
-    let upload = multer({ storage: storageProduct}).single('image');
-
-    upload(req, res, (err)=>{
-        if(!req.file){
-            return res.send('Please select an image to upload')
-        }else if (err instanceof multer.MulterError){
-            return res.send(err);
-        } else if (err) {
-            return res.send(err);
-        }
-    })
-})
-
-app.get('/file/profile/:fileName', function (req, res) {
-    const {fileName} = req.params;
-    const filePath = path.join(__dirname, 'public/uploads/profile', fileName);
-    res.sendFile(filePath);
-});
-
-app.get('/file/product/:fileName', function (req, res) {
-    const {fileName} = req.params;
-    const filePath = path.join(__dirname, 'public/uploads/product', fileName);
-    res.sendFile(filePath);
-});
-
-
-app.get('/product/serialNumber', async (req, res)=>{
-    const data =  await client.query(`SELECT serialNumber FROM product`);
-    res.send(data.rows);
-});
-
-app.post('/addproduct', (req, res)=>{
-    const {serialNumber, name, brand} = req.body;
-    addProduct(serialNumber, name, brand);
-    res.send('Data inserted');
-
-});
-
-app.listen(5000, '0.0.0.0', () => {
-  console.log('Server running on http://localhost:5000');
-});
+module.exports = { app, pool };

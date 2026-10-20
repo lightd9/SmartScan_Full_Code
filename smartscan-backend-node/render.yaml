@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: smartscan-backend
+    env: node
+    buildCommand: npm ci
+    startCommand: node postgres.js
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXPIRES_IN
+        value: 12h
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: NODE_ENV
+        value: production

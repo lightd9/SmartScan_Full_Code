@@ -1,0 +1,55 @@
+name: SmartScan CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smartscan-backend-node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: smartscan-backend-node/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  contracts:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smartscan-smartcontract-solidty
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: smartscan-smartcontract-solidty/package-lock.json
+      - run: npm ci
+      - run: npm run compile
+      - run: npm test
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smartscan-frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: smartscan-frontend-react/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - run: npm test -- --watchAll=false --passWithNoTests
+        env:
+          CI: true
+      - run: npm run build
