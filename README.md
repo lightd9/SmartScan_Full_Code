@@ -15,6 +15,9 @@ Sepolia testnet.
 - **Role-based access:** JWT-protected accounts and dashboards for Admin,
   Manufacturer, Supplier and Retailer roles.
 - **Product tracking:** append-only manufacturing/distribution/sold history.
+- **Chain lifecycle tracking:** products move through `pending_chain` →
+  `confirmed` or `failed`, with the transaction hash, chain ID and failure reason
+  stored alongside the product.
 - **Responsive UI:** React single-page app; can be wrapped for Android with Capacitor.
 
 ## Architecture
@@ -35,7 +38,7 @@ smartscan-postgres-database/  # SQL schema + seed data
 
 ## Prerequisites
 
-- Node.js (v18+; the Hardhat project is tested on Node 18/20)
+- Node.js 20 (pinned in `.nvmrc`)
 - npm
 - PostgreSQL
 - MetaMask (for manufacturer/supplier/retailer writes)
@@ -48,11 +51,13 @@ smartscan-postgres-database/  # SQL schema + seed data
 cd smartscan-backend-node
 npm install
 copy .env.example .env    # then edit values
-npm run migrate-passwords # one-off: hash any legacy plaintext passwords
+npm run migrate           # apply database migrations (idempotent)
 npm start
 ```
 
-The API listens on `PORT` (default 5000).
+`npm run migrate-passwords` is a one-off helper that hashes any legacy plaintext
+passwords; login also upgrades them automatically. The API listens on `PORT`
+(default 5000).
 
 ### 2. Frontend
 
@@ -70,8 +75,8 @@ Runs at http://localhost:3000.
 ```bash
 cd smartscan-smartcontract-solidty
 npm install
-npx hardhat test         # run contract tests
-npx hardhat run scripts/deploy-v2.js --network sepolia
+npx hardhat test
+npm run deploy:v2 -- --network sepolia
 ```
 
 ## Environment Variables
@@ -103,9 +108,25 @@ npx hardhat run scripts/deploy-v2.js --network sepolia
 | `SEPOLIA_QUICKNODE_KEY` | Sepolia RPC URL |
 | `GOERLI_QUICKNODE_KEY` / `PROD_QUICKNODE_KEY` | Optional other networks |
 | `PRIVATE_KEY` | Deployer wallet private key |
+| `MANUFACTURER_ADDRESS` / `SUPPLIER_ADDRESS` / `RETAILER_ADDRESS` | Optional wallets to grant roles during deployment |
 
 > Network configs are only registered when both the RPC URL and `PRIVATE_KEY`
 > are present, so tests and local compilation work without any secrets.
+
+## Roles and Lifecycle
+
+The hardened `IdenteefiV2` contract defines `Admin`, `Manufacturer`, `Supplier`
+and `Retailer` roles:
+
+- manufacturers register products;
+- manufacturers, suppliers and retailers may append history;
+- only retailers (and admins) may mark a product sold;
+- duplicate serial numbers are rejected and unknown serials cannot receive history.
+
+On the backend, a newly registered product starts as `pending_chain`. The frontend
+updates it to `confirmed` (with transaction hash and chain ID) after the on-chain
+transaction is mined, or `failed` (with a reason) if the wallet rejects or the
+transaction errors.
 
 ## Tests
 
@@ -120,11 +141,14 @@ cd smartscan-smartcontract-solidty && npx hardhat test
 cd smartscan-frontend-react && CI=true npm test
 ```
 
+CI runs all three suites via `.github/workflows/ci.yml` on Node 20.
+
 ## Security Notes
 
 The backend stores passwords as salted scrypt hashes, uses parameterized SQL
-everywhere, issues JWTs via `POST /auth`, and restricts write endpoints to the
-appropriate roles. Secrets live in untracked `.env` files; commit only the
+everywhere, issues JWTs via `POST /auth`, restricts write endpoints to the
+appropriate roles, validates input, limits JSON bodies and uploads, and sets
+basic security headers. Secrets live in untracked `.env` files; commit only the
 `.env.example` templates.
 
 ### Known limitation: deployed contract has no access control
@@ -135,10 +159,11 @@ to **any caller** and cannot be upgraded. Because it cannot be redeployed to a
 new address for this project, all blockchain writes are gated off-chain by the
 backend/UI, but a determined actor could still call the contract directly.
 
-A hardened source-only contract, `contracts/IdenteefiV2.sol`, is included that
-adds an `onlyOwner` guard, duplicate-serial rejection, existence checks and
-events. To use it, deploy it with `scripts/deploy-v2.js` and point
-`REACT_APP_CONTRACT_ADDRESS` at the new address.
+A hardened, role-aware contract (`contracts/IdenteefiV2.sol`) is included that
+adds role checks, duplicate-serial rejection, existence checks, retailer-only
+sold status and events. To use it, deploy it with `scripts/deploy-v2.js`, grant
+roles, regenerate the frontend ABI, and point `REACT_APP_CONTRACT_ADDRESS` at the
+new address. See `DEPLOYMENT_CHECKLIST.md`.
 
 ## Author
 
