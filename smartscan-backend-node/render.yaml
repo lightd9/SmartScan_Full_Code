@@ -7,7 +7,6 @@ services:
     buildCommand: npm ci
     startCommand: node postgres.js
     healthCheckPath: /readyz
-    maxShutdownDelaySeconds: 60
     envVars:
       - key: NODE_ENV
         value: production
