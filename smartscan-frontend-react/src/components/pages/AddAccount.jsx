@@ -1,8 +1,8 @@
-import '../../css/Role.css'
+import React, { useState, useEffect, useRef } from 'react';
 import { TextField, Box, Paper, Typography, Autocomplete, Button } from '@mui/material';
-import React from 'react'
-import { useRef, useState, useEffect } from 'react';
-import bgImg from '../../img/bg.png';
+import DashboardShell from '../shell/DashboardShell';
+import GreetingBanner from '../shell/GreetingBanner';
+import '../shell/shell.css';
 import axios from '../../api/axios';
 import { useNavigate } from 'react-router-dom';
 
@@ -12,7 +12,7 @@ const AddAccount = () => {
     const [user, setUser] = useState('');
     const [pwd, setPwd] = useState('');
     const [pwd2, setPwd2] = useState('');
-    const [role, setRole] = React.useState(options[0])
+    const [role, setRole] = useState(options[0]);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [website, setWebsite] = useState('');
@@ -69,6 +69,11 @@ const uploadImage = async (image) => {
             return;
         }
 
+        if (pwd.length < 12) {
+            setErrMsg('Choose a password with at least 12 characters.');
+            return;
+        }
+
         if (pwd !== pwd2) {
             setErrMsg('Passwords do not match.');
             return;
@@ -80,11 +85,6 @@ const uploadImage = async (image) => {
             await axios.post('/addaccount', {
                 username: user,
                 password: pwd,
-                role
-            });
-
-            await axios.post('/addprofile', {
-                username: user,
                 name,
                 description,
                 website,
@@ -126,190 +126,195 @@ const uploadImage = async (image) => {
 
 
     return (
-        <Box sx={{
-            backgroundImage: `url(${bgImg})`,
-            minHeight: "100vh",
-            backgroundRepeat: "no-repeat",
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-            backgroundSize: 'cover',
-            zIndex: -2,
-            overflowY: "scroll"
+        <DashboardShell>
+            <GreetingBanner
+                title="Account Provisioning Studio"
+                subtitle="Onboard enterprise manufacturers, suppliers, and retail partners"
+                metrics={[
+                    {
+                        icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ROLE</span>,
+                        value: (role || 'Manufacturer').toUpperCase(),
+                        label: 'Selected Entity',
+                    },
+                    {
+                        icon: <span style={{ color: '#10B981', fontWeight: 700 }}>AUTH</span>,
+                        value: 'Scrypt + JWT',
+                        label: 'Security Layer',
+                    },
+                    {
+                        icon: <span style={{ color: '#2563EB', fontWeight: 700 }}>EVM</span>,
+                        value: 'IdenteefiV2',
+                        label: 'Smart Contract Ready',
+                    },
+                ]}
+            />
 
-        }}>
-            <Paper elevation={3} sx={{ width: "400px", margin: "auto", marginTop: "10%", marginBottom: "10%", padding: "3%", backgroundColor: "#e3eefc" }}>
-                <p ref={errRef} className={errMsg ? "errmsg" : "offscreen"} aria-live="assertive">{errMsg}</p>
-
-                <Typography
-                    variant="h2"
-                    sx={{
-                        textAlign: "center", marginBottom: "3%",
-                        fontFamily: 'Gambetta', fontWeight: "bold", fontSize: "2.5rem"
+            {errMsg && (
+                <div
+                    ref={errRef}
+                    role="alert"
+                    tabIndex={-1}
+                    style={{
+                        padding: '12px 18px',
+                        borderRadius: '10px',
+                        backgroundColor: 'var(--status-red-bg)',
+                        color: 'var(--status-red-text)',
+                        fontSize: '13px',
+                        fontWeight: 600,
                     }}
                 >
-                    Add Account</Typography>
-                    
-                <form onSubmit={handleSubmit}>
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Username"
-                        variant="outlined"
-                        onChange={(e) => setUser(e.target.value)}
-                        value={user}
-                    />
+                    {errMsg}
+                </div>
+            )}
 
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Password"
-                        type='password'
-                        variant="outlined"
-                        onChange={(e) => setPwd(e.target.value)}
-                        value={pwd}
-                    />
+            <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+                <div className="dashboard-grid-dual">
+                    {/* Left Column: Account Credentials */}
+                    <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                            Credentials & Role
+                        </h2>
 
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Confirm Password"
-                        type='password'
-                        variant="outlined"
-                        onChange={(e) => setPwd2(e.target.value)}
-                        value={pwd2}
-                    />
-
-                    {pwd === pwd2? null:
-                            <Typography
-                                variant="body2"
-                                sx={{
-                                    textAlign: "center", 
-                                    fontSize: "12px", color: "red"
-                                }}
-                            >
-                                Passwords do not match
-                            </Typography>
-
-                        }
-
-                    <Autocomplete
-                        disablePortal
-                        id="combo-box-demo"
-                        options={options}
-                        fullWidth
-                        value={role}
-                        onChange={(event, newRole) => {
-                            setRole(newRole);
-                        }}
-                        renderInput={(params) =>
-                            <TextField {...params}
-                                fullWidth
-                                id="outlined-basic"
-                                margin="normal"
-                                label="Role"
-                                variant="outlined"
-
-                            />}
-                    />
-
-                    <Button
-                        variant="outlined"
-                        component="label"
-                        fullWidth
-                        // onChange = {handleImage}
-                        sx={{ marginTop: "3%" }}
-                    >
-                        Upload Image
-                        <input
-                            type="file"
-                            hidden
-                            onChange={handleImage}
+                        <TextField
+                            fullWidth
+                            id="outlined-username"
+                            label="Username"
+                            variant="outlined"
+                            required
+                            onChange={(e) => setUser(e.target.value)}
+                            value={user}
                         />
-                    </Button>
 
-                    {image.filepreview !== null ?
-                        <img src={image.filepreview} alt="preview" style={{ width: "100%", height: "100%" }} />
-                        : null}
-
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Name"
-                        variant="outlined"                        
-                        onChange={(e) => setName(e.target.value)}
-                        value={name}
-                    />
-
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Description"
-                        variant="outlined"
-                        multiline
-                        minRows={2}
-                        onChange={(e) => setDescription(e.target.value)}
-                        value={description}
-                    />
-
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Website"
-                        variant="outlined"
-                        onChange={(e) => setWebsite(e.target.value)}
-                        value={website}
-                    />
-
-                    <TextField
-                        fullWidth
-                        id="outlined-basic"
-                        margin="normal"
-                        label="Location"
-                        variant="outlined"                        
-                        onChange={(e) => setLocation(e.target.value)}
-                        value={location}
-                    />
-
-                    <Button
-                        variant="contained"
-                        type="submit"
-                        sx={{ width: "100%", marginTop: "3%", backgroundColor: '#98b5d5', '&:hover': { backgroundColor: '#618dbd' } }}
-                    >
-                        Add Account
-                    </Button>
-
-                    <Box
-                        sx={{
-                            width: "100%",
-                            display: "flex",
-                            justifyContent: "center",
-                        }}
-                    >
-
-
-                        <Button
-                            onClick={handleBack}
-                            sx={{
-                                marginTop: "5%",
+                        <Autocomplete
+                            disablePortal
+                            id="combo-box-role"
+                            options={options}
+                            fullWidth
+                            value={role}
+                            onChange={(event, newRole) => {
+                                setRole(newRole);
                             }}
-                        >
-                            Back
-                        </Button>
+                            renderInput={(params) => (
+                                <TextField {...params} fullWidth label="Assigned Role" variant="outlined" />
+                            )}
+                        />
 
-                    </Box>
+                        <TextField
+                            fullWidth
+                            id="outlined-password"
+                            label="Password"
+                            type="password"
+                            variant="outlined"
+                            required
+                            inputProps={{ minLength: 12, maxLength: 200 }}
+                            helperText="Use at least 12 characters."
+                            onChange={(e) => setPwd(e.target.value)}
+                            value={pwd}
+                        />
 
-                </form>
-            </Paper>
-        </Box>
+                        <TextField
+                            fullWidth
+                            id="outlined-confirm-password"
+                            label="Confirm Password"
+                            type="password"
+                            variant="outlined"
+                            required
+                            inputProps={{ minLength: 12, maxLength: 200 }}
+                            onChange={(e) => setPwd2(e.target.value)}
+                            value={pwd2}
+                        />
+
+                        {pwd && pwd2 && pwd !== pwd2 && (
+                            <div style={{ color: 'var(--status-red-text)', fontSize: '12.5px', fontWeight: 600 }}>
+                                Passwords do not match
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right Column: Business Profile */}
+                    <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                            Organization Profile
+                        </h2>
+
+                        <TextField
+                            fullWidth
+                            id="outlined-business-name"
+                            label="Company / Business Name"
+                            variant="outlined"
+                            required
+                            inputProps={{ maxLength: 100 }}
+                            helperText="Used for on-chain role identity (max 100 bytes)."
+                            onChange={(e) => setName(e.target.value)}
+                            value={name}
+                        />
+
+                        <TextField
+                            fullWidth
+                            id="outlined-business-desc"
+                            label="Business Description"
+                            variant="outlined"
+                            multiline
+                            minRows={2}
+                            onChange={(e) => setDescription(e.target.value)}
+                            value={description}
+                        />
+
+                        <TextField
+                            fullWidth
+                            id="outlined-website"
+                            label="Official Website"
+                            variant="outlined"
+                            onChange={(e) => setWebsite(e.target.value)}
+                            value={website}
+                        />
+
+                        <TextField
+                            fullWidth
+                            id="outlined-location"
+                            label="Headquarters / Physical Location"
+                            variant="outlined"
+                            onChange={(e) => setLocation(e.target.value)}
+                            value={location}
+                        />
+
+                        <div>
+                            <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 8 }}>
+                                Organization Logo / Avatar
+                            </label>
+                            <Button variant="outlined" component="label" fullWidth sx={{ textTransform: 'none', borderRadius: '10px' }}>
+                                Upload Logo Image
+                                <input type="file" hidden accept="image/*" onChange={handleImage} />
+                            </Button>
+                            {image.filepreview && (
+                                <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border)', maxHeight: 120, display: 'flex', justifyContent: 'center' }}>
+                                    <img src={image.filepreview} alt="Logo preview" style={{ maxHeight: '100%', objectFit: 'contain' }} />
+                                </div>
+                            )}
+                        </div>
+
+                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <button
+                                type="submit"
+                                className="btn-primary-action"
+                                style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px' }}
+                            >
+                                Provision Enterprise Account
+                            </button>
+
+                            <button
+                                type="button"
+                                className="btn-secondary-action"
+                                style={{ width: '100%', justifyContent: 'center' }}
+                                onClick={handleBack}
+                            >
+                                Cancel & Return to Dashboard
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </DashboardShell>
     );
 }
 

@@ -45,3 +45,6 @@ smartscan-frontend-react/android/app/release/
 .DS_Store
 Thumbs.db
 
+# Agent metadata
+.agents/
+skills-lock.json

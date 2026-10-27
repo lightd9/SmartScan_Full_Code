@@ -2,27 +2,104 @@
 
 ## Before deployment
 
-- Use Node.js 20 (`.nvmrc`).
-- Configure backend `DATABASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`, and `PGSSL_DISABLE` as appropriate.
-- Run `npm run migrate` in `smartscan-backend-node` against the target PostgreSQL database.
+- Use maintained Node.js 24 LTS (`.nvmrc` and package engine constraints).
+- For Render, point the Blueprint at `smartscan-backend-node/render.yaml` (it is not at the repository root) and set the Vercel project root to `smartscan-frontend-react`. The Render Blueprint defines the API plus reconciliation and scan-retention workers; configure every `sync: false` value for each service, including existing services where a Blueprint update will not prompt for missing secrets. The worker processes currently load the same strict production configuration as the API, so all three need the shared production variables.
+- Set Render's `TRUST_PROXY_HOPS` to the real trusted-proxy count and configure S3 credentials using workload identity where supported or paired secret keys. Do not copy placeholder or test values from CI into deployment settings.
+- Configure backend `DATABASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`, `WALLET_LINK_ORIGIN`, `CHAIN_RPC_URL`, and `CONTRACT_ADDRESS`; set `PGSSL_DISABLE` only for local PostgreSQL as appropriate.
+- Configure backend `CHAIN_ID`, `CONTRACT_DEPLOYMENT_BLOCK`, `RECONCILE_CONFIRMATIONS`, `RECONCILE_HASHLESS_TIMEOUT_MS`, and `RECONCILE_SUBMITTED_TIMEOUT_MS` to match the deployed contract/network.
+- Configure Vercel `REACT_APP_API_URL` to the HTTPS Render/API origin. The production frontend build rejects an omitted or non-HTTPS API URL because SPA rewrites do not proxy backend requests.
+- Back up the database, restore it to an isolated staging database, and run `npm run migrate:preflight` in `smartscan-backend-node`; repair any reported blocking rows before proceeding.
+- Run `npm run migrate` against the verified staging copy first, review row counts/lifecycle states, then apply the same migration set to the intended database during a controlled change window.
+- The migration runner takes a PostgreSQL advisory lock on a dedicated session and aborts if another migration is active; do not bypass it with ad-hoc concurrent SQL.
+- Migration `008_password_session_revocation.sql` adds token versions and password-change audit records. Apply it before deploying code that enforces token versions; verify successful password change/reset revokes old sessions and requires a fresh login.
+- Migration `009_legacy_manufacturer_assignment_audit.sql` adds the auditable source-evidence record for assigning legacy products that have no manufacturer. Review the preflight report; never infer ownership. Only assign after source-record verification, and keep the product unconfirmed until its expected on-chain registration is verified.
+- Migration `010_legacy_product_identity_rekeys.sql` records evidence-backed changes from noncanonical legacy IDs to canonical SS-UUIDs. It preserves the old identifier in an audit record and refuses rekeys when either identifier is present on the configured chain or the legacy product has chain identity. Do not rekey or assign any actual legacy row without authoritative source records.
 - Confirm that no real secrets, private keys, `.env` files, uploads, or build outputs are tracked.
+- Security follow-up: the nested backend repository history contains a populated `DATABASE_URL` with embedded credentials in its `.env` file (present in three commits); its target is not a loopback address. Treat those credentials as compromised and rotate/revoke them before any production use. The current working tree now ignores `.env` and `node_modules` and removes them from that repository's index, but this does not erase past commits. After rotation, coordinate purging the secret from all shared repository history and invalidating old clones/copies. Never paste the value into tickets or chat.
 
 ## Contract deployment
 
 - Configure `SEPOLIA_QUICKNODE_KEY` and `PRIVATE_KEY` only in the deployment environment.
-- Optionally set `MANUFACTURER_ADDRESS`, `SUPPLIER_ADDRESS`, and `RETAILER_ADDRESS`.
+- Set business wallet addresses and names (`MANUFACTURER_ADDRESS`/`MANUFACTURER_NAME`, `SUPPLIER_ADDRESS`/`SUPPLIER_NAME`, `RETAILER_ADDRESS`/`RETAILER_NAME`) only for intentional initial grants. These wallets belong to real organizations and must be confirmed by their owners; do not invent or share private keys. The contract records the registered business name for each writer wallet.
 - Run `npm run compile` and `npm test` in `smartscan-smartcontract-solidty`.
-- Deploy with `npm run deploy:v2 -- --network sepolia`.
+- The contract build enables the Solidity optimizer and the current V2 runtime bytecode is 14,284 bytes (below Ethereum's 24,576-byte EIP-170 limit). CI's contract test deploys the compiled artifact; do not disable optimization without rechecking runtime size and rehearsing a deployment.
+- Product-history times are derived from the mined block timestamp. The legacy timestamp string arguments remain in the ABI for client compatibility but are ignored by the current source; location and metadata fields are byte-bounded on-chain. Any contract deployed before this source update still accepts client timestamps and lacks these bounds, so deploy this updated source to a new address and update backend/frontend settings together before using it as a production release.
+- Deploy with `npx hardhat run scripts/deploy-v2.js --network sepolia`.
+- Before any deployment or role transaction, run the read-only preflight: `npx hardhat run scripts/preflight.js --network sepolia`. It checks the chain, signer, optional participant assignments, and configured contract owner, and explicitly reports `writesSubmitted: false`.
+- Optional initial participant assignments are validated before deployment; each wallet must be a valid, unique, non-zero address with a bounded business name and must differ from the deployment owner (the owner is already the Admin role).
 - Record and verify the deployed address on Sepolia Etherscan.
 - Update the frontend contract address and ABI before releasing the frontend.
 - Confirm that unauthorized wallets cannot register products or append history.
+- Verify `replaceRole` preserves existing products' effective custody while revoking the retired address.
+- Keep participant wallets in deployment/runtime environment configuration or the authenticated admin workflow; never commit real addresses or keys as source defaults.
+- For production, transfer contract ownership to the organization's multisig using `manage:ownership`: first run the explicitly confirmed `propose` action from the current owner; then prepare and execute `acceptOwnership()` through the proposed Safe. The tool checks chain ID, contract code, Safe owners/threshold, unused target, current/pending owner, and resulting state/receipt. Ownership remains with the current owner until the Safe accepts. Record and inspect both receipts before removing deployer access.
+- Treat `manage:roles` as a direct-owner/local or EOA administration tool. It checks chain ID, contract code, owner, current role, and a deliberate `ROLE_CONFIRMATION`. For multisig ownership, use the audited admin workflow in Manage Account: prove the participant wallet, submit the displayed target/calldata through the Safe, then record the executed transaction hash. The backend accepts it only after confirming the configured chain, exact contract role-change event, and resulting on-chain role state. Retain the Safe proposal and execution hashes.
+- After deployment, set `CONTRACT_ADDRESS` and `CONTRACT_DEPLOYMENT_BLOCK`. Set `ROLE_ACTION` to exactly `grant` or `revoke`, `ROLE_NAME`, `ROLE_ADDRESS`, and for grants `ROLE_BUSINESS_NAME`; set `ROLE_CONFIRMATION` to `<action>:<role>:<checksummed-wallet>` (for example `grant:manufacturer:0x...`). Run `npx hardhat run scripts/manage-roles.js --network sepolia` and retain its printed receipt details.
+- Inspect a wallet’s current role and on-chain role/ownership event receipts with `ROLE_ADDRESS=<wallet> npx hardhat run scripts/inspect-roles.js --network sepolia`. The command uses the configured deployment block to bound its event query.
 
 ## Application verification
 
 - Run backend tests and frontend tests/build in CI.
-- Create a product and verify its lifecycle transitions from `pending_chain` to `confirmed`.
-- Reject a wallet transaction and verify the product becomes `failed` with a reason.
+- In a Vercel preview deployment, open and refresh a nested React route directly to verify the SPA rewrite; verify API calls reach the configured HTTPS backend and never the localhost value in a developer `.env` file.
+- Verify the Vercel CSP and browser headers in preview: the application bundle loads without inline scripts, wallet/API/RPC/geocoding requests remain functional, signed product/profile images render, QR scanning can request camera access, and opt-in geolocation still prompts correctly. Confirm no CSP violations in the browser console before enabling the same policy for production traffic.
+- Configure the frontend's `REACT_APP_CONTRACT_ADDRESS`, `REACT_APP_CHAIN_ID`, `REACT_APP_CHAIN_RPC_URL`, and `REACT_APP_BLOCK_EXPLORER_URL` to the same V2 deployment as the backend. Production Vite builds fail closed when these values are missing or invalid; non-Sepolia/non-mainnet networks also need chain name and native-currency metadata.
+- Treat every `REACT_APP_*` value as public: never put a private key or confidential RPC credential in the frontend. Use a public endpoint or a provider key restricted to the deployed site's origins and read-only access.
+- Create a product and verify its lifecycle transitions `pending_wallet` → `submitted` → `confirmed`; only the server reconciler may mark it confirmed.
+- Reject a wallet request and verify the hashless record becomes `needs_retry` after the configured timeout, then retry the same serial without creating a duplicate.
+- Close the browser after wallet submission but before hash persistence; verify the worker recovers the transaction from the matching `ProductRegistered` event.
+- Verify receipts with the wrong chain, contract destination, sender, registration identifier, or reverted status never become confirmed.
 - Scan a valid QR code from a clean browser/device.
+- Verify an unauthenticated consumer can open the complete public custody history, current custodian, stage, sold state, and retailer without installing or connecting MetaMask; business writes must still require the signed-in account's linked wallet.
+- Apply migration `006_scan_location_source.sql` through the staging/backup migration process; verify existing coordinates are labeled legacy-unverified before accepting new browser-reported locations.
+- Verify the backend derives scan outcomes and conflicting-state alerts from the configured chain; client-supplied outcomes/flags are ignored. Treat optional browser geolocation as an unverified anomaly signal, not proof of physical location.
+- Confirm scan warnings (`suspicious_location`, `unusual_frequency`, conflicting chain state) are visible to both consumer and business write screens. If scan-risk checks fail or return malformed data, the UI must say that anomaly history is unknown rather than implying a clean scan.
 - Test wrong-network, unavailable-RPC, missing-wallet, and expired-token behavior.
-- Schedule `npm run reconcile` every 1–5 minutes and monitor `GET /product/chain-status?status=pending_chain` as an admin.
+- Upload a real product image through the production S3-compatible bucket and verify it can be retrieved through the API's short-lived signed redirect; confirm unauthorized roles cannot upload.
+- Link a test participant wallet by signing a short-lived challenge; confirm a mismatched on-chain role and reuse of the challenge are rejected.
+- Confirm writes fail when the application account's linked wallet differs from MetaMask or when the on-chain role differs from the account role.
+- Exercise admin link, replacement, suspension, restoration, and revocation; confirm changes are owner-authorized, ownership-proven where applicable, and recorded in wallet audit tables.
+- In the UI, change a user's own password from Profile and reset a separate test account from Admin Operations. Confirm current-password checks, the 12-character minimum, audit visibility, old-session revocation, and successful re-login.
+- Run `npm run reconcile:worker` as a supervised service and monitor `GET /product/chain-status?status=submitted` and `?status=needs_retry` as an administrator. Its advisory lock prevents duplicate active workers. Manufacturers can inspect their recoverable registrations.
 - Alert on products remaining pending beyond the expected block confirmation window.
+
+## Runtime operations added
+
+- The admin web app exposes `/admin/operations` for flagged scan events, chain-status counts, registration records, and per-product transaction attempts. Access requires an authenticated admin account.
+- Admin Operations exposes the hashless/unassigned legacy-product review queue and manufacturer-assignment audit. Assignment requires a traceable evidence reference, changes only the database account association, and does not mark the product chain-confirmed; the manufacturer's normal linked-wallet retry and chain reconciliation remain required.
+- Admin Operations separates canonical IDs awaiting manufacturer review from invalid legacy IDs awaiting identity repair. Rekeying requires an admin attestation and evidence reference, performs read-only checks against both chain IDs, preserves audit history, and does not register or authenticate a product.
+- `/healthz` is a liveness check. `/readyz` checks PostgreSQL, the latest migration required by this release, Redis readiness, media-bucket reachability, configured chain ID, contract bytecode, and V2-specific `productExists`/`getProductState` calls; use it as the deployment readiness probe.
+- Unexpected API failures return a generic message and correlation ID; structured error logs contain the request metadata and safe error code, not raw database/RPC exception messages. Preserve request IDs in support workflows.
+- API responses are marked `Cache-Control: no-store`; security headers are applied before JSON parsing so malformed requests receive them too. The API emits HSTS only when Express recognizes the request as HTTPS through the configured trusted-proxy chain. The Vercel SPA adds HSTS, CSP, and browser permission policies; verify them in a preview before production.
+- Run `npm run reconcile:worker` as a supervised, long-running backend worker. It reconciles immediately and then every `RECONCILE_INTERVAL_MS` (default 60 seconds). PostgreSQL advisory locking prevents two worker replicas from reconciling simultaneously. Configure the service manager to restart it after failure and alert if it exits.
+- Worker timing and batch settings are validated before startup: reconciliation timeouts must be whole milliseconds from 1 minute to 365 days, confirmations 1–100,000 blocks, reconciliation intervals at least 10 seconds, retention batches 1–50,000 rows, and retention intervals at least 1 minute. Invalid values terminate startup rather than leaving an apparently live worker that never processes work.
+- Keep `PGSSL_DISABLE` unset in production and leave PostgreSQL certificate verification enabled. `PGSSL_REJECT_UNAUTHORIZED=false` is development-only.
+- Do not include PostgreSQL SSL override parameters (`ssl`, `sslmode`, `uselibpqcompat`, certificate/key options) in production `DATABASE_URL`; the shared DB pool enforces TLS and certificate verification for production and non-loopback database hosts, including migration/maintenance CLIs, and rejects URL/environment settings that could override it.
+- Production startup now fails closed unless the database, a 32-character non-placeholder JWT secret, HTTPS RPC, chain/contract/deployment block, HTTPS frontend origins, HTTPS wallet-link origin, private S3-compatible uploads, TLS Redis, trusted proxy hop count, and explicit scan-retention policy are configured.
+- Authentication, wallet-proof, scan, upload, and authenticated-write limits share Redis counters in production; provide `REDIS_URL=rediss://...`. Redis being unavailable makes readiness fail and protected endpoints fail closed. Local development defaults to in-memory limits.
+- Set `TRUST_PROXY_HOPS` to the exact trusted proxy/load-balancer hops in the deployed topology (commonly `1`) so rate limits use the actual client IP. Never increase it without matching the real proxy chain.
+- In staging, verify authentication, wallet-proof, scan, upload, and authenticated-write rate limits use the shared Redis service across multiple application instances and return `429` with `Retry-After` at their configured thresholds.
+- Set `SCAN_RETENTION_DAYS` to the privacy/legal period approved for your operating regions, apply migration `007_scan_retention_index.sql`, and run `npm run scan-retention:worker` as a supervised service. The worker deletes in bounded batches under a database advisory lock; alert on worker exit or repeated purge failures.
+
+## Still required before a production launch
+
+- Complete a fresh optimized frontend build and all CI checks from a clean checkout.
+- Resolve or formally risk-accept the Hardhat development-tooling audit finding before production deployment. The current contract-tooling audit reports 13 high findings through Zod 3; the installed Hardhat Zod helper still requires Zod `^3.23.8`, while the advisory fix is Zod 4.6.6 or later. Do not force an incompatible override without upstream support and a complete compile/test/deploy rehearsal. This is a development/deployment-toolchain risk, not a runtime dependency in the deployed contract; until upstream compatibility exists, run deployments only from an isolated, short-lived, access-controlled runner with no unrelated secrets, and recheck the audit before each release.
+- Provision a production database, restore-test backups, run migration preflight on a copy, and apply migrations in a controlled release window.
+- Select the actual production chain and deploy a new contract there; the Sepolia deployment is not a production deployment.
+- For Ethereum mainnet, configure `PROD_QUICKNODE_KEY`; for another EVM chain, configure both HTTPS `PRODUCTION_RPC_URL` and positive `PRODUCTION_CHAIN_ID`, then deploy using `npx hardhat run scripts/deploy-v2.js --network production`. The scripts compare the configured ID against the RPC before sending transactions.
+- Transfer contract ownership to the organization's multisig and verify the multisig's role-management workflow before onboarding business wallets.
+- Complete manufacturer, supplier, and retailer wallet proof/role setup, then run the end-to-end supply-chain rehearsal.
+- Investigate legacy products in `needs_retry` using source records. Never mark them confirmed without a verifiable on-chain registration event.
+- Review any ownerless legacy rows in Admin Operations against authoritative source records before assigning a manufacturer; an assignment and its evidence reference are audited. Do not assign the existing six ownerless rows until their actual source ownership is established.
+- The existing six local legacy rows also use noncanonical IDs. Do not generate replacement IDs or remap them until source records establish the old-to-new identity mapping; after rekey, the old QR remains invalid and the new ID still needs normal manufacturer wallet registration and chain confirmation.
+- Provision a private S3-compatible bucket, set `UPLOAD_STORAGE_DRIVER=s3`, `UPLOAD_S3_BUCKET`, and `UPLOAD_S3_REGION`; use workload identity where available and least-privilege `PutObject`/`GetObject` plus `ListBucket` for the read-only readiness probe. For another compatible provider, configure its HTTPS endpoint and path-style requirement. Keep bucket access private; API reads use short-lived signed URLs.
+- Inventory legacy image references with `node migrate-uploads-to-s3.js --dry-run`. After fixing missing/invalid sources and configuring S3 credentials, run `node migrate-uploads-to-s3.js --apply` to copy referenced images under their existing product/profile keys; this operation is idempotent and preserves local source files. Verify scans and profile images before switching production traffic to S3.
+- Provision a highly available Redis-compatible service with TLS for shared rate limits; configure `REDIS_URL` in the secret manager. Also configure HTTPS/reverse proxy, secrets management, database backups, logs/metrics/alerts, and an incident/recovery runbook.
+
+## Uploaded media configuration
+
+- Local development defaults to `UPLOAD_STORAGE_DRIVER=local`; it stores files under `smartscan-backend-node/public/uploads` and is intentionally rejected by production runtime configuration.
+- Production requires `UPLOAD_STORAGE_DRIVER=s3`, a valid bucket and region, and an AWS SDK credential source. Prefer workload/IAM identity; if the platform requires static S3 keys, supply both `UPLOAD_S3_ACCESS_KEY_ID` and `UPLOAD_S3_SECRET_ACCESS_KEY` through its secret manager, never source control.
+- `UPLOAD_S3_ENDPOINT` and `UPLOAD_S3_FORCE_PATH_STYLE` support S3-compatible services. Custom endpoints must use HTTPS in production. Signed read URLs default to 300 seconds and can be configured from 60–900 seconds with `UPLOAD_SIGNED_URL_TTL_SECONDS`.
+- Uploads are limited to 5 MB, accepted image types are checked against their file signatures, and product/profile files receive random server-generated object names.
+- Scan location is opt-in, rounded before storage, and explicitly marked browser-reported or unverified; it can be spoofed and must not be treated as authoritative identity or custody evidence.

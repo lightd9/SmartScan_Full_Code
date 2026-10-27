@@ -1,0 +1,18 @@
+# Dependencies and generated build/test output
+node_modules/
+coverage/
+build/
+dist/
+
+# Local credentials and environment configuration (keep the template)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# User uploads and local runtime data
+public/uploads/profile/*
+public/uploads/product/*
+!public/uploads/**/.gitkeep
+*.log
+npm-debug.log*

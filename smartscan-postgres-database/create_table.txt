@@ -1,44 +1,11 @@
-create table public.auth
-(
-    username varchar(50) not null,
-    password varchar(255) not null,
-    id       serial,
-    role     varchar(50) not null,
-    primary key (id, username)
-);
+The old hand-written schema has been replaced by schema.sql.
 
-alter table public.auth
-    owner to postgres;
+For a new database, apply schema.sql first, then run the backend migration
+runner from smartscan-backend-node:
 
-create unique index username_id
-    on public.auth (username);
+  npm ci
+  npm run migrate:preflight
+  npm run migrate
 
-create table public.profile
-(
-    name        varchar(50),
-    description varchar(500),
-    username    varchar(50) not null,
-    website     varchar,
-    location    varchar(50),
-    image       varchar(255),
-    role        varchar(50),
-    id          serial
-        primary key
-);
-
-alter table public.profile
-    owner to postgres;
-
-create sequence if not exists public.product_productid_seq;
-
-create table public.product
-(
-    name         varchar(50),
-    serialnumber varchar(50) default nextval('product_productid_seq'::regclass) not null
-        primary key,
-    brand        varchar(50)
-);
-
-alter table public.product
-    owner to postgres;
-
+The CSV files in this directory are development fixtures only. Do not import
+them into a production database without reviewing and replacing their data.

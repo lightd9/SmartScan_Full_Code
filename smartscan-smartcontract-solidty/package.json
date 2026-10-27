@@ -1,37 +1,30 @@
 {
-  "name": "fyp",
+  "name": "smartscan-smartcontract",
   "version": "1.0.0",
-  "description": "",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "type": "module",
+  "description": "SmartScan role-aware product provenance contract and deployment tooling",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test",
+    "test": "hardhat test mocha",
     "compile": "hardhat compile",
     "deploy:v2": "hardhat run scripts/deploy-v2.js",
-    "manage:roles": "hardhat run scripts/manage-roles.js"
+    "manage:roles": "hardhat run scripts/manage-roles.js",
+    "manage:ownership": "hardhat run scripts/manage-ownership.js",
+    "inspect:roles": "hardhat run scripts/inspect-roles.js",
+    "preflight": "hardhat run scripts/preflight.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "@nomicfoundation/hardhat-chai-matchers": "^1.0.0",
-    "@nomicfoundation/hardhat-network-helpers": "^1.0.0",
-    "@nomicfoundation/hardhat-toolbox": "^2.0.1",
-    "@nomiclabs/hardhat-ethers": "^2.0.0",
-    "@nomiclabs/hardhat-etherscan": "^3.0.0",
-    "@typechain/ethers-v5": "^10.1.0",
-    "@typechain/hardhat": "^6.1.2",
-    "@types/chai": "^4.2.0",
-    "@types/mocha": "^9.1.0",
-    "chai": "^4.2.0",
-    "ethers": "^5.4.7",
-    "hardhat": "^2.12.6",
-    "hardhat-gas-reporter": "^1.0.8",
-    "solidity-coverage": "^0.8.1",
-    "ts-node": "^10.9.1",
-    "typechain": "^8.1.0",
-    "typescript": "^4.9.5"
-  },
-  "dependencies": {
-    "dotenv": "^16.0.3"
+    "@nomicfoundation/hardhat-ethers": "^4.2.1",
+    "@nomicfoundation/hardhat-ethers-chai-matchers": "^3.0.13",
+    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^4.0.0",
+    "dotenv": "^16.6.1",
+    "ethers": "^6.17.0",
+    "hardhat": "^3.21.1"
   }
 }

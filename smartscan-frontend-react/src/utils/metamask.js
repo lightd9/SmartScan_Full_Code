@@ -8,8 +8,7 @@ export const findMetaMaskAccount = async () => {
     }
     const accounts = await ethereum.request({ method: 'eth_accounts' });
     return accounts.length !== 0 ? accounts[0] : null;
-  } catch (error) {
-    console.error(error);
+  } catch (_error) {
     return null;
   }
 };

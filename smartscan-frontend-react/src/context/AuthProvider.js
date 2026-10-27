@@ -1,4 +1,5 @@
-import { createContext, useCallback, useMemo, useState } from "react";
+import { createContext, useCallback, useEffect, useMemo, useState } from "react";
+import { setAccessToken } from '../api/authToken';
 
 const AuthContext = createContext({});
 
@@ -19,6 +20,7 @@ export const AuthProvider = ({ children }) => {
   const setAuth = useCallback((value) => {
     const next = value || {};
     setAuthState(next);
+    setAccessToken(next.token);
     try {
       if (next.token) {
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -31,6 +33,12 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const logout = useCallback(() => setAuth({}), [setAuth]);
+
+  useEffect(() => {
+    const expireSession = () => logout();
+    window.addEventListener('smartscan:session-expired', expireSession);
+    return () => window.removeEventListener('smartscan:session-expired', expireSession);
+  }, [logout]);
 
   const value = useMemo(() => ({ auth, setAuth, logout }), [auth, setAuth, logout]);
 

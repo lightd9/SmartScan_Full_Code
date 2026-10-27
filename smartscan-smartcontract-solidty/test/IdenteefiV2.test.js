@@ -1,152 +1,136 @@
-const { expect } = require("chai");
-const { ethers } = require("hardhat");
+import { expect } from "chai";
+import { network } from "hardhat";
+
+const { ethers } = await network.getOrCreate();
 
 describe("IdenteefiV2", function () {
   let contract;
   let owner;
-  let other;
+  let manufacturer;
+  let supplier;
+  let retailer;
+  let replacement;
 
-  const sample = {
-    name: "Widget",
-    brand: "Acme",
-    serialNumber: "SN-001",
-    description: "A test widget",
-    image: "widget.png",
-    actor: "Acme Manufacturing",
-    location: "Kuala Lumpur",
-    timestamp: "1700000000",
-  };
+  const serial = "SS-00000000-0000-0000-0000-000000000001";
+  const timestamp = "2026-10-20T00:00:00Z";
 
   beforeEach(async function () {
-    [owner, other] = await ethers.getSigners();
+    [owner, manufacturer, supplier, retailer, replacement] = await ethers.getSigners();
     const Factory = await ethers.getContractFactory("IdenteefiV2");
     contract = await Factory.deploy();
-    await contract.deployed();
+    await contract.waitForDeployment();
+    await contract.grantRole(manufacturer.address, 2, "Acme Manufacturing");
+    await contract.grantRole(supplier.address, 3, "Acme Supply");
+    await contract.grantRole(retailer.address, 4, "Acme Retail");
   });
 
-  async function register(serialNumber = sample.serialNumber) {
-    return contract.registerProduct(
-      sample.name,
-      sample.brand,
-      serialNumber,
-      sample.description,
-      sample.image,
-      sample.actor,
-      sample.location,
-      sample.timestamp
-    );
+  async function register(id = serial) {
+    return contract.connect(manufacturer).registerProduct("Widget", "Acme", id, "Test widget", "widget.png", "untrusted text", "Lagos", timestamp);
   }
 
-  it("sets the deployer as owner", async function () {
+  it("assigns the deployer as owner and admin", async function () {
     expect(await contract.owner()).to.equal(owner.address);
+    expect(await contract.roles(owner.address)).to.equal(1);
   });
 
-  it("registers a product and exposes it via getProduct", async function () {
-    await expect(register())
-      .to.emit(contract, "ProductRegistered")
-      .withArgs(sample.serialNumber, sample.name, sample.brand, owner.address);
-
-    const product = await contract.getProduct(sample.serialNumber);
-    expect(product[0]).to.equal(sample.serialNumber);
-    expect(product[1]).to.equal(sample.name);
-    expect(product[2]).to.equal(sample.brand);
-    expect(product[3]).to.equal(sample.description);
-    expect(product[4]).to.equal(sample.image);
-    expect(product[5].length).to.equal(1);
-    expect(product[5][0].actor).to.equal(sample.actor);
+  it("registers a unique product with wallet-bound history and current state", async function () {
+    const tx = await register();
+    await expect(tx).to.emit(contract, "ProductRegistered").withArgs(serial, "Widget", "Acme", manufacturer.address);
+    const receipt = await tx.wait();
+    const block = await ethers.provider.getBlock(receipt.blockNumber);
+    const product = await contract.getProduct(serial);
+    expect(product[5]).to.have.length(1);
+    expect(product[5][0].actor).to.equal("Acme Manufacturing");
+    expect(product[5][0].actorWallet).to.equal(manufacturer.address);
+    expect(product[5][0].actorRole).to.equal(2);
+    expect(product[5][0].timestamp).to.equal(String(block.timestamp));
+    expect(product[6]).to.equal(1); // Manufactured
+    expect(product[7]).to.equal(manufacturer.address);
+    expect(product[9]).to.equal(false);
   });
 
-  it("reports productExists accurately", async function () {
-    expect(await contract.productExists(sample.serialNumber)).to.equal(false);
-    await register();
-    expect(await contract.productExists(sample.serialNumber)).to.equal(true);
-  });
-
-  it("reverts when registering a duplicate serial number", async function () {
+  it("rejects malformed and duplicate identifiers", async function () {
+    await expect(register("bad-id")).to.be.revertedWith("IdenteefiV2: invalid product identifier");
     await register();
     await expect(register()).to.be.revertedWith("IdenteefiV2: product already registered");
   });
 
-  it("reverts when registering with an empty serial number", async function () {
-    await expect(register("")).to.be.revertedWith("IdenteefiV2: serial number required");
+  it("rejects oversized product metadata before storing it", async function () {
+    await expect(contract.connect(manufacturer).registerProduct("x".repeat(101), "Acme", serial, "", "", "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: product name must be 1-100 bytes");
+    await expect(contract.connect(manufacturer).registerProduct("Widget", "Acme", serial, "x".repeat(1001), "", "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: description exceeds 1000 bytes");
   });
 
-  it("blocks non-owners from registering products", async function () {
-    await expect(
-      contract.connect(other).registerProduct(
-        sample.name,
-        sample.brand,
-        "SN-OWNER",
-        sample.description,
-        sample.image,
-        sample.actor,
-        sample.location,
-        sample.timestamp
-      )
-    ).to.be.revertedWith("IdenteefiV2: unauthorized role");
+  it("rejects oversized on-chain business identity names", async function () {
+    await expect(contract.grantRole(replacement.address, 2, "x".repeat(101)))
+      .to.be.revertedWith("IdenteefiV2: business name must be 1-100 bytes");
   });
 
-  it("appends history to an existing product", async function () {
+  it("rejects oversized custody locations and recall reasons", async function () {
     await register();
-    await expect(
-      contract.addProductHistory("SN-001", "Retailer", "Penang", "1700000100", true)
-    )
-      .to.emit(contract, "ProductHistoryAdded")
-      .withArgs("SN-001", 2, "Retailer", true, owner.address);
-
-    const product = await contract.getProduct("SN-001");
-    expect(product[5].length).to.equal(2);
-    expect(product[5][1].actor).to.equal("Retailer");
-    expect(product[5][1].isSold).to.equal(true);
+    await expect(contract.connect(manufacturer).dispatchProduct(serial, supplier.address, "", "x".repeat(201), timestamp))
+      .to.be.revertedWith("IdenteefiV2: location exceeds 200 bytes");
+    await expect(contract.recallProduct(serial, "x".repeat(501), "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: recall reason must be 1-500 bytes");
   });
 
-  it("reverts when adding history to an unknown product", async function () {
-    await expect(
-      contract.addProductHistory("UNKNOWN", "Retailer", "Penang", "1700000100", false)
-    ).to.be.revertedWith("IdenteefiV2: product does not exist");
+  it("does not authorize a wallet without the manufacturer role", async function () {
+    await expect(contract.connect(replacement).registerProduct("Widget", "Acme", serial, "", "", "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: unauthorized role");
   });
 
-  it("blocks non-owners from adding history", async function () {
+  it("requires dispatched recipients and updates custody atomically", async function () {
     await register();
-    await expect(
-      contract.connect(other).addProductHistory("SN-001", "Retailer", "Penang", "1700000100", false)
-    ).to.be.revertedWith("IdenteefiV2: unauthorized role");
+    await expect(contract.connect(manufacturer).confirmDelivery(serial, "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: product was not dispatched");
+    const dispatch = await contract.connect(manufacturer).dispatchProduct(serial, supplier.address, "", "Lagos", "2099-01-01T00:00:00Z");
+    const dispatchReceipt = await dispatch.wait();
+    const dispatchBlock = await ethers.provider.getBlock(dispatchReceipt.blockNumber);
+    await contract.connect(supplier).confirmDelivery(serial, "", "Abuja", timestamp);
+    let state = await contract.getProductState(serial);
+    expect(state[0]).to.equal(3); // Delivered
+    expect(state[1]).to.equal(supplier.address);
+    expect((await contract.getProduct(serial))[5][1].timestamp).to.equal(String(dispatchBlock.timestamp));
+    await contract.connect(supplier).dispatchProduct(serial, retailer.address, "", "Abuja", timestamp);
+    await contract.connect(retailer).confirmDelivery(serial, "", "Kano", timestamp);
+    await contract.connect(retailer).markSold(serial, "", "Kano", timestamp);
+    state = await contract.getProductState(serial);
+    expect(state[0]).to.equal(4); // Sold
+    expect(state[1]).to.equal(retailer.address);
+    expect(state[3]).to.equal(true);
+    expect((await contract.getProduct(serial))[5]).to.have.length(6);
   });
 
-  it("transfers ownership only from the current owner", async function () {
-    await expect(contract.connect(other).transferOwnership(other.address)).to.be.revertedWith(
-      "IdenteefiV2: caller is not the owner"
-    );
-
-    await expect(contract.transferOwnership(other.address))
-      .to.emit(contract, "OwnershipTransferred")
-      .withArgs(owner.address, other.address);
-
-    expect(await contract.owner()).to.equal(other.address);
-  });
-
-  it("allows only assigned supply-chain roles to write", async function () {
-    await contract.grantRole(other.address, 2); // Manufacturer
-    await expect(contract.connect(other).registerProduct(
-      sample.name, sample.brand, "SN-ROLE", sample.description, sample.image,
-      sample.actor, sample.location, sample.timestamp
-    )).to.emit(contract, "ProductRegistered");
-
-    await contract.grantRole(other.address, 3); // Supplier
-    await expect(contract.connect(other).addProductHistory(
-      "SN-ROLE", "Supplier", "Penang", "1700000100", false
-    )).to.emit(contract, "ProductHistoryAdded");
-
-    await expect(contract.connect(other).addProductHistory(
-      "SN-ROLE", "Supplier", "Penang", "1700000101", true
-    )).to.be.revertedWith("IdenteefiV2: only retailer can mark sold");
-  });
-
-  it("allows only retailers to mark products sold", async function () {
+  it("records recalls as a persistent verification warning", async function () {
     await register();
-    await contract.grantRole(other.address, 4); // Retailer
-    await expect(contract.connect(other).addProductHistory(
-      sample.serialNumber, "Retailer", "Penang", "1700000100", true
-    )).to.emit(contract, "ProductHistoryAdded");
+    await contract.recallProduct(serial, "investigation", "", "Lagos", timestamp);
+    const state = await contract.getProductState(serial);
+    expect(state[0]).to.equal(5);
+    expect(state[4]).to.equal(true);
+    await expect(contract.connect(manufacturer).dispatchProduct(serial, supplier.address, "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: product is closed");
+  });
+
+  it("replaces wallet roles atomically and resolves historical custody", async function () {
+    await register();
+    await contract.replaceRole(manufacturer.address, replacement.address, "Acme Manufacturing New Wallet");
+    expect(await contract.roles(manufacturer.address)).to.equal(0);
+    expect(await contract.roles(replacement.address)).to.equal(2);
+    expect(await contract.getProductState(serial).then((s) => s[1])).to.equal(replacement.address);
+    await expect(contract.connect(manufacturer).dispatchProduct(serial, supplier.address, "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: caller is not current custodian");
+    await contract.connect(replacement).dispatchProduct(serial, supplier.address, "", "", timestamp);
+  });
+
+  it("requires the proposed owner to accept a two-step ownership transfer", async function () {
+    await expect(contract.connect(replacement).transferOwnership(replacement.address)).to.be.revertedWith("IdenteefiV2: caller is not the owner");
+    await expect(contract.transferOwnership(replacement.address)).to.emit(contract, "OwnershipTransferStarted").withArgs(owner.address, replacement.address);
+    expect(await contract.owner()).to.equal(owner.address);
+    await expect(contract.connect(owner).acceptOwnership()).to.be.revertedWith("IdenteefiV2: caller is not pending owner");
+    await expect(contract.connect(replacement).acceptOwnership()).to.emit(contract, "OwnershipTransferred").withArgs(owner.address, replacement.address);
+    expect(await contract.owner()).to.equal(replacement.address);
+    expect(await contract.roles(owner.address)).to.equal(0);
+    expect(await contract.roles(replacement.address)).to.equal(1);
   });
 });

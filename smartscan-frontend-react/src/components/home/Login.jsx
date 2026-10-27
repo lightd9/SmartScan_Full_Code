@@ -9,14 +9,14 @@ import bgImg from "../../img/bg.png";
 import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
 import { useRef, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const LOGIN_URL = '/auth';
 
 export default function Login() {
     const { setAuth } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
 
     const errRef = useRef();
 
@@ -26,7 +26,7 @@ export default function Login() {
 
     const handleBack = () => {
         navigate('/');
-    }
+    };
 
     useEffect(() => {
         setErrMsg('');
@@ -56,14 +56,12 @@ export default function Login() {
         } catch (err) {
             if (!err?.response) {
                 setErrMsg('Server is down. Please try again later.');
-            } else if (err.response?.status === 400) {
-                setErrMsg('Invalid username or password.');
-            } else if (err.response?.status === 401) {
+            } else if (err.response?.status === 400 || err.response?.status === 401) {
                 setErrMsg('Invalid username or password.');
             } else {
                 setErrMsg('Login Failed. Please try again later.');
             }
-            errRef.current.focus();
+            errRef.current?.focus();
         }
     };
 
@@ -94,7 +92,6 @@ export default function Login() {
                         flexDirection: "column",
                         alignItems: "center",
                         align: "center",
-
                     }}
                 >
                     <Typography component="h1" variant="h5"
@@ -108,7 +105,16 @@ export default function Login() {
                     <Typography component="h1" variant="h5">
                         Login
                     </Typography>
-                    {errMsg && <Typography component="h1" variant="body2" color="error" ref={errRef} sx={{marginTop: "2rem"}}>  {errMsg} </Typography>}
+                    {location.state?.message && (
+                        <Typography variant="body2" sx={{ color: 'green', mt: 1 }}>
+                            {location.state.message}
+                        </Typography>
+                    )}
+                    {errMsg && (
+                        <Typography component="h1" variant="body2" color="error" ref={errRef} sx={{marginTop: "2rem"}}>
+                            {errMsg}
+                        </Typography>
+                    )}
                     <Box component="form" onSubmit={handleSubmit} noValidate sx={{ mt: 1 }} >
                         <TextField
                             margin="normal"
@@ -118,8 +124,8 @@ export default function Login() {
                             label="Username"
                             name="username"
                             autoFocus
+                            value={user}
                             onChange={(e) => setUser(e.target.value)}
-
                         />
                         <TextField
                             margin="normal"
@@ -129,6 +135,7 @@ export default function Login() {
                             label="Password"
                             type="password"
                             id="password"
+                            value={pwd}
                             onChange={(e) => setPwd(e.target.value)}
                         />
                         <FormControlLabel
@@ -150,15 +157,9 @@ export default function Login() {
                                 justifyContent: "center",
                             }}
                         >
-
-
-                            <Button
-                                onClick={handleBack}
-
-                            >
+                            <Button onClick={handleBack}>
                                 Back
                             </Button>
-
                         </Box>
                     </Box>
                 </Box>

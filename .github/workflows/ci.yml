@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -11,13 +14,23 @@ jobs:
       run:
         working-directory: smartscan-backend-node
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - name: Reject tracked environment secret files
+        shell: bash
+        run: |
+          if git ls-files | awk '/(^|\/)\.env($|\.)/ && $0 !~ /\.env(\..+)?\.example$/ { print; found=1 } END { exit found }'; then
+            echo "No tracked non-template environment files found."
+          else
+            echo "Refusing to build: a non-template .env file is tracked." >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: smartscan-backend-node/package-lock.json
       - run: npm ci
+      - run: npm audit --audit-level=high
       - run: npm test
 
   contracts:
@@ -26,15 +39,20 @@ jobs:
       run:
         working-directory: smartscan-smartcontract-solidty
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: smartscan-smartcontract-solidty/package-lock.json
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run compile
       - run: npm test
+      # Keep the deployment toolchain visible as a release blocker; runtime-only
+      # audit success does not clear vulnerable build/deploy dependencies.
+      - name: Audit full contract build and deployment toolchain
+        run: npm audit --audit-level=high
 
   frontend:
     runs-on: ubuntu-latest
@@ -42,14 +60,21 @@ jobs:
       run:
         working-directory: smartscan-frontend-react
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: smartscan-frontend-react/package-lock.json
       - run: npm ci --legacy-peer-deps
-      - run: npm test -- --watchAll=false --passWithNoTests
+      - run: npm audit --audit-level=high
+      - run: npm test
         env:
           CI: true
       - run: npm run build
+        env:
+          REACT_APP_API_URL: https://api.example.invalid
+          REACT_APP_CONTRACT_ADDRESS: 0x0000000000000000000000000000000000000001
+          REACT_APP_CHAIN_ID: 11155111
+          REACT_APP_CHAIN_RPC_URL: https://rpc.sepolia.org
+          REACT_APP_BLOCK_EXPLORER_URL: https://sepolia.etherscan.io

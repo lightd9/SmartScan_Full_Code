@@ -1,4 +1,4 @@
-import { Box, Paper, Avatar, Typography, Button } from '@mui/material';
+import { Box, Paper, Avatar, Typography, Button, Alert, TextField } from '@mui/material';
 import bgImg from '../../img/bg.png';
 import Timeline from '@mui/lab/Timeline';
 import TimelineItem from '@mui/lab/TimelineItem';
@@ -13,11 +13,15 @@ import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, CONTRACT_ABI, SEPOLIA_RPC_URL } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
+import { getApiUrl } from '../../api/axios';
+import { formatScanWarning } from '../../api/scanEvents';
+import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../../api/productQr';
 
 
 
 const Product = () => {
+    const ROLE_NAMES = ['Unregistered', 'Admin', 'Manufacturer', 'Supplier', 'Retailer'];
     const [serialNumber, setSerialNumber] = useState("");
 
     const [name, setName] = useState("P");
@@ -25,6 +29,16 @@ const Product = () => {
     const [description, setDescription] = useState("");
     const [history, setHistory] = useState([]);
     const [isSold, setIsSold] = useState(false);
+    const [stage, setStage] = useState(0);
+    const [custodian, setCustodian] = useState('');
+    const [custodianName, setCustodianName] = useState('');
+    const [custodianRole, setCustodianRole] = useState(0);
+    const [pendingRecipient, setPendingRecipient] = useState(ethers.ZeroAddress);
+    const [recordedRetailer, setRecordedRetailer] = useState('');
+    const [observedSeller, setObservedSeller] = useState('');
+    const [sellerMismatch, setSellerMismatch] = useState(false);
+    const [loadError, setLoadError] = useState('');
+    const [productLoaded, setProductLoaded] = useState(false);
     const [image, setImage] = useState({
         file: [],
         filepreview: null
@@ -35,9 +49,9 @@ const Product = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const qrData = location.state?.qrData;
+    const scanWarnings = location.state?.warnings || [];
 
     useEffect(() => {
-        console.log("useEffect 1");
         if (qrData) {
             handleScan(qrData)
         }
@@ -49,77 +63,70 @@ const Product = () => {
     const getImage = async (imageName) => {
         setImage(prevState => ({
             ...prevState,
-            filepreview: `/file/product/${imageName}`
+            filepreview: getApiUrl(`/file/product/${encodeURIComponent(imageName)}`)
             })
         )
     }
 
     const handleScan = async (qrData) => {
-        const data = qrData.split(",");
-        const contractAddress = data[0];
-        setSerialNumber(data[1]);
-
-        console.log("contract address", contractAddress)
-        console.log("serial number", data[1])
-
-        if (contractAddress.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()) {
+        setLoadError('');
+        setProductLoaded(false);
+        let serial;
+        try {
+            ({ serialNumber: serial } = parseProductQr(qrData, CONTRACT_ADDRESS));
+        } catch (error) {
+            setLoadError(error.message);
+            return;
+        }
+        setSerialNumber(serial);
 
             try {
-                const provider = new ethers.providers.JsonRpcProvider(SEPOLIA_RPC_URL);
+                const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+                await assertConfiguredChain(provider);
                 const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-
-                    console.log("here")
-
-                    const product = await productContract.getProduct(data[1].toString());
-                    
-
+                    const product = await getRegisteredProduct(productContract, serial);
                     // setProductData(product.toString())
                     // setToUpdate(true);
 
-                    console.log("Retrieved product...", product);
-                    setData(product.toString())
+                    const custodianRole = product[7] === ethers.ZeroAddress
+                        ? 0 : Number(await productContract.roles(product[7]));
+                    const registeredName = product[7] === ethers.ZeroAddress
+                        ? '' : await productContract.businessNames(product[7]);
+                    setData(product, custodianRole, registeredName)
+                    setProductLoaded(true);
 
             } catch (error) {
-                console.log(error);
+                setLoadError(error.message?.includes('not registered')
+                    ? error.message
+                    : 'Unable to load the product from the blockchain. Please try again.');
             }
-        }
     };
 
     
 
-    const setData = (d) => {
-        console.log("product data: ", d);
-
-        const arr = d.split(",");
-        console.log("arr", arr)
-
-        setName(arr[1]);
-        setBrand(arr[2]);
-        setDescription(arr[3].replace(/;/g, ","));
-        // setImage(arr[4]);
-        getImage(arr[4]);
-
-        const hist = [];
-        let start = 5;
-
-        for (let i = 5; i < arr.length; i += 5) {
-            const actor = arr[start + 1];
-            const location = arr[start + 2].replace(/;/g, ",");
-            const timestamp = arr[start + 3];
-            const sold = arr[start + 4] === "true";
-            if (sold) {
-                setIsSold(true);
-            }
-
-            hist.push({
-                actor, location, timestamp, isSold: sold
-            });
-
-            start += 5;
-        }
-        console.log("hist", hist)
-        setHistory(hist);
-
+    const setData = (product, currentRole, registeredName) => {
+        setSerialNumber(product[0]);
+        setName(product[1]);
+        setBrand(product[2]);
+        setDescription(product[3].replace(/;/g, ","));
+        getImage(product[4]);
+        setIsSold(Boolean(product[9]));
+        setStage(Number(product[6]));
+        setCustodian(product[7]);
+        setPendingRecipient(product[8]);
+        setCustodianRole(currentRole);
+        setCustodianName(registeredName);
+        setRecordedRetailer(currentRole === 4 ? registeredName : '');
+        setHistory(product[5].map((event) => ({
+            id: event.id.toString(),
+            actor: event.actor,
+            actorWallet: event.actorWallet,
+            actorRole: Number(event.actorRole),
+            location: event.location.replace(/;/g, ","),
+            timestamp: parseHistoryTimestamp(event.timestamp),
+            action: Number(event.action),
+            recipientWallet: event.recipientWallet,
+        })));
     }
 
     const handleBack = () => {
@@ -129,9 +136,8 @@ const Product = () => {
 
     const getHistory = () => {
         return history.map((item, index) => {
-            const date = dayjs(item.timestamp * 1000).format('MM/DD/YYYY');
-            const time = dayjs(item.timestamp * 1000).format('HH:mm a');
-            console.log("getting history")
+            const date = item.timestamp === null ? 'Unknown date' : dayjs(item.timestamp * 1000).format('MM/DD/YYYY');
+            const time = item.timestamp === null ? '' : dayjs(item.timestamp * 1000).format('HH:mm a');
 
             return (
                 <TimelineItem key={index}>
@@ -143,12 +149,27 @@ const Product = () => {
                         <TimelineConnector />
                     </TimelineSeparator>
                     <TimelineContent sx={{ py: '12px', px: 2 }}>
+                        <Typography>Event #{item.id}</Typography>
                         <Typography>Location: {item.location}</Typography>
-                        <Typography>Actor: {item.actor}</Typography>
+                        <Typography>Organization identity: {ROLE_NAMES[item.actorRole] || 'Unknown'} · {item.actorWallet}</Typography>
+                        {item.actor && <Typography>Registered display name: {item.actor}</Typography>}
+                        {item.recipientWallet !== ethers.ZeroAddress && <Typography>Dispatched to wallet: {item.recipientWallet}</Typography>}
+                        <Typography>Event: {['Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'][item.action] || 'Unknown'}</Typography>
                     </TimelineContent>
                 </TimelineItem>
             );
         });
+    }
+
+    if (!productLoaded) {
+        return <Box sx={{ minHeight: '80vh', display: 'grid', placeItems: 'center', p: 2 }}>
+            <Paper elevation={3} sx={{ width: 'min(400px, 100%)', p: 3, backgroundColor: '#e3eefc' }}>
+                <Typography variant="h6" sx={{ mb: 2 }}>Product verification</Typography>
+                {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1 }}>{formatScanWarning(warning)}</Alert>)}
+                {loadError ? <Alert severity="error">{loadError}</Alert> : <Typography role="status">Verifying product on the configured blockchain…</Typography>}
+                <Button onClick={handleBack} sx={{ mt: 2 }}>Back</Button>
+            </Paper>
+        </Box>;
     }
 
 
@@ -166,35 +187,87 @@ const Product = () => {
             zIndex: -2,
             overflowY: "scroll"
         }}>
-            <Paper elevation={3} sx={{ width: "400px", margin: "auto", marginTop: "10%", marginBottom: "10%", padding: "3%", backgroundColor: "#e3eefc" }}>
-
+            <Paper
+                elevation={0}
+                sx={{
+                    width: '100%',
+                    maxWidth: 540,
+                    margin: 'auto',
+                    marginTop: '6%',
+                    marginBottom: '6%',
+                    padding: '36px 32px',
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: '24px',
+                    border: '1px solid #ECEEF2',
+                    boxShadow: '0 12px 32px rgba(15, 23, 42, 0.08)',
+                }}
+            >
                 <Typography
                     variant="body2"
                     sx={{
-                        textAlign: "center", marginTop: "3%"
+                        textAlign: 'center',
+                        mb: 1.5,
+                        fontFamily: 'Plus Jakarta Sans, sans-serif',
+                        fontWeight: 600,
+                        color: loadError ? '#DC2626' : productLoaded ? '#16A34A' : '#6B7280',
                     }}
                 >
-
-                    Your Product is Authentic!</Typography>
-                <Box
-                    sx={{
-                        textAlign: "center", marginBottom: "5%",
-                    }}
-                >
-
+                    {loadError ? 'Product verification unavailable' : productLoaded ? 'Product record found on the blockchain' : 'Verifying product…'}
+                </Typography>
+                {loadError && <Alert severity="error" sx={{ mb: 2, borderRadius: '12px' }}>{loadError}</Alert>}
+                <Typography variant="body2" sx={{ textAlign: 'center', mb: 2, color: '#6B7280', fontSize: '0.875rem' }}>
+                    Compare the latest recorded retailer and custody history with the seller and purchase location.
+                </Typography>
+                {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1, borderRadius: '12px' }}>{formatScanWarning(warning)}</Alert>)}
+                {stage === 5 && <Alert severity="error" sx={{ mb: 2, borderRadius: '12px' }}>This product is recalled. Do not purchase or use it.</Alert>}
+                {pendingRecipient !== ethers.ZeroAddress && <Typography variant="body2" sx={{ mb: 2, color: '#2563EB', fontWeight: 600 }}>In transit to: {pendingRecipient}</Typography>}
+                {recordedRetailer ? (
+                    <>
+                        <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>Recorded retailer: {recordedRetailer}</Typography>
+                        <TextField
+                            fullWidth
+                            size="small"
+                            label="Retailer where purchased"
+                            value={observedSeller}
+                            sx={{ mb: 1.5 }}
+                            onChange={(event) => { setObservedSeller(event.target.value); setSellerMismatch(false); }}
+                        />
+                        <Button
+                            variant="outlined"
+                            sx={{
+                                mb: 2,
+                                borderRadius: '10px',
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                borderColor: '#D1D5DB',
+                                color: '#374151',
+                            }}
+                            onClick={() => setSellerMismatch(observedSeller.trim().toLowerCase() !== recordedRetailer.trim().toLowerCase())}
+                        >
+                            Compare retailer
+                        </Button>
+                        {sellerMismatch && <Alert severity="warning" sx={{ mb: 2, borderRadius: '12px' }}>The retailer you entered does not match the retailer recorded on the blockchain. Treat this product as suspicious.</Alert>}
+                    </>
+                ) : <Alert severity="warning" sx={{ mb: 2, borderRadius: '12px' }}>No retailer custody is recorded yet. Do not treat this product as retail-ready.</Alert>}
+                <Box sx={{ textAlign: 'center', mb: 3 }}>
                     <Typography
                         variant="h2"
                         sx={{
-                            textAlign: "center", marginBottom: "3%",
-                            fontFamily: 'Gambetta', fontWeight: "bold", fontSize: "2.5rem"
+                            textAlign: 'center',
+                            marginBottom: '16px',
+                            fontFamily: 'Plus Jakarta Sans, sans-serif',
+                            fontWeight: 800,
+                            fontSize: '1.75rem',
+                            color: '#111827',
                         }}
                     >
-                        Product Details</Typography>
+                        Product Details
+                    </Typography>
 
                     <Box
                         sx={{
                             display: 'flex', flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', flex: 1, width: '100%',
-                            marginTop: '5%', marginBottom: '5%'
+                            marginTop: '20px', marginBottom: '20px'
                         }}
                     >
                         <Box
@@ -261,6 +334,13 @@ const Product = () => {
                             >
                                 Brand: {brand}
                             </Typography>
+                            <Typography variant="body2" sx={{ textAlign: 'left', mb: '3%' }}>
+                                Current stage: {['Unknown', 'Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'][stage] || 'Unknown'}
+                            </Typography>
+                            <Typography variant="body2" sx={{ textAlign: 'left', mb: '3%' }}>
+                                Current custodian: {ROLE_NAMES[custodianRole] || 'Unknown'} · {custodian}
+                            </Typography>
+                            {custodianName && <Typography variant="body2" sx={{ textAlign: 'left', mb: '3%' }}>Registered business name: {custodianName}</Typography>}
 
                         </Box>
 
@@ -291,24 +371,27 @@ const Product = () => {
 
 
 
-                    <Box
-                        sx={{
-                            width: "100%",
-                            display: "flex",
-                            justifyContent: "center",
-                        }}
-                    >
-
-
+                    <Box sx={{ width: '100%', display: 'flex', justifyContent: 'center', mt: 3 }}>
                         <Button
                             onClick={handleBack}
+                            variant="outlined"
                             sx={{
-                                marginTop: "5%",
+                                width: '100%',
+                                py: 1.3,
+                                borderRadius: '12px',
+                                borderColor: '#D1D5DB',
+                                color: '#374151',
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                fontSize: '0.95rem',
+                                '&:hover': {
+                                    borderColor: '#9CA3AF',
+                                    backgroundColor: '#F9FAFB',
+                                },
                             }}
                         >
                             Back
                         </Button>
-
                     </Box>
 
 

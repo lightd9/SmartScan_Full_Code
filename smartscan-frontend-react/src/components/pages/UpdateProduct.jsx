@@ -1,5 +1,7 @@
-import { Box, Paper, Avatar, Typography, Button } from '@mui/material';
-import bgImg from '../../img/bg.png';
+import { Box, Paper, Avatar, Typography, Button, Alert } from '@mui/material';
+import DashboardShell from '../shell/DashboardShell';
+import GreetingBanner from '../shell/GreetingBanner';
+import '../shell/shell.css';
 import Timeline from '@mui/lab/Timeline';
 import TimelineItem from '@mui/lab/TimelineItem';
 import TimelineSeparator from '@mui/lab/TimelineSeparator';
@@ -13,11 +15,15 @@ import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID } from '../../config/contract';
+import { getApiUrl } from '../../api/axios';
+import { formatScanWarning } from '../../api/scanEvents';
+import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../../api/productQr';
 
 
 
 const UpdateProduct = () => {
+    const ROLE_NAMES = ['Unregistered', 'Admin', 'Manufacturer', 'Supplier', 'Retailer'];
     const [serialNumber, setSerialNumber] = useState("");
 
     const [name, setName] = useState("P");
@@ -25,21 +31,20 @@ const UpdateProduct = () => {
     const [description, setDescription] = useState("");
     const [history, setHistory] = useState([]);
     const [isSold, setIsSold] = useState(false);
+    const [loadError, setLoadError] = useState('');
 
     const [image, setImage] = useState({
         file: [],
         filepreview: null
     });
-
+    const [manualSerial, setManualSerial] = useState('');
 
     const navigate = useNavigate();
     const location = useLocation();
     const qrData = location.state?.qrData;
-
-    console.log("qrData", qrData);
+    const scanWarnings = location.state?.warnings || [];
 
     useEffect(() => {
-        console.log("useEffect 1")
 
         if (qrData) {
             handleScan(qrData)
@@ -51,83 +56,64 @@ const UpdateProduct = () => {
     const getImage = async (imageName) => {
         setImage(prevState => ({
             ...prevState,
-            filepreview: `/file/product/${imageName}`
+            filepreview: getApiUrl(`/file/product/${encodeURIComponent(imageName)}`)
             })
         )
     }
 
     const handleScan = async (qrData) => {
-        const data = qrData.split(",");
-        const contractAddress = data[0];
-        setSerialNumber(data[1]);
-
-        console.log("contract address", contractAddress)
-        console.log("serial number", data[1])
-
-        if (contractAddress.toLowerCase() === CONTRACT_ADDRESS.toLowerCase()) {
+        setLoadError('');
+        let serial;
+        try {
+            ({ serialNumber: serial } = parseProductQr(qrData, CONTRACT_ADDRESS));
+        } catch (error) {
+            setLoadError(error.message);
+            return;
+        }
+        setSerialNumber(serial);
 
             try {
                 const { ethereum } = window;
 
                 if (ethereum) {
-                    const provider = new ethers.providers.Web3Provider(ethereum);
-                    const signer = provider.getSigner();
+                    const provider = new ethers.BrowserProvider(ethereum);
+                    const network = await provider.getNetwork();
+                    if (Number(network.chainId) !== CHAIN_ID) throw new Error('Wallet is connected to the wrong blockchain network.');
+                    const signer = await provider.getSigner();
                     const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-
-
-
-                    const product = await productContract.getProduct(data[1].toString());
+                    const product = await getRegisteredProduct(productContract, serial);
 
                     // setProductData(product.toString())                    
 
-                    console.log("Retrieved product...", product);
-                    setData(product.toString())
+                    setData(product)
 
 
                 } else {
-                    console.log("Ethereum object doesn't exist!");
                     alert("Ethereum object doesn't exist! Please connect your wallet first!")
                 }
-            } catch (error) {
-                console.log(error);
+            } catch (_error) {
+                setLoadError(_error.message || 'Unable to load the product from the blockchain. Please retry.');
             }
-        }
 
     };
 
-    const setData = (d) => {
-        console.log("product data: ", d);
-
-        const arr = d.split(",");
-        console.log("arr", arr)
-
-        setName(arr[1]);
-        setBrand(arr[2]);
-        setDescription(arr[3].replace(/;/g, ","));
-        // setImageName(arr[4]);
-        getImage(arr[4]);
-
-        const hist = [];
-        let start = 5;
-
-        for (let i = 5; i < arr.length; i += 5) {
-            const actor = arr[start + 1];
-            const location = arr[start + 2].replace(/;/g, ",");
-            const timestamp = arr[start + 3];
-            const sold = arr[start + 4] === "true";
-            if (sold) {
-                setIsSold(true);
-            }
-
-            hist.push({
-                actor, location, timestamp, isSold: sold
-            });
-
-            start += 5;
-        }
-        console.log("hist", hist)
-        setHistory(hist);
-
+    const setData = (product) => {
+        setSerialNumber(product[0]);
+        setName(product[1]);
+        setBrand(product[2]);
+        setDescription(product[3].replace(/;/g, ","));
+        getImage(product[4]);
+        setIsSold(Boolean(product[9]));
+        setHistory(product[5].map((event) => ({
+            id: event.id.toString(),
+            actor: event.actor,
+            actorWallet: event.actorWallet,
+            actorRole: Number(event.actorRole),
+            location: event.location.replace(/;/g, ","),
+            timestamp: parseHistoryTimestamp(event.timestamp),
+            action: Number(event.action),
+            recipientWallet: event.recipientWallet,
+        })));
     }
 
     
@@ -139,8 +125,8 @@ const UpdateProduct = () => {
 
     const getHistory = () => {
         return history.map((item, index) => {
-            const date = dayjs(item.timestamp * 1000).format('MM/DD/YYYY');
-            const time = dayjs(item.timestamp * 1000).format('HH:mm a');
+            const date = item.timestamp === null ? 'Unknown date' : dayjs(item.timestamp * 1000).format('MM/DD/YYYY');
+            const time = item.timestamp === null ? '' : dayjs(item.timestamp * 1000).format('HH:mm a');
 
             // if (item.isSold) {
             //     setIsSold(true);
@@ -156,8 +142,12 @@ const UpdateProduct = () => {
                         <TimelineConnector />
                     </TimelineSeparator>
                     <TimelineContent sx={{ py: '12px', px: 2 }}>
+                        <Typography>Event #{item.id}</Typography>
                         <Typography>Location: {item.location}</Typography>
-                        <Typography>Actor: {item.actor}</Typography>
+                        <Typography>Organization identity: {ROLE_NAMES[item.actorRole] || 'Unknown'} · {item.actorWallet}</Typography>
+                        {item.actor && <Typography>Registered display name: {item.actor}</Typography>}
+                        {item.recipientWallet !== ethers.ZeroAddress && <Typography>Dispatched to wallet: {item.recipientWallet}</Typography>}
+                        <Typography>Event: {['Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'][item.action] || 'Unknown'}</Typography>
                     </TimelineContent>
                 </TimelineItem>
             );
@@ -167,173 +157,165 @@ const UpdateProduct = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();;
 
-        navigate('/update-product-details', { state: { qrData }});
+        navigate('/update-product-details', { state: { qrData, warnings: location.state?.warnings || [] }});
     }
     
 
+    if (loadError) {
+        return (
+            <DashboardShell>
+                <div className="dashboard-card" style={{ maxWidth: 500, margin: '40px auto', padding: 24, textAlign: 'center' }}>
+                    <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px 0' }}>Product Verification Unavailable</h2>
+                    {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1, textAlign: 'left' }}>{formatScanWarning(warning)}</Alert>)}
+                    <Alert severity="error" sx={{ textAlign: 'left', mb: 2 }}>{loadError}</Alert>
+                    <button type="button" className="btn-secondary-action" onClick={handleBack} style={{ margin: '0 auto' }}>Back</button>
+                </div>
+            </DashboardShell>
+        );
+    }
+
+    if (!qrData && !serialNumber) {
+        return (
+            <DashboardShell>
+                <GreetingBanner
+                    title="Custody Chain & Provenance Record"
+                    subtitle="Inspect decentralized custody and transfer status"
+                />
+                <div className="dashboard-card" style={{ maxWidth: 520, margin: '30px auto', padding: 32, textAlign: 'center' }}>
+                    <h2 style={{ fontSize: 20, fontWeight: 700, margin: '0 0 8px 0', color: 'var(--color-text-main)' }}>
+                        Inspect Product Custody
+                    </h2>
+                    <p style={{ color: 'var(--color-text-secondary)', fontSize: 14, margin: '0 0 24px 0', lineHeight: 1.5 }}>
+                        Scan an item QR code or enter a product serial identifier to load its on-chain custody history.
+                    </p>
+                    <form
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            if (manualSerial.trim()) handleScan(manualSerial.trim());
+                        }}
+                        style={{ display: 'flex', gap: 10, marginBottom: 16 }}
+                    >
+                        <input
+                            type="text"
+                            placeholder="Enter serial (e.g. SS-...)"
+                            value={manualSerial}
+                            onChange={(e) => setManualSerial(e.target.value)}
+                            style={{
+                                flex: 1,
+                                padding: '10px 14px',
+                                borderRadius: 10,
+                                border: '1px solid var(--color-border)',
+                                fontSize: '13.5px',
+                                outline: 'none',
+                            }}
+                        />
+                        <button type="submit" className="btn-primary-action">
+                            Load
+                        </button>
+                    </form>
+                    <button
+                        type="button"
+                        className="btn-secondary-action"
+                        onClick={() => navigate('/scanner')}
+                        style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
+                    >
+                        Open Optical QR Scanner
+                    </button>
+                </div>
+            </DashboardShell>
+        );
+    }
+
     return (
-        <Box sx={{
-            backgroundImage: `url(${bgImg})`,
-            minHeight: "80vh",
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            bottom: 0,
-            backgroundSize: 'cover',
-            backgroundRepeat: 'no-repeat',
-            zIndex: -2,
-            overflowY: "scroll"
-        }}>
-            <Paper elevation={3} sx={{ width: "400px", margin: "auto", marginTop: "10%", marginBottom: "10%", padding: "3%", backgroundColor: "#e3eefc" }}>
+        <DashboardShell>
+            <GreetingBanner
+                title="Custody Chain & Provenance Record"
+                subtitle="Review physical custody milestones and dispatch history"
+                metrics={[
+                    {
+                        icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
+                        value: serialNumber ? serialNumber.slice(0, 14) + '...' : 'Unknown',
+                        label: 'Canonical Serial',
+                    },
+                    {
+                        icon: <span style={{ color: '#10B981', fontWeight: 700 }}>STATE</span>,
+                        value: isSold ? 'Finalized (Sold)' : 'In Circulation',
+                        label: 'Product Lifecycle',
+                    },
+                    {
+                        icon: <span style={{ color: '#9333EA', fontWeight: 700 }}>HOPS</span>,
+                        value: `${history.length}`,
+                        label: 'Chain Events',
+                    },
+                ]}
+            />
 
-                <Box
-                    sx={{
-                        textAlign: "center", marginBottom: "5%",
-                    }}
-                >
+            {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1, textAlign: 'left' }}>{formatScanWarning(warning)}</Alert>)}
 
-                    <Typography
-                        variant="h2"
-                        sx={{
-                            textAlign: "center", marginBottom: "3%",
-                            fontFamily: 'Gambetta', fontWeight: "bold", fontSize: "2.5rem"
-                        }}
-                    >
-                        Product Details</Typography>
-
-                    <Box
-                        sx={{
-                            display: 'flex', flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'center', flex: 1, width: '100%',
-                            marginTop: '5%', marginBottom: '5%'
-                        }}
-                    >
-                        <Box
-                            sx={{
-                                marginRight: '1.5%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', flex: '0 0 35%', width: '35%'
-                            }}
+            <div className="dashboard-grid-dual">
+                {/* Left Card: Product Profile */}
+                <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <Avatar
+                            alt={name}
+                            src={image.filepreview}
+                            sx={{ width: 84, height: 84, backgroundColor: 'var(--color-primary-subtle)', color: 'var(--color-primary)', borderRadius: '14px', fontSize: 24, fontWeight: 700 }}
                         >
-                            <Avatar
-                                alt={name}
-                                src={image.filepreview}
-                                sx={{
-                                    width: 100,
-                                    height: 100,
-                                    margin: "auto",
-                                    marginBottom: "3%",
-                                    backgroundColor: "#3f51b5"
-                                }}
-                            >
-                                {name}
+                            {name?.[0]}
+                        </Avatar>
+                        <div>
+                            <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--color-text-main)' }}>{name}</h2>
+                            <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)', display: 'block', marginTop: 4 }}>Brand: <strong>{brand}</strong></span>
+                            <span className={`status-pill ${isSold ? 'blue' : 'green'}`} style={{ marginTop: 8 }}>
+                                {isSold ? 'Sold' : 'Active In Supply Chain'}
+                            </span>
+                        </div>
+                    </div>
 
+                    <div style={{ background: 'var(--color-surface-subtle)', borderRadius: 10, padding: '12px 16px', border: '1px solid var(--color-border)' }}>
+                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Canonical Product Identifier</span>
+                        <code style={{ display: 'block', fontSize: '12.5px', marginTop: 4, color: 'var(--color-text-main)', wordBreak: 'break-all' }}>{serialNumber}</code>
+                    </div>
 
-                            </Avatar>
+                    <div>
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Description</span>
+                        <p style={{ margin: '6px 0 0 0', fontSize: '13.5px', color: 'var(--color-text-main)', lineHeight: 1.5 }}>{description || 'No description available.'}</p>
+                    </div>
 
-                        </Box>
-                        <Box
-                            sx={{
-                                marginLeft: '1.5%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'left', flex: '0 0 65%', width: '65%'
-                            }}
-                        >
-                            <Typography
-                                variant="body1"
-                                sx={{
-                                    textAlign: "left", marginBottom: "5%",
-                                }}
-                            >
-                                {name}
-                                {/* Product Name */}
+                    <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                        <button type="button" className="btn-primary-action" style={{ width: '100%', justifyContent: 'center', padding: '12px' }} onClick={handleSubmit}>
+                            Proceed to Update Custody / Dispatch
+                        </button>
+                        <button type="button" className="btn-secondary-action" style={{ width: '100%', justifyContent: 'center' }} onClick={handleBack}>
+                            Back to Scanner
+                        </button>
+                    </div>
+                </div>
 
-                            </Typography>
-
-                            <Typography
-                                variant="body2"
-                                sx={{
-                                    textAlign: "left", marginBottom: "3%",
-                                }}
-                            >
-                                Serial Number: {serialNumber}
-                            </Typography>
-
-
-                            <Typography
-                                variant="body2"
-                                sx={{
-                                    textAlign: "left", marginBottom: "3%",
-                                }}
-                            >
-                                Description: {description}
-                            </Typography>
-
-                            <Typography
-                                variant="body2"
-                                sx={{
-                                    textAlign: "left", marginBottom: "3%",
-                                }}
-                            >
-                                Brand: {brand}
-                            </Typography>
-
-                        </Box>
-
-                    </Box>
-
-                    <Timeline
-                        sx={{
-                            [`& .${timelineOppositeContentClasses.root}`]: {
-                                flex: 0.2,
-                            },
-                        }}
-                    >
+                {/* Right Card: Custody Timeline */}
+                <div className="dashboard-card" style={{ padding: '24px' }}>
+                    <h3 style={{ margin: '0 0 16px 0', fontSize: '16.5px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                        Cryptographic Custody Timeline
+                    </h3>
+                    <Timeline sx={{ [`& .${timelineOppositeContentClasses.root}`]: { flex: 0.25 }, padding: 0 }}>
                         {getHistory()}
                         <TimelineItem>
-                            <TimelineOppositeContent color="textSecondary">
-                            {dayjs().format('HH:mm a')} {dayjs().format('MM/DD/YYYY')} 
+                            <TimelineOppositeContent color="textSecondary" sx={{ fontSize: '11.5px' }}>
+                                {dayjs().format('HH:mm a')} {dayjs().format('MM/DD/YYYY')}
                             </TimelineOppositeContent>
                             <TimelineSeparator>
-                                <TimelineDot />
+                                <TimelineDot color={isSold ? "primary" : "grey"} />
                             </TimelineSeparator>
                             <TimelineContent sx={{ py: '12px', px: 2 }}>
-                                <Typography>IsSold: {isSold.toString()}</Typography>
+                                <Typography sx={{ fontSize: '13.5px', fontWeight: 600 }}>Current Terminal Status</Typography>
+                                <Typography variant="caption" color="text.secondary">Finalized / Sold: {isSold ? 'Yes (Locked)' : 'No (In Circulation)'}</Typography>
                             </TimelineContent>
                         </TimelineItem>
                     </Timeline>
-
-                    <Button
-                        variant="contained"
-                        type="submit"
-                        sx={{ width: "50%", marginTop: "3%", backgroundColor: '#98b5d5', '&:hover': { backgroundColor: '#618dbd' } }}
-                        onClick={handleSubmit}
-                    >
-                        Update Product
-                    </Button>
-
-                    <Box
-                        sx={{
-                            width: "100%",
-                            display: "flex",
-                            justifyContent: "center",
-                        }}
-                    >
-
-
-                        <Button
-                            onClick={handleBack}
-                            sx={{
-                                marginTop: "5%",
-                            }}
-                        >
-                            Back
-                        </Button>
-
-                    </Box>
-
-
-
-                </Box>
-            </Paper>
-        </Box>
-    )
+                </div>
+            </div>
+        </DashboardShell>
+    );
 }
 
 export default UpdateProduct;
