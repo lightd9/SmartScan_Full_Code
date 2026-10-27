@@ -85,8 +85,9 @@ app.get('/readyz', async (_req, res) => {
     if ((await provider.getCode(config.contractAddress)) === '0x') throw new Error('Configured contract has no code on the configured chain');
     await assertV2Contract(provider, config.contractAddress);
     return res.json({ status: 'ready', database: 'ok', schema: latestRequiredMigration, rateLimitStore: redisClient ? 'ok' : 'memory', mediaStore: 'ok', blockchain: 'ok', chainId: Number(network.chainId) });
-  } catch (_error) {
-    return res.status(503).json({ status: 'not_ready' });
+  } catch (error) {
+    console.error('/readyz check error:', error?.message || error);
+    return res.status(503).json({ status: 'not_ready', error: error?.message || 'unknown_error' });
   }
 });
 
