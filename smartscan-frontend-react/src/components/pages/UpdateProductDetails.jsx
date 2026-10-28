@@ -11,6 +11,7 @@ import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../../config/contract';
 import { formatScanWarning } from '../../api/scanEvents';
+import { formatContractError } from '../../utils/contractErrors';
 
 const UpdateProductDetails = () => {
 
@@ -134,7 +135,7 @@ const UpdateProductDetails = () => {
                 setLoading('Install or enable a wallet to submit a custody action.');
             }
         } catch (error) {
-            setLoading(error.message || 'Unable to submit the custody action.');
+            setLoading(formatContractError(error, 'Unable to submit the custody action.'));
         }
     }
 
@@ -152,7 +153,7 @@ const UpdateProductDetails = () => {
             await transaction.wait();
             setLoading("Recall recorded. Verification scans will show a recall warning.");
         } catch (error) {
-            setLoading(error.message || "Unable to record recall.");
+            setLoading(formatContractError(error, 'Unable to record recall.'));
         }
     };
 

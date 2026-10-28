@@ -11,6 +11,7 @@ import useAuth from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import Geocode from "react-geocode";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC_URL, BLOCK_EXPLORER_URL, NATIVE_CURRENCY_NAME, NATIVE_CURRENCY_SYMBOL, NATIVE_CURRENCY_DECIMALS } from '../../config/contract';
+import { formatContractError } from '../../utils/contractErrors';
 
 function createProductIdentifier() {
     if (window.crypto.randomUUID) return `SS-${window.crypto.randomUUID()}`;
@@ -347,7 +348,7 @@ const handleSubmit = async (e) => {
             if (productCreated) await refreshChainStatus();
         } catch (_statusError) { setChainNotice('Unable to read the latest registration status. Please refresh before retrying.'); }
         setLoading("");
-        setChainNotice(err?.message || "Registration did not complete. The server will reconcile any transaction that was submitted.");
+        setChainNotice(formatContractError(err, "Registration did not complete. The server will reconcile any transaction that was submitted."));
     }
 };
 

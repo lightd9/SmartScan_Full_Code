@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import { ethers } from 'ethers';
+import { formatContractError } from '../../utils/contractErrors';
 import useAuth from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import DashboardShell from '../shell/DashboardShell';
@@ -98,7 +99,7 @@ export default function Profile() {
         ? 'Wallet linked and verified. Blockchain writes are enabled for this account.'
         : 'Wallet ownership verified. Your wallet is visible to the administrator and will be enabled for blockchain writes after its on-chain role is approved.');
     } catch (error) {
-      setWalletMessage(error.response?.data?.error || error.message || 'Unable to link wallet.');
+      setWalletMessage(formatContractError(error, 'Unable to link wallet.'));
     } finally {
       setLinkingWallet(false);
     }

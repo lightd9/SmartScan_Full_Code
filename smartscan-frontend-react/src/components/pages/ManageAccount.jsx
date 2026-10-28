@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX } from '../../config/contract';
+import { formatContractError } from '../../utils/contractErrors';
 
 const columns = [
     { field: 'name', headerName: 'Name', width: 120, editable: true },
@@ -184,7 +185,7 @@ const ManageAccount = () => {
             setNewWalletAddress('');
             await handleData();
         } catch (error) {
-            setMessage(error.response?.data?.error || error.message || 'Wallet operation failed.');
+            setMessage(formatContractError(error, 'Wallet operation failed.'));
             await handleData().catch(() => {});
         } finally {
             setBusy(false);
@@ -200,7 +201,7 @@ const ManageAccount = () => {
             setMessage('Pending wallet-proof operation cancelled and audited.');
             await handleData();
         } catch (error) {
-            setMessage(error.response?.data?.error || error.message || 'Unable to cancel operation.');
+            setMessage(formatContractError(error, 'Unable to cancel operation.'));
         } finally { setBusy(false); }
     };
 
