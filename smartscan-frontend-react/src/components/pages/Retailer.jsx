@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
+import { useScanner } from '../../context/ScannerContext';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import PrimaryDataCard from '../shell/PrimaryDataCard';
@@ -17,6 +18,7 @@ import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
 
 export default function Retailer() {
   const { auth } = useAuth();
+  const { openScanner } = useScanner();
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,13 +64,13 @@ export default function Retailer() {
       icon: <PointOfSaleOutlinedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
       value: '42',
       label: 'Verified Sales',
-      onClick: () => navigate('/scanner'),
+      onClick: () => openScanner(),
     },
     {
       icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#2563EB' }} />,
       value: '100%',
       label: 'Genuine Authenticated',
-      onClick: () => navigate('/scanner'),
+      onClick: () => openScanner(),
     },
   ];
 
@@ -82,7 +84,7 @@ export default function Retailer() {
           <button
             type="button"
             className="btn-primary-action"
-            onClick={() => navigate('/scanner')}
+            onClick={() => openScanner()}
           >
             <QrCodeScannerOutlinedIcon sx={{ fontSize: 18 }} />
             <span>+ Scan & Sell</span>
@@ -95,7 +97,7 @@ export default function Retailer() {
         title="Store Inventory & Authentication Terminal"
         titleIcon={<StorefrontOutlinedIcon className="card-title-icon" />}
         filterLabel="Available Stock"
-        onSeeAllClick={() => navigate('/scanner')}
+        onSeeAllClick={() => openScanner()}
         columns={[
           { label: 'Item / Product Identifier', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
           { label: 'Floor Associate / Register', icon: <PointOfSaleOutlinedIcon sx={{ fontSize: 16 }} /> },

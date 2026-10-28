@@ -19,10 +19,12 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID } from '../../config/contract'
 import { getApiUrl } from '../../api/axios';
 import { formatScanWarning } from '../../api/scanEvents';
 import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../../api/productQr';
+import { useScanner } from '../../context/ScannerContext';
 
 
 
 const UpdateProduct = () => {
+    const { openScanner } = useScanner();
     const ROLE_NAMES = ['Unregistered', 'Admin', 'Manufacturer', 'Supplier', 'Retailer'];
     const [serialNumber, setSerialNumber] = useState("");
 
@@ -216,7 +218,7 @@ const UpdateProduct = () => {
                     <button
                         type="button"
                         className="btn-secondary-action"
-                        onClick={() => navigate('/scanner')}
+                        onClick={() => openScanner()}
                         style={{ width: '100%', justifyContent: 'center', padding: '10px' }}
                     >
                         Open Optical QR Scanner

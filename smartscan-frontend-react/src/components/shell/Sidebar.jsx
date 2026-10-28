@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
+import { useScanner } from '../../context/ScannerContext';
 import './shell.css';
 
 // Material Icons
@@ -18,6 +19,7 @@ import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalance
 
 export default function Sidebar() {
   const { auth, logout } = useAuth();
+  const { openScanner } = useScanner();
   const navigate = useNavigate();
   const role = auth?.role || 'admin';
 
@@ -52,6 +54,11 @@ export default function Sidebar() {
           to: '/add-account',
           label: 'New Account',
           icon: <AddCircleOutlineOutlinedIcon className="nav-icon" />,
+        },
+        {
+          onClick: () => openScanner(),
+          label: 'Verify Scanner',
+          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
         }
       );
     } else if (role === 'manufacturer') {
@@ -62,7 +69,7 @@ export default function Sidebar() {
           icon: <AddCircleOutlineOutlinedIcon className="nav-icon" />,
         },
         {
-          to: '/scanner',
+          onClick: () => openScanner(),
           label: 'Verify & Scan',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
         },
@@ -75,7 +82,7 @@ export default function Sidebar() {
     } else if (role === 'supplier') {
       baseItems.push(
         {
-          to: '/scanner',
+          onClick: () => openScanner(),
           label: 'Inbound Scan',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
         },
@@ -88,7 +95,7 @@ export default function Sidebar() {
     } else if (role === 'retailer') {
       baseItems.push(
         {
-          to: '/scanner',
+          onClick: () => openScanner(),
           label: 'POS Scanner',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
         },
@@ -127,7 +134,7 @@ export default function Sidebar() {
     }
     if (role === 'supplier') {
       return [
-        { label: 'Inbound Docks', color: 'pink', to: '/scanner' },
+        { label: 'Inbound Docks', color: 'pink', onClick: () => openScanner() },
         { label: 'Warehouse Holding', color: 'green', to: `/${role}` },
         { label: 'Outbound Retail', color: 'blue', to: '/update-product' },
       ];
@@ -135,7 +142,7 @@ export default function Sidebar() {
     return [
       { label: 'Store Inventory', color: 'pink', to: `/${role}` },
       { label: 'Sold Registrations', color: 'green', to: `/${role}` },
-      { label: 'Receiving Crates', color: 'purple', to: '/scanner' },
+      { label: 'Receiving Crates', color: 'purple', onClick: () => openScanner() },
     ];
   };
 
@@ -154,19 +161,35 @@ export default function Sidebar() {
 
         {/* Primary Navigation Group with Active Electric Blue Pill */}
         <nav className="sidebar-nav-group">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === `/${role}`}
-              className={({ isActive }) =>
-                `sidebar-nav-item ${isActive ? 'active' : ''}`
-              }
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+          {navItems.map((item, index) => {
+            if (item.onClick) {
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={item.onClick}
+                  className="sidebar-nav-item"
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', font: 'inherit' }}
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              );
+            }
+            return (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === `/${role}`}
+                className={({ isActive }) =>
+                  `sidebar-nav-item ${isActive ? 'active' : ''}`
+                }
+              >
+                {item.icon}
+                <span>{item.label}</span>
+              </NavLink>
+            );
+          })}
         </nav>
 
         {/* Sub-groups (Projects / Channels with Colored Dots) */}
@@ -176,19 +199,35 @@ export default function Sidebar() {
             type="button"
             className="sidebar-add-btn"
             title="Quick Action"
-            onClick={() => navigate(role === 'manufacturer' ? '/add-product' : role === 'admin' ? '/add-account' : '/scanner')}
+            onClick={() => role === 'manufacturer' ? navigate('/add-product') : role === 'admin' ? navigate('/add-account') : openScanner()}
           >
             <AddOutlinedIcon sx={{ fontSize: 16 }} />
           </button>
         </div>
 
         <div className="sidebar-nav-group">
-          {subCollections.map((sub, index) => (
-            <NavLink key={index} to={sub.to} className="sidebar-sub-item">
-              <span className={`color-dot ${sub.color}`}></span>
-              <span>{sub.label}</span>
-            </NavLink>
-          ))}
+          {subCollections.map((sub, index) => {
+            if (sub.onClick) {
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={sub.onClick}
+                  className="sidebar-sub-item"
+                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', font: 'inherit' }}
+                >
+                  <span className={`color-dot ${sub.color}`}></span>
+                  <span>{sub.label}</span>
+                </button>
+              );
+            }
+            return (
+              <NavLink key={index} to={sub.to} className="sidebar-sub-item">
+                <span className={`color-dot ${sub.color}`}></span>
+                <span>{sub.label}</span>
+              </NavLink>
+            );
+          })}
         </div>
       </div>
 

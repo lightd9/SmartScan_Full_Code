@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
+import { useScanner } from '../../context/ScannerContext';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import PrimaryDataCard from '../shell/PrimaryDataCard';
@@ -17,6 +18,7 @@ import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
 
 export default function Supplier() {
   const { auth } = useAuth();
+  const { openScanner } = useScanner();
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -68,7 +70,7 @@ export default function Supplier() {
       icon: <LocalShippingOutlinedIcon sx={{ fontSize: 17, color: '#9333EA' }} />,
       value: '2',
       label: 'Active Dispatches',
-      onClick: () => navigate('/scanner'),
+      onClick: () => openScanner(),
     },
   ];
 
@@ -82,7 +84,7 @@ export default function Supplier() {
           <button
             type="button"
             className="btn-primary-action"
-            onClick={() => navigate('/scanner')}
+            onClick={() => openScanner()}
           >
             <QrCodeScannerOutlinedIcon sx={{ fontSize: 18 }} />
             <span>+ Inbound Scan</span>
@@ -95,7 +97,7 @@ export default function Supplier() {
         title="Active Supply Chain Consignments"
         titleIcon={<LocalShippingOutlinedIcon className="card-title-icon" />}
         filterLabel="In Transit"
-        onSeeAllClick={() => navigate('/scanner')}
+        onSeeAllClick={() => openScanner()}
         columns={[
           { label: 'Consignment / Serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
           { label: 'Carrier / Warehouse Dock', icon: <WarehouseOutlinedIcon sx={{ fontSize: 16 }} /> },

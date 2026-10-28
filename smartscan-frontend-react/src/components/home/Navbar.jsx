@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { useScanner } from "../../context/ScannerContext";
 
 const navLinks = [
   { text: "Home", to: "/", icon: <HomeIcon /> },
@@ -26,6 +27,7 @@ const navLinks = [
 ];
 
 export const Navbar = () => {
+  const { openScanner } = useScanner();
   const [mobileMenu, setMobileMenu] = useState({
     left: false,
   });
@@ -53,9 +55,10 @@ export const Navbar = () => {
           <ListItem
             key={link.text}
             disablePadding
-            component={Link}
-            to={link.to}
-            sx={{ color: "inherit" }}
+            component={link.to === '/scanner' ? 'button' : Link}
+            to={link.to === '/scanner' ? undefined : link.to}
+            onClick={link.to === '/scanner' ? () => openScanner() : undefined}
+            sx={{ color: "inherit", border: 'none', background: 'transparent', textAlign: 'left', width: '100%' }}
           >
             <ListItemButton>
               <ListItemIcon>{link.icon}</ListItemIcon>
@@ -126,6 +129,15 @@ export const Navbar = () => {
           gap: "1rem",
         }}
       >
+        <button
+          type="button"
+          onClick={() => openScanner()}
+          className="btn-scan-action"
+          style={{ cursor: 'pointer', padding: '9px 18px', borderRadius: '8px' }}
+        >
+          <QrCodeScannerIcon sx={{ fontSize: 18, color: 'var(--color-primary, #2F66EE)' }} />
+          <span>Verify Product</span>
+        </button>
         <Link to="/login" style={{ textDecoration: 'none' }}>
           <CustomButton
             backgroundColor="#0F1B4C"

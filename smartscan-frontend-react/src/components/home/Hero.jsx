@@ -4,9 +4,10 @@ import React from "react";
 import Navbar from "./Navbar";
 import heroImg from "../../img/hero_illustration.png";
 import CustomButton from "./CustomButton";
-import { Link } from "react-router-dom";
+import { useScanner } from "../../context/ScannerContext";
 
 const Hero = () => {
+  const { openScanner } = useScanner();
   const CustomBox = styled(Box)(({ theme }) => ({
     display: "flex",
     justifyContent: "center",
@@ -57,15 +58,13 @@ const Hero = () => {
             >
               Our blockchain-based product identification system provides a secure and reliable way to authenticate your products and protect against fraud
             </Typography>
-            <Link to="/scanner">
-
-              <CustomButton
-                backgroundColor="#0F1B4C"
-                color="#fff"
-                buttonText="Scan QR"
-                heroBtn={true}
-              />
-            </Link>
+            <CustomButton
+              backgroundColor="#0F1B4C"
+              color="#fff"
+              buttonText="Scan QR"
+              heroBtn={true}
+              onClick={() => openScanner()}
+            />
           </Box>
 
           <Box sx={{ flex: "1.25" }}>

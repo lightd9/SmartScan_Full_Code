@@ -2,8 +2,10 @@ import { styled, Typography } from "@mui/material";
 import { Box, Container } from "@mui/system";
 import React from "react";
 import { Link } from "react-router-dom";
+import { useScanner } from "../../context/ScannerContext";
 
 const Footer = () => {
+  const { openScanner } = useScanner();
   const CustomContainer = styled(Container)(({ theme }) => ({
     display: "flex",
     justifyContent: "space-around",
@@ -38,9 +40,9 @@ const Footer = () => {
             <FooterLink>Home</FooterLink>
           </Link>
           <br />
-          <Link to="/scanner" style={{ textDecoration: 'none' }}>
+          <span onClick={() => openScanner()} style={{ cursor: 'pointer' }}>
             <FooterLink>Verify a Product</FooterLink>
-          </Link>
+          </span>
           <br />
           <Link to="/login" style={{ textDecoration: 'none' }}>
             <FooterLink>Login</FooterLink>

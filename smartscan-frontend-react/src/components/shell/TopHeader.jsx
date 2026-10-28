@@ -28,8 +28,11 @@ import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 
+import { useScanner } from '../../context/ScannerContext';
+
 export default function TopHeader({ onSearch }) {
   const { auth, logout } = useAuth();
+  const { openScanner } = useScanner();
   const navigate = useNavigate();
   const [walletAddress, setWalletAddress] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -103,7 +106,7 @@ export default function TopHeader({ onSearch }) {
       case 'manufacturer':
         return [
           { label: 'Mint New Product', icon: <AddRoundedIcon fontSize="small" />, onClick: () => navigate('/add-product') },
-          { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => navigate('/scanner') },
+          { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
           { label: 'Inspect Custody Chain', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
         ];
       case 'admin':
@@ -111,21 +114,22 @@ export default function TopHeader({ onSearch }) {
           { label: 'Provision Partner Account', icon: <AddRoundedIcon fontSize="small" />, onClick: () => navigate('/add-account') },
           { label: 'Manage Accounts & Keys', icon: <BusinessRoundedIcon fontSize="small" />, onClick: () => navigate('/manage-account') },
           { label: 'System Operations & Reconciliation', icon: <SecurityRoundedIcon fontSize="small" />, onClick: () => navigate('/admin/operations') },
-          { label: 'Public Verifier Scanner', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => navigate('/scanner') },
+          { label: 'Public Verifier Scanner', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
         ];
       case 'supplier':
         return [
-          { label: 'Scan Inbound Cargo', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => navigate('/scanner') },
+          { label: 'Scan Inbound Cargo', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
           { label: 'Transfer Custody', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
         ];
       case 'retailer':
         return [
-          { label: 'Scan & Mark Sold', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => navigate('/scanner') },
+          { label: 'Scan & Mark Sold', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
           { label: 'Shelf Stock Ledger', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
         ];
       default:
         return [
           { label: 'Dashboard Overview', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate(`/${role}`) },
+          { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
         ];
     }
   };
@@ -170,6 +174,17 @@ export default function TopHeader({ onSearch }) {
 
       {/* Right Controls */}
       <div className="header-actions">
+        {/* Direct Optical / Barcode Scan Pop-up Trigger */}
+        <button
+          type="button"
+          className="btn-scan-action"
+          onClick={() => openScanner()}
+          title="Open Barcode & QR Code Scanner Pop-up"
+        >
+          <QrCodeScannerRoundedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />
+          <span>Scan Code</span>
+        </button>
+
         {/* Primary Action Button with Working Dropdown Menu */}
         <button
           type="button"

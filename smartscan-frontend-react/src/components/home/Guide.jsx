@@ -1,9 +1,10 @@
 import { Box, styled, Typography } from "@mui/material";
 import React from "react";
-import { Link } from "react-router-dom";
 import CustomButton from "./CustomButton";
+import { useScanner } from "../../context/ScannerContext";
 
 const Guide = () => {
+  const { openScanner } = useScanner();
   const CustomBox = styled(Box)(({ theme }) => ({
     width: "30%",
     [theme.breakpoints.down("md")]: {
@@ -52,14 +53,13 @@ const Guide = () => {
         </Typography>
       </CustomBox>
 
-      <Link to="/scanner" style={{ textDecoration: "none" }}>
-        <CustomButton
-          backgroundColor="#0F1B4C"
-          color="#fff"
-          buttonText="Verify a Product"
-          guideBtn={true}
-        />
-      </Link>
+      <CustomButton
+        backgroundColor="#0F1B4C"
+        color="#fff"
+        buttonText="Verify a Product"
+        guideBtn={true}
+        onClick={() => openScanner()}
+      />
     </Box>
   );
 };
