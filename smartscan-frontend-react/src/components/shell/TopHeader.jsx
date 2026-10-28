@@ -38,9 +38,8 @@ export default function TopHeader({ onSearch }) {
 
   // Menu Anchors
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
-  const [walletMenuAnchor, setWalletMenuAnchor] = useState(null);
   const [notifMenuAnchor, setNotifMenuAnchor] = useState(null);
-  const [profileMenuAnchor, setProfileMenuAnchor] = useState(null);
+  const [accountMenuAnchor, setAccountMenuAnchor] = useState(null);
 
   const searchInputRef = useRef(null);
   const role = auth?.role || 'admin';
@@ -76,19 +75,15 @@ export default function TopHeader({ onSearch }) {
     }
   };
 
-  const handleWalletPillClick = (e) => {
-    if (!walletAddress) {
-      handleConnectWallet();
-    } else {
-      setWalletMenuAnchor(e.currentTarget);
-    }
-  };
-
-  const copyWalletAddress = () => {
+  const copyWalletAddress = async () => {
     if (!walletAddress) return;
-    navigator.clipboard?.writeText(walletAddress);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Unable to copy wallet address:', error);
+    }
   };
 
   const handleSearchSubmit = (e) => {
@@ -219,65 +214,98 @@ export default function TopHeader({ onSearch }) {
           ))}
         </Menu>
 
-        {/* Web3 Wallet Pill with Interactive Details Popover */}
+        {/* Combined profile and wallet control */}
         <button
           type="button"
-          className="header-wallet-pill"
-          onClick={handleWalletPillClick}
-          title={walletAddress ? `Connected: ${walletAddress} (Click for details)` : 'Click to connect MetaMask'}
+          className="header-account-wallet"
+          onClick={(event) => setAccountMenuAnchor(event.currentTarget)}
+          title={`Signed in as ${auth?.username} (${role})${walletAddress ? ` · Wallet ${walletAddress}` : ''}`}
+          aria-haspopup="true"
+          aria-expanded={Boolean(accountMenuAnchor)}
         >
-          <span className={`wallet-dot ${walletAddress ? '' : 'disconnected'}`}></span>
-          <span>{formatAddress(walletAddress)}</span>
+          <span className="header-account-avatar" aria-hidden="true">{userInitial}</span>
+          <span className="header-account-address">
+            <span className={`wallet-dot ${walletAddress ? '' : 'disconnected'}`}></span>
+            <span>{formatAddress(walletAddress)}</span>
+          </span>
         </button>
 
         <Menu
-          anchorEl={walletMenuAnchor}
-          open={Boolean(walletMenuAnchor)}
-          onClose={() => setWalletMenuAnchor(null)}
+          anchorEl={accountMenuAnchor}
+          open={Boolean(accountMenuAnchor)}
+          onClose={() => setAccountMenuAnchor(null)}
           slotProps={{
             paper: {
-              sx: { borderRadius: '16px', minWidth: 260, p: 1, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', mt: 1 },
+              sx: { borderRadius: '16px', minWidth: 290, maxWidth: 360, p: 0.5, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', mt: 1 },
             },
           }}
         >
-          <Box sx={{ px: 2, py: 1 }}>
-            <Typography variant="caption" sx={{ color: '#9CA3AF', fontWeight: 700, textTransform: 'uppercase' }}>
-              Web3 Signer Active
+          <Box sx={{ px: 2, py: 1.5 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#111827' }}>
+              {auth?.name || auth?.username}
             </Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700, color: '#111827', mt: 0.5, wordBreak: 'break-all' }}>
-              {walletAddress}
+            <Typography variant="caption" sx={{ color: '#6B7280', textTransform: 'capitalize' }}>
+              Role: {role}
             </Typography>
           </Box>
-          <Divider sx={{ my: 1 }} />
-          <MenuItem onClick={copyWalletAddress} sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}>
-            <ListItemIcon sx={{ color: copied ? '#16A34A' : '#4B5563' }}>
-              {copied ? <CheckRoundedIcon fontSize="small" /> : <ContentCopyRoundedIcon fontSize="small" />}
-            </ListItemIcon>
-            <ListItemText primary={copied ? 'Address Copied!' : 'Copy Full Address'} primaryTypographyProps={{ fontSize: '0.875rem' }} />
-          </MenuItem>
-          <MenuItem
+          <Divider sx={{ my: 0.5 }} />
+          {walletAddress ? (
+            <MenuItem
+              onClick={copyWalletAddress}
+              aria-label={copied ? 'Wallet address copied' : `Copy wallet address ${walletAddress}`}
+              sx={{ py: 1.25, alignItems: 'flex-start' }}
+            >
+              <ListItemIcon sx={{ color: copied ? '#16A34A' : '#4B5563', mt: 0.25 }}>
+                {copied ? <CheckRoundedIcon fontSize="small" /> : <ContentCopyRoundedIcon fontSize="small" />}
+              </ListItemIcon>
+              <ListItemText
+                primary={walletAddress}
+                secondary={copied ? 'Copied to clipboard' : 'Click address to copy'}
+                primaryTypographyProps={{ fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 700, color: '#111827', sx: { overflowWrap: 'anywhere' } }}
+                secondaryTypographyProps={{ fontSize: '0.72rem' }}
+              />
+            </MenuItem>
+          ) : (
+            <MenuItem onClick={() => { setAccountMenuAnchor(null); handleConnectWallet(); }} sx={{ py: 1 }}>
+              <ListItemIcon sx={{ color: '#4B5563' }}><SyncRoundedIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="Connect Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
+            </MenuItem>
+          )}
+          {walletAddress && <MenuItem
             onClick={() => {
-              setWalletMenuAnchor(null);
-              window.open(`https://sepolia.etherscan.io/address/${walletAddress}`, '_blank');
+              setAccountMenuAnchor(null);
+              window.open(`https://sepolia.etherscan.io/address/${walletAddress}`, '_blank', 'noopener,noreferrer');
             }}
             sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}
           >
-            <ListItemIcon sx={{ color: '#4B5563' }}>
-              <OpenInNewRoundedIcon fontSize="small" />
-            </ListItemIcon>
+            <ListItemIcon sx={{ color: '#4B5563' }}><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
             <ListItemText primary="View on Explorer" primaryTypographyProps={{ fontSize: '0.875rem' }} />
-          </MenuItem>
+          </MenuItem>}
+          {walletAddress && <MenuItem onClick={() => { setAccountMenuAnchor(null); handleConnectWallet(); }} sx={{ py: 1 }}>
+            <ListItemIcon sx={{ color: '#4B5563' }}><SyncRoundedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText primary="Switch / Reconnect Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
+          </MenuItem>}
+          <Divider sx={{ my: 0.5 }} />
           <MenuItem
             onClick={() => {
-              setWalletMenuAnchor(null);
-              handleConnectWallet();
+              setAccountMenuAnchor(null);
+              navigate('/profile');
             }}
             sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}
           >
-            <ListItemIcon sx={{ color: '#4B5563' }}>
-              <SyncRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText primary="Switch / Reconnect" primaryTypographyProps={{ fontSize: '0.875rem' }} />
+            <ListItemIcon sx={{ color: '#4B5563' }}><PersonOutlineRoundedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText primary="Account & Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              setAccountMenuAnchor(null);
+              logout();
+              navigate('/login', { replace: true });
+            }}
+            sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600, color: '#DC2626' }}
+          >
+            <ListItemIcon sx={{ color: '#DC2626' }}><LogoutRoundedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText primary="Sign Out" primaryTypographyProps={{ fontSize: '0.875rem', color: '#DC2626' }} />
           </MenuItem>
         </Menu>
 
@@ -347,74 +375,6 @@ export default function TopHeader({ onSearch }) {
           </MenuItem>
         </Menu>
 
-        {/* User Profile Avatar with Working Dropdown Menu */}
-        <div
-          onClick={(e) => setProfileMenuAnchor(e.currentTarget)}
-          title={`Signed in as ${auth?.username} (${role})`}
-          style={{
-            width: 38,
-            height: 38,
-            borderRadius: '50%',
-            backgroundColor: '#2F66EE',
-            color: '#FFFFFF',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontWeight: 700,
-            fontSize: '15px',
-            cursor: 'pointer',
-            border: '2px solid #FFFFFF',
-            boxShadow: '0 1px 4px rgba(0,0,0,0.1)',
-          }}
-        >
-          {userInitial}
-        </div>
-
-        <Menu
-          anchorEl={profileMenuAnchor}
-          open={Boolean(profileMenuAnchor)}
-          onClose={() => setProfileMenuAnchor(null)}
-          slotProps={{
-            paper: {
-              sx: { borderRadius: '16px', minWidth: 200, p: 0.5, boxShadow: '0 10px 30px rgba(0,0,0,0.1)', mt: 1 },
-            },
-          }}
-        >
-          <Box sx={{ px: 2, py: 1.5 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#111827' }}>
-              {auth?.name || auth?.username}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#6B7280', textTransform: 'capitalize' }}>
-              Role: {role}
-            </Typography>
-          </Box>
-          <Divider sx={{ my: 0.5 }} />
-          <MenuItem
-            onClick={() => {
-              setProfileMenuAnchor(null);
-              navigate('/profile');
-            }}
-            sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}
-          >
-            <ListItemIcon sx={{ color: '#4B5563' }}>
-              <PersonOutlineRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText primary="Account & Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              setProfileMenuAnchor(null);
-              logout();
-              navigate('/login', { replace: true });
-            }}
-            sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600, color: '#DC2626' }}
-          >
-            <ListItemIcon sx={{ color: '#DC2626' }}>
-              <LogoutRoundedIcon fontSize="small" />
-            </ListItemIcon>
-            <ListItemText primary="Sign Out" primaryTypographyProps={{ fontSize: '0.875rem', color: '#DC2626' }} />
-          </MenuItem>
-        </Menu>
       </div>
     </header>
   );
