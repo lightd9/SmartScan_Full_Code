@@ -73,21 +73,41 @@ const app = createApp({
 app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
 
 app.get('/readyz', async (_req, res) => {
+  const checks = {
+    database: 'pending',
+    schema: 'pending',
+    rateLimitStore: 'pending',
+    mediaStore: 'pending',
+    blockchain: 'pending',
+  };
   try {
     await pool.query('SELECT 1');
+    checks.database = 'ok';
+
     await assertLatestMigration(pool, latestRequiredMigration);
-    if (config.production && redisClient?.status !== 'ready') throw new Error('Shared rate-limit store is unavailable');
+    checks.schema = latestRequiredMigration;
+
+    if (config.production && redisClient?.status !== 'ready') {
+      throw new Error(`Shared rate-limit store is ${redisClient?.status || 'disconnected'}`);
+    }
+    checks.rateLimitStore = redisClient ? 'ok' : 'memory';
+
     await uploadStore.checkReady();
+    checks.mediaStore = 'ok';
+
     const provider = app.locals.chainProvider;
     if (!config.rpcUrl || !config.contractAddress || !provider) throw new Error('Blockchain configuration is missing');
     const network = await provider.getNetwork();
     if (Number(network.chainId) !== Number(config.chainId)) throw new Error('Configured blockchain chain ID does not match RPC');
     if ((await provider.getCode(config.contractAddress)) === '0x') throw new Error('Configured contract has no code on the configured chain');
     await assertV2Contract(provider, config.contractAddress);
-    return res.json({ status: 'ready', database: 'ok', schema: latestRequiredMigration, rateLimitStore: redisClient ? 'ok' : 'memory', mediaStore: 'ok', blockchain: 'ok', chainId: Number(network.chainId) });
+    checks.blockchain = 'ok';
+    checks.chainId = Number(network.chainId);
+
+    return res.json({ status: 'ready', ...checks });
   } catch (error) {
     console.error('/readyz check error:', error?.message || error);
-    return res.status(503).json({ status: 'not_ready', error: error?.message || 'unknown_error' });
+    return res.status(503).json({ status: 'not_ready', error: error?.message || 'unknown_error', details: checks });
   }
 });
 

@@ -110,8 +110,22 @@ function createS3UploadStore({ bucket, region, endpoint, forcePathStyle = false,
   const client = suppliedClient || new S3Client({ region, endpoint: endpoint || undefined, forcePathStyle, credentials });
   return {
     async checkReady() {
-      await client.send(new HeadBucketCommand({ Bucket: bucket }));
-      return true;
+      try {
+        await client.send(new HeadBucketCommand({ Bucket: bucket }));
+        return true;
+      } catch (error) {
+        const statusCode = error?.$metadata?.httpStatusCode;
+        if (statusCode === 403) {
+          throw new Error(`S3 bucket '${bucket}' access denied (HTTP 403). Ensure IAM permissions include s3:ListBucket on arn:aws:s3:::${bucket}`);
+        }
+        if (statusCode === 301) {
+          throw new Error(`S3 bucket '${bucket}' region mismatch (HTTP 301). The bucket is in a different region than '${region}'`);
+        }
+        if (statusCode === 404 || error?.name === 'NotFound') {
+          throw new Error(`S3 bucket '${bucket}' does not exist (HTTP 404)`);
+        }
+        throw error;
+      }
     },
     async put(scope, file) {
       validateScope(scope);
