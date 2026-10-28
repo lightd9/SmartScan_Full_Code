@@ -1,4 +1,4 @@
-import { Box, Paper, Typography, TextField, Button } from '@mui/material';
+import { Box, Paper, Typography, TextField, Button, CircularProgress } from '@mui/material';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import '../shell/shell.css';
@@ -45,6 +45,7 @@ const AddProduct = () => {
     const [savedImageName, setSavedImageName] = useState("");
     const [unpersistedTxHash, setUnpersistedTxHash] = useState("");
     const [chainNotice, setChainNotice] = useState("");
+    const [submitError, setSubmitError] = useState("");
     const [retryableProducts, setRetryableProducts] = useState([]);
 
     const { auth } = useAuth();
@@ -151,88 +152,95 @@ const AddProduct = () => {
 
     // to upload image
     const uploadImage = async (image) => {
-        if (!image?.file) {
+        const file = image?.file;
+        if (!file || (Array.isArray(file) && file.length === 0) || !(file instanceof File || file instanceof Blob)) {
             return "";
         }
         const data = new FormData();
-        data.append("image", image.file);
+        data.append("image", file);
 
         const res = await axios.post("/upload/product", data, {
             headers: { "Content-Type": "multipart/form-data" }
         });
 
         if (res.data?.success !== 1) {
-            throw new Error("Image upload failed");
+            throw new Error(res.data?.error || "Image upload failed");
         }
         return res.data.fileName;
     }
 
 const registerProduct = async (retry = false) => {
+    const { ethereum } = window;
+    if (!ethereum) {
+        throw new Error("MetaMask is required to sign product registrations. Please install or enable MetaMask.");
+    }
+
+    setLoading("1/4: Connecting wallet & verifying permissions...");
+    const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+    const account = accounts[0];
+
+    const provider = new ethers.BrowserProvider(ethereum);
+    const signer = await provider.getSigner();
+    const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+    // Verify connected wallet against user's registered corporate wallet
+    let userProfileWallet = null;
+    try {
+        const profRes = await axios.get(`/profile/${auth.username}`);
+        userProfileWallet = profRes.data?.[0]?.wallet_address;
+    } catch (_e) {}
+    if (userProfileWallet && account.toLowerCase() !== userProfileWallet.toLowerCase()) {
+        throw new Error(`Connected wallet (${account.slice(0, 6)}...${account.slice(-4)}) is not your account's authorized corporate wallet. Please switch to ${userProfileWallet.slice(0, 6)}...${userProfileWallet.slice(-4)} in MetaMask.`);
+    }
+
+    setLoading("2/4: Authorizing manufacturer write permission...");
+    await axios.post('/wallet/authorize-write', {
+        walletAddress: account,
+        action: 'register_product',
+    });
+
+    let imageName = savedImageName;
+    if (retry) {
+        setLoading("Retrying product registration...");
+        await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
+    } else {
+        setLoading("3/4: Saving product metadata and asset...");
+        imageName = await uploadImage(image);
+        setSavedImageName(imageName);
+        await addProductDB(imageName);
+        setProductCreated(true);
+    }
+
+    setLoading("4/4: Confirm registration in your MetaMask popup window...");
+    const registerTxn = await productContract.registerProduct(
+        name,
+        brand,
+        serialNumber,
+        description.replace(/,/g, ';'),
+        imageName,
+        manuName,
+        manuLocation,
+        manuDate.toString()
+    );
+
+    setLoading(`Broadcasting transaction (${registerTxn.hash.slice(0, 10)}...). Waiting for block confirmation...`);
 
     try {
-        const { ethereum } = window;
-
-        if (ethereum) {
-            // 🔥 Request account access FIRST
-            const accounts = await ethereum.request({ method: "eth_requestAccounts" });
-            const account = accounts[0];
-
-            const provider = new ethers.BrowserProvider(ethereum);
-            const signer = await provider.getSigner();
-            const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-
-            await axios.post('/wallet/authorize-write', {
-                walletAddress: account,
-                action: 'register_product',
-            });
-            let imageName = savedImageName;
-            if (retry) {
-                await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
-            } else {
-                imageName = await uploadImage(image);
-                setSavedImageName(imageName);
-                await addProductDB(imageName);
-                setProductCreated(true);
-            }
-            // write transactions
-            const registerTxn = await productContract.registerProduct(
-                name,
-                brand,
-                serialNumber,
-                description.replace(/,/g, ';'),
-                imageName,
-                manuName,
-                manuLocation,
-                manuDate.toString()
-            );
-
-            setLoading(`Mining (Register Product) ... ${registerTxn.hash}`);
-
-            try {
-                await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash: registerTxn.hash });
-                setUnpersistedTxHash("");
-            } catch (_persistenceError) {
-                setUnpersistedTxHash(registerTxn.hash);
-                setChainNotice(`Transaction was submitted (${registerTxn.hash}), but its hash has not yet been saved by the server. Retry saving it while this page remains open.`);
-            }
-
-            await registerTxn.wait();
-            setLoading(`Mined (Register Product) -- ${registerTxn.hash}`);
-
-            generateQRCode(serialNumber);
-            setProductCreated(true);
-            setRetryAvailable(false);
-            setChainNotice("The transaction has a successful receipt. SmartScan will verify the chain, sender and ProductRegistered event before marking it confirmed.");
-
-            setLoading("");
-            return registerTxn.hash;
-
-        } else {
-            throw new Error("MetaMask not detected");
-        }
-    } catch (error) {
-            throw error;
+        await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash: registerTxn.hash });
+        setUnpersistedTxHash("");
+    } catch (_persistenceError) {
+        setUnpersistedTxHash(registerTxn.hash);
+        setChainNotice(`Transaction was submitted (${registerTxn.hash}), but its hash has not yet been saved by the server. Retry saving it while this page remains open.`);
     }
+
+    await registerTxn.wait();
+    setLoading("");
+
+    generateQRCode(serialNumber);
+    setProductCreated(true);
+    setRetryAvailable(false);
+    setChainNotice("Product registered and confirmed on Sepolia blockchain! Packaging QR code generated.");
+    return registerTxn.hash;
 };
 
     const getCurrentTimeLocation = () => {
@@ -322,9 +330,10 @@ const switchToConfiguredNetwork = async () => {
 
 const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError("");
 
     if (!serialNumber || !name || !brand) {
-        alert("Please fill in the serial number, name and brand.");
+        setSubmitError("Please fill in the product serial number, name, and brand.");
         return;
     }
 
@@ -336,11 +345,11 @@ const handleSubmit = async (e) => {
         if (!retryAvailable) {
             const unique = await checkUnique();
             if (!unique) {
-                alert("Serial number already exists. Please enter a unique one.");
+                setSubmitError("This product serial number already exists on the registry. Please enter or generate a unique one.");
                 return;
             }
         }
-        setLoading(retryAvailable ? "Retrying product registration..." : "Please confirm the transaction in your wallet...");
+        setLoading(retryAvailable ? "Retrying product registration..." : "Preparing network connection...");
         await switchToConfiguredNetwork();
         await registerProduct(retryAvailable);
     } catch (err) {
@@ -348,7 +357,9 @@ const handleSubmit = async (e) => {
             if (productCreated) await refreshChainStatus();
         } catch (_statusError) { setChainNotice('Unable to read the latest registration status. Please refresh before retrying.'); }
         setLoading("");
-        setChainNotice(formatContractError(err, "Registration did not complete. The server will reconcile any transaction that was submitted."));
+        const friendlyMessage = formatContractError(err, "Registration did not complete. The server will reconcile any transaction that was submitted.");
+        setSubmitError(friendlyMessage);
+        setChainNotice(friendlyMessage);
     }
 };
 
@@ -533,8 +544,15 @@ const persistTransactionHash = async () => {
                             </div>
                         )}
 
+                        {submitError && (
+                            <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #EF4444', color: '#EF4444', fontSize: '13px', fontWeight: 600 }}>
+                                ⚠️ {submitError}
+                            </div>
+                        )}
+
                         {loading && (
-                            <div style={{ padding: '12px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', color: 'var(--color-primary)', fontSize: '13px', textAlign: 'center', fontWeight: 600 }}>
+                            <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', fontSize: '13px', textAlign: 'center', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                                <CircularProgress size={16} sx={{ color: 'var(--color-primary)' }} />
                                 {loading}
                             </div>
                         )}
