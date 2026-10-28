@@ -80,26 +80,46 @@ describe("IdenteefiV2", function () {
       .to.be.revertedWith("IdenteefiV2: unauthorized role");
   });
 
-  it("requires dispatched recipients and updates custody atomically", async function () {
+  it("allows open dispatch and lets an eligible registered receiver claim custody", async function () {
     await register();
     await expect(contract.connect(manufacturer).confirmDelivery(serial, "", "", timestamp))
       .to.be.revertedWith("IdenteefiV2: product was not dispatched");
-    const dispatch = await contract.connect(manufacturer).dispatchProduct(serial, supplier.address, "", "Lagos", "2099-01-01T00:00:00Z");
+    const dispatch = await contract.connect(manufacturer).dispatchProduct(serial, ethers.ZeroAddress, "", "Lagos", "2099-01-01T00:00:00Z");
     const dispatchReceipt = await dispatch.wait();
     const dispatchBlock = await ethers.provider.getBlock(dispatchReceipt.blockNumber);
-    await contract.connect(supplier).confirmDelivery(serial, "", "Abuja", timestamp);
     let state = await contract.getProductState(serial);
+    expect(state[0]).to.equal(2); // Dispatched
+    expect(state[1]).to.equal(manufacturer.address); // Last confirmed custodian until receipt
+    expect(state[2]).to.equal(ethers.ZeroAddress); // No specific receiver was known
+    await contract.connect(supplier).confirmDelivery(serial, "", "Abuja", timestamp);
+    state = await contract.getProductState(serial);
     expect(state[0]).to.equal(3); // Delivered
     expect(state[1]).to.equal(supplier.address);
     expect((await contract.getProduct(serial))[5][1].timestamp).to.equal(String(dispatchBlock.timestamp));
-    await contract.connect(supplier).dispatchProduct(serial, retailer.address, "", "Abuja", timestamp);
-    await contract.connect(retailer).confirmDelivery(serial, "", "Kano", timestamp);
+    await contract.grantRole(replacement.address, 3, "Second Supplier");
+    await contract.connect(supplier).dispatchProduct(serial, ethers.ZeroAddress, "", "Abuja", timestamp);
+    await expect(contract.connect(supplier).confirmDelivery(serial, "", "Abuja", timestamp))
+      .to.be.revertedWith("IdenteefiV2: caller is current custodian");
+    await contract.connect(replacement).confirmDelivery(serial, "", "Kano", timestamp);
+    expect((await contract.getProductState(serial))[1]).to.equal(replacement.address);
+    await contract.connect(replacement).dispatchProduct(serial, ethers.ZeroAddress, "", "Kano", timestamp);
+    await contract.connect(retailer).confirmDelivery(serial, "", "Lagos", timestamp);
     await contract.connect(retailer).markSold(serial, "", "Kano", timestamp);
     state = await contract.getProductState(serial);
     expect(state[0]).to.equal(4); // Sold
     expect(state[1]).to.equal(retailer.address);
     expect(state[3]).to.equal(true);
-    expect((await contract.getProduct(serial))[5]).to.have.length(6);
+    expect((await contract.getProduct(serial))[5]).to.have.length(8);
+  });
+
+  it("does not allow an unregistered or ineligible role to claim an open dispatch", async function () {
+    await register();
+    await contract.connect(manufacturer).dispatchProduct(serial, ethers.ZeroAddress, "", "", timestamp);
+    await expect(contract.connect(retailer).confirmDelivery(serial, "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: recipient role is not authorized");
+    await expect(contract.connect(replacement).confirmDelivery(serial, "", "", timestamp))
+      .to.be.revertedWith("IdenteefiV2: recipient role is not authorized");
+    await contract.connect(supplier).confirmDelivery(serial, "", "", timestamp);
   });
 
   it("records recalls as a persistent verification warning", async function () {

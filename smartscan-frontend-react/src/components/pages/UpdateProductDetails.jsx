@@ -22,7 +22,6 @@ const UpdateProductDetails = () => {
     const [currLocation, setCurrLocation] = useState("");
     const [serialNumber, setSerialNumber] = useState("");
     const [loading, setLoading] = useState("");
-    const [recipientAddress, setRecipientAddress] = useState("");
     const [recallReason, setRecallReason] = useState("");
 
 
@@ -107,11 +106,26 @@ const UpdateProductDetails = () => {
                 const signer = await provider.getSigner();
                 const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
                 const wallet = (await signer.getAddress()).toLowerCase();
-                const [stage, custodian, pendingRecipient] = await productContract.getProductState(serialNumber);
-                const currentStage = Number(stage);
+                const product = await productContract.getProduct(serialNumber);
+                const currentStage = Number(product[6]);
+                const custodian = product[7];
+                const pendingRecipient = product[8];
                 let transaction;
 
-                if (currentStage === 2 && pendingRecipient.toLowerCase() === wallet) {
+                if (currentStage === 2) {
+                    const history = product[5];
+                    const dispatchEvent = history[history.length - 1];
+                    const senderRole = Number(dispatchEvent?.actorRole ?? 0);
+                    if (custodian.toLowerCase() === wallet) {
+                        throw new Error("The dispatching wallet cannot claim its own open delivery. A different eligible registered account must confirm receipt.");
+                    }
+                    const mayReceive = senderRole === 2
+                        ? auth.role === 'supplier'
+                        : senderRole === 3 && ['supplier', 'retailer'].includes(auth.role);
+                    if (pendingRecipient !== ethers.ZeroAddress && pendingRecipient.toLowerCase() !== wallet) {
+                        throw new Error("This product is assigned to a different recipient wallet.");
+                    }
+                    if (!mayReceive) throw new Error("Your account role is not eligible to confirm receipt of this dispatch.");
                     await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'confirm_delivery' });
                     transaction = await productContract.confirmDelivery(serialNumber, currName, currLocation, currDate.toString());
                 } else if (currentStage === 1 || currentStage === 3) {
@@ -120,9 +134,8 @@ const UpdateProductDetails = () => {
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'mark_sold' });
                         transaction = await productContract.markSold(serialNumber, currName, currLocation, currDate.toString());
                     } else {
-                        if (!ethers.isAddress(recipientAddress)) throw new Error("Enter a valid recipient wallet address.");
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'dispatch' });
-                        transaction = await productContract.dispatchProduct(serialNumber, recipientAddress, currName, currLocation, currDate.toString());
+                        transaction = await productContract.dispatchProduct(serialNumber, ethers.ZeroAddress, currName, currLocation, currDate.toString());
                     }
                 } else {
                     throw new Error("This product is not ready for an action by this account.");
@@ -174,7 +187,7 @@ const UpdateProductDetails = () => {
         <DashboardShell>
             <GreetingBanner
                 title="Update Physical Custody & Transition"
-                subtitle="Execute smart contract state changes: Confirm Delivery, Dispatch, or Mark Sold"
+            subtitle="Dispatch into the registered supply chain or confirm receipt from your linked business wallet."
                 metrics={[
                     {
                         icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
@@ -239,14 +252,14 @@ const UpdateProductDetails = () => {
                     />
 
                     {(auth.role === "manufacturer" || auth.role === "supplier") && (
-                        <TextField
-                            fullWidth
-                            label="Recipient Wallet Address (0x...)"
-                            value={recipientAddress}
-                            onChange={(event) => setRecipientAddress(event.target.value)}
-                            helperText="Verified wallet address of the receiving carrier or retailer."
-                        />
+                        <Alert severity="info">
+                            Dispatch does not require choosing a recipient. The next eligible registered supplier or retailer confirms receipt with their linked wallet.
+                        </Alert>
                     )}
+
+                    {auth.role === 'supplier' || auth.role === 'retailer' ? (
+                        <Alert severity="info">If this item is awaiting receipt, submit from your linked wallet to claim custody. The contract checks your registered role.</Alert>
+                    ) : null}
 
                     {loading && (
                         <div style={{ padding: '12px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 600, textAlign: 'center' }}>
@@ -313,9 +326,9 @@ const UpdateProductDetails = () => {
                                 Custody Authorization Rules
                             </h3>
                             <ul style={{ margin: '8px 0 0 0', paddingLeft: 20, fontSize: '12.5px', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                                <li><strong>Manufacturer $\rightarrow$ Supplier:</strong> Dispatch requires valid Supplier role wallet.</li>
-                                <li><strong>Supplier Inbound:</strong> Delivery confirmation moves item into Supplier storage.</li>
-                                <li><strong>Supplier $\rightarrow$ Retailer:</strong> Dispatch requires verified Retailer address.</li>
+                                <li><strong>Manufacturer dispatch:</strong> Any registered supplier can confirm receipt from its linked wallet.</li>
+                                <li><strong>Supplier receipt:</strong> A registered supplier claims an inbound product on-chain.</li>
+                                <li><strong>Supplier dispatch:</strong> A registered supplier or retailer can confirm receipt.</li>
                                 <li><strong>Retailer Mark Sold:</strong> Locks the asset from any subsequent transfer.</li>
                             </ul>
                         </div>

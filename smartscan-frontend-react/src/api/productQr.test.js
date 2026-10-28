@@ -8,6 +8,10 @@ describe('parseProductQr', () => {
         expect(parseProductQr(`${contract},${serial}`, contract)).toEqual({ contractAddress: contract, serialNumber: serial });
     });
 
+    it('accepts a bare canonical serial number and attaches the expected contract', () => {
+        expect(parseProductQr(serial, contract)).toEqual({ contractAddress: contract, serialNumber: serial });
+    });
+
     it.each([null, '', 'not-a-wallet,serial', `${contract},`, `${contract},${serial},extra`])('rejects malformed payload %s', (payload) => {
         expect(() => parseProductQr(payload, contract)).toThrow('valid SmartScan product QR');
     });

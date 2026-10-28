@@ -15,10 +15,11 @@ import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID, CHAIN_RPC_URL } from '../../config/contract';
 import { getApiUrl } from '../../api/axios';
 import { formatScanWarning } from '../../api/scanEvents';
 import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../../api/productQr';
+import { formatContractError } from '../../utils/contractErrors';
 import { useScanner } from '../../context/ScannerContext';
 
 
@@ -69,34 +70,19 @@ const UpdateProduct = () => {
         try {
             ({ serialNumber: serial } = parseProductQr(qrData, CONTRACT_ADDRESS));
         } catch (error) {
-            setLoadError(error.message);
+            setLoadError(formatContractError(error, 'This is not a valid SmartScan product code.'));
             return;
         }
         setSerialNumber(serial);
 
-            try {
-                const { ethereum } = window;
-
-                if (ethereum) {
-                    const provider = new ethers.BrowserProvider(ethereum);
-                    const network = await provider.getNetwork();
-                    if (Number(network.chainId) !== CHAIN_ID) throw new Error('Wallet is connected to the wrong blockchain network.');
-                    const signer = await provider.getSigner();
-                    const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-                    const product = await getRegisteredProduct(productContract, serial);
-
-                    // setProductData(product.toString())                    
-
-                    setData(product)
-
-
-                } else {
-                    alert("Ethereum object doesn't exist! Please connect your wallet first!")
-                }
-            } catch (_error) {
-                setLoadError(_error.message || 'Unable to load the product from the blockchain. Please retry.');
-            }
-
+        try {
+            const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+            const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+            const product = await getRegisteredProduct(productContract, serial);
+            setData(product);
+        } catch (_error) {
+            setLoadError(formatContractError(_error, 'Unable to load the product from the blockchain. Please retry.'));
+        }
     };
 
     const setData = (product) => {
@@ -148,7 +134,9 @@ const UpdateProduct = () => {
                         <Typography>Location: {item.location}</Typography>
                         <Typography>Organization identity: {ROLE_NAMES[item.actorRole] || 'Unknown'} · {item.actorWallet}</Typography>
                         {item.actor && <Typography>Registered display name: {item.actor}</Typography>}
-                        {item.recipientWallet !== ethers.ZeroAddress && <Typography>Dispatched to wallet: {item.recipientWallet}</Typography>}
+                        {item.action === 1 && (item.recipientWallet === ethers.ZeroAddress
+                            ? <Typography>Dispatch status: awaiting confirmation by an eligible registered receiver.</Typography>
+                            : <Typography>Dispatched to wallet: {item.recipientWallet}</Typography>)}
                         <Typography>Event: {['Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'][item.action] || 'Unknown'}</Typography>
                     </TimelineContent>
                 </TimelineItem>
@@ -170,7 +158,10 @@ const UpdateProduct = () => {
                     <h2 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 12px 0' }}>Product Verification Unavailable</h2>
                     {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1, textAlign: 'left' }}>{formatScanWarning(warning)}</Alert>)}
                     <Alert severity="error" sx={{ textAlign: 'left', mb: 2 }}>{loadError}</Alert>
-                    <button type="button" className="btn-secondary-action" onClick={handleBack} style={{ margin: '0 auto' }}>Back</button>
+                    <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                        <button type="button" className="btn-primary-action" onClick={() => { setLoadError(''); setSerialNumber(''); setManualSerial(''); }}>Try Another Product</button>
+                        <button type="button" className="btn-secondary-action" onClick={handleBack}>Back</button>
+                    </div>
                 </div>
             </DashboardShell>
         );

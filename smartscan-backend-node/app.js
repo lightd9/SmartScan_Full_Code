@@ -60,6 +60,9 @@ function hasConflictingProductState(product) {
     || normalizedAddress(history[0][6]) !== ethers.ZeroAddress) return true;
 
   let stage = 1;
+  let pendingRecipientFromHistory = ethers.ZeroAddress;
+  let pendingDispatcherWallet = ethers.ZeroAddress;
+  let dispatchSenderRole = 0;
   for (let index = 1; index < history.length; index += 1) {
     const event = history[index];
     const id = Number(event[0]);
@@ -75,8 +78,25 @@ function hasConflictingProductState(product) {
         : action === 3 ? [4]
           : action === 4 ? [1, 2] : [];
     if (id !== index + 1 || !allowedActions.includes(action) || !allowedRoles.includes(actorRole)) return true;
-    if (action === 1 ? (!recipient || recipient === ethers.ZeroAddress) : recipient !== ethers.ZeroAddress) return true;
     if (!normalizedAddress(event[2]) || normalizedAddress(event[2]) === ethers.ZeroAddress) return true;
+    if (action === 1) {
+      if (!recipient) return true;
+      if (recipient !== ethers.ZeroAddress && recipient.toLowerCase() === normalizedAddress(event[2]).toLowerCase()) return true;
+      dispatchSenderRole = actorRole;
+      pendingDispatcherWallet = normalizedAddress(event[2]);
+      pendingRecipientFromHistory = recipient;
+    } else if (action === 2) {
+      if (recipient !== ethers.ZeroAddress) return true;
+      if (normalizedAddress(event[2]).toLowerCase() === pendingDispatcherWallet.toLowerCase()) return true;
+      const receiverAllowed = dispatchSenderRole === 2
+        ? actorRole === 3
+        : dispatchSenderRole === 3 && (actorRole === 3 || actorRole === 4);
+      if (!receiverAllowed || (pendingRecipientFromHistory !== ethers.ZeroAddress
+        && pendingRecipientFromHistory.toLowerCase() !== normalizedAddress(event[2]).toLowerCase())) return true;
+      pendingRecipientFromHistory = ethers.ZeroAddress;
+      pendingDispatcherWallet = ethers.ZeroAddress;
+      dispatchSenderRole = 0;
+    } else if (recipient !== ethers.ZeroAddress) return true;
     stage = action + 1;
   }
 
@@ -88,7 +108,7 @@ function hasConflictingProductState(product) {
   if (stage !== currentStage || !custodian || custodian === ethers.ZeroAddress) return true;
   if ((currentStage === 4 && !sold) || (currentStage !== 4 && currentStage !== 5 && sold)
     || recalled !== (currentStage === 5)) return true;
-  if (currentStage === 2 ? (!pendingRecipient || pendingRecipient === ethers.ZeroAddress)
+  if (currentStage === 2 ? (!pendingRecipient || pendingRecipient.toLowerCase() !== pendingRecipientFromHistory.toLowerCase())
     : currentStage !== 5 && pendingRecipient !== ethers.ZeroAddress) return true;
   return false;
 }

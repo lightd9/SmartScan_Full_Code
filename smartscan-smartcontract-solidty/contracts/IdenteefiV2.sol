@@ -24,6 +24,7 @@ contract IdenteefiV2 {
         address currentCustodian;
         address pendingRecipient;
         Role pendingRecipientRole;
+        Role pendingSenderRole;
         Stage stage;
         bool sold;
         bool recalled;
@@ -162,18 +163,24 @@ contract IdenteefiV2 {
         require(p.exists, "IdenteefiV2: product does not exist");
         require(!p.sold && !p.recalled, "IdenteefiV2: product is closed");
         require(msg.sender == _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is not current custodian");
-        require(recipient_ != address(0) && recipient_ != msg.sender, "IdenteefiV2: invalid recipient");
         Role senderRole = roles[msg.sender];
         Role recipientRole = roles[recipient_];
-        require(
-            (senderRole == Role.Manufacturer && recipientRole == Role.Supplier) ||
-            (senderRole == Role.Supplier && recipientRole == Role.Retailer),
-            "IdenteefiV2: invalid custody transition"
-        );
+        if (recipient_ == address(0)) {
+            require(senderRole == Role.Manufacturer || senderRole == Role.Supplier, "IdenteefiV2: invalid custody transition");
+            recipientRole = Role.None; // Open dispatch: eligible registered receiver claims custody.
+        } else {
+            require(recipient_ != msg.sender, "IdenteefiV2: invalid recipient");
+            require(
+                (senderRole == Role.Manufacturer && recipientRole == Role.Supplier) ||
+                (senderRole == Role.Supplier && (recipientRole == Role.Supplier || recipientRole == Role.Retailer)),
+                "IdenteefiV2: invalid custody transition"
+            );
+        }
         require(p.stage == Stage.Manufactured || p.stage == Stage.Delivered, "IdenteefiV2: dispatch requires delivered custody");
         p.stage = Stage.Dispatched;
         p.pendingRecipient = recipient_;
         p.pendingRecipientRole = recipientRole;
+        p.pendingSenderRole = senderRole;
         _append(p, serialNumber_, actor_, location_, _blockTimestampString(), Action.Dispatched, recipient_);
     }
 
@@ -183,11 +190,21 @@ contract IdenteefiV2 {
         Product storage p = products[serialNumber_];
         require(p.exists, "IdenteefiV2: product does not exist");
         require(p.stage == Stage.Dispatched, "IdenteefiV2: product was not dispatched");
-        require(msg.sender == _effectiveWallet(p.pendingRecipient), "IdenteefiV2: caller is not dispatched recipient");
-        require(roles[msg.sender] == p.pendingRecipientRole, "IdenteefiV2: recipient role is no longer authorized");
+        if (p.pendingRecipient != address(0)) {
+            require(msg.sender == _effectiveWallet(p.pendingRecipient), "IdenteefiV2: caller is not dispatched recipient");
+            require(roles[msg.sender] == p.pendingRecipientRole, "IdenteefiV2: recipient role is no longer authorized");
+        } else {
+            require(msg.sender != _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is current custodian");
+            Role receiverRole = roles[msg.sender];
+            bool eligible = p.pendingSenderRole == Role.Manufacturer
+                ? receiverRole == Role.Supplier
+                : p.pendingSenderRole == Role.Supplier && (receiverRole == Role.Supplier || receiverRole == Role.Retailer);
+            require(eligible, "IdenteefiV2: recipient role is not authorized");
+        }
         p.currentCustodian = msg.sender;
         p.pendingRecipient = address(0);
         p.pendingRecipientRole = Role.None;
+        p.pendingSenderRole = Role.None;
         p.stage = Stage.Delivered;
         _append(p, serialNumber_, actor_, location_, _blockTimestampString(), Action.Delivered, address(0));
     }

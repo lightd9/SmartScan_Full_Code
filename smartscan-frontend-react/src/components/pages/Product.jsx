@@ -153,7 +153,9 @@ const Product = () => {
                         <Typography>Location: {item.location}</Typography>
                         <Typography>Organization identity: {ROLE_NAMES[item.actorRole] || 'Unknown'} · {item.actorWallet}</Typography>
                         {item.actor && <Typography>Registered display name: {item.actor}</Typography>}
-                        {item.recipientWallet !== ethers.ZeroAddress && <Typography>Dispatched to wallet: {item.recipientWallet}</Typography>}
+                        {item.action === 1 && (item.recipientWallet === ethers.ZeroAddress
+                            ? <Typography>Dispatch status: awaiting confirmation by an eligible registered receiver.</Typography>
+                            : <Typography>Dispatched to wallet: {item.recipientWallet}</Typography>)}
                         <Typography>Event: {['Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'][item.action] || 'Unknown'}</Typography>
                     </TimelineContent>
                 </TimelineItem>
@@ -220,7 +222,10 @@ const Product = () => {
                 </Typography>
                 {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1, borderRadius: '12px' }}>{formatScanWarning(warning)}</Alert>)}
                 {stage === 5 && <Alert severity="error" sx={{ mb: 2, borderRadius: '12px' }}>This product is recalled. Do not purchase or use it.</Alert>}
-                {pendingRecipient !== ethers.ZeroAddress && <Typography variant="body2" sx={{ mb: 2, color: '#2563EB', fontWeight: 600 }}>In transit to: {pendingRecipient}</Typography>}
+                {stage === 2 && (pendingRecipient !== ethers.ZeroAddress
+                    ? <Alert severity="info" sx={{ mb: 2, borderRadius: '12px' }}>In transit to the designated registered wallet: {pendingRecipient}</Alert>
+                    : <Alert severity="info" sx={{ mb: 2, borderRadius: '12px' }}>Dispatched and awaiting receipt. The next eligible registered supplier or retailer must confirm custody from their linked wallet.</Alert>)}
+                {stage === 2 && custodian && <Typography variant="body2" sx={{ mb: 2, color: '#4B5563' }}>Last confirmed custodian: {custodianName || `${ROLE_NAMES[custodianRole] || 'Registered business'} · ${custodian}`}</Typography>}
                 {recordedRetailer ? (
                     <>
                         <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>Recorded retailer: {recordedRetailer}</Typography>
@@ -338,7 +343,7 @@ const Product = () => {
                                 Current stage: {['Unknown', 'Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'][stage] || 'Unknown'}
                             </Typography>
                             <Typography variant="body2" sx={{ textAlign: 'left', mb: '3%' }}>
-                                Current custodian: {ROLE_NAMES[custodianRole] || 'Unknown'} · {custodian}
+                                {stage === 2 ? 'Last confirmed custodian' : 'Current custodian'}: {ROLE_NAMES[custodianRole] || 'Unknown'} · {custodian}
                             </Typography>
                             {custodianName && <Typography variant="body2" sx={{ textAlign: 'left', mb: '3%' }}>Registered business name: {custodianName}</Typography>}
 

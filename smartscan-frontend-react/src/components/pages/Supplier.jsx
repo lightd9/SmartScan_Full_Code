@@ -144,8 +144,8 @@ export default function Supplier() {
             },
             {
               id: 3,
-              title: 'Retail Destination Pre-Check',
-              description: 'Ensure recipient store wallet address is verified in the smart contract registry.',
+              title: 'Dispatch Into Registered Supply Chain',
+              description: 'No recipient wallet is needed at dispatch. The next registered supplier or retailer confirms receipt with its linked wallet.',
               completed: false,
             },
           ]}

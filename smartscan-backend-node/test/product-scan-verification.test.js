@@ -29,6 +29,21 @@ test('valid manufacturer-to-supplier-to-retailer custody history is consistent',
   assert.equal(hasConflictingProductState(product(history, 3, retailer)), false);
 });
 
+test('open dispatches are valid while awaiting receipt by an eligible registered receiver', () => {
+  const history = [
+    event(1, 0, 2, manufacturer),
+    event(2, 1, 2, manufacturer),
+  ];
+  assert.equal(hasConflictingProductState(product(history, 2, manufacturer)), false);
+
+  history.push(event(3, 2, 3, supplier));
+  assert.equal(hasConflictingProductState(product(history, 3, supplier)), false);
+
+  history.push(event(4, 1, 3, supplier));
+  history.push(event(5, 2, 4, retailer));
+  assert.equal(hasConflictingProductState(product(history, 3, retailer)), false);
+});
+
 test('server scan ABI matches the deployed frontend V2 artifact and decodes its history layout', () => {
   const serverInterface = new ethers.Interface(PRODUCT_SCAN_ABI);
   const deployedInterface = new ethers.Interface(deployedContractArtifact.abi);
@@ -60,5 +75,7 @@ test('malformed action order, event ids, roles, recipients, and product state ar
   assert.equal(hasConflictingProductState(product([manufactured, event(4, 1, 2, manufacturer, supplier)], 2, manufacturer, supplier)), true);
   assert.equal(hasConflictingProductState(product([manufactured, event(2, 1, 4, manufacturer, supplier)], 2, manufacturer, supplier)), true);
   assert.equal(hasConflictingProductState(product([manufactured, event(2, 1, 2, manufacturer)], 2, manufacturer, supplier)), true);
+  assert.equal(hasConflictingProductState(product([manufactured, event(2, 1, 2, manufacturer), event(3, 2, 4, retailer)], 3, retailer)), true);
+  assert.equal(hasConflictingProductState(product([manufactured, event(2, 1, 2, manufacturer), event(3, 2, 3, manufacturer)], 3, manufacturer)), true);
   assert.equal(hasConflictingProductState(product([manufactured], 4, manufacturer, zero, true, false)), true);
 });

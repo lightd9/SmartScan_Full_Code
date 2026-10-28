@@ -2,9 +2,22 @@ import { ethers } from 'ethers';
 
 export function parseProductQr(qrData, expectedContract) {
     if (typeof qrData !== 'string') throw new Error('This is not a valid SmartScan product QR code.');
-    const parts = qrData.split(',');
-    const [contractAddress, serialNumber] = parts;
-    if (parts.length !== 2 || !ethers.isAddress(contractAddress) || !serialNumber?.trim()) {
+    const trimmed = qrData.trim();
+    let contractAddress;
+    let serialNumber;
+
+    if (trimmed.includes(',')) {
+        const parts = trimmed.split(',');
+        if (parts.length !== 2) throw new Error('This is not a valid SmartScan product QR code.');
+        [contractAddress, serialNumber] = parts;
+    } else if (/^SS-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+        contractAddress = expectedContract;
+        serialNumber = trimmed;
+    } else {
+        throw new Error('This is not a valid SmartScan product QR code.');
+    }
+
+    if (!ethers.isAddress(contractAddress) || !serialNumber?.trim()) {
         throw new Error('This is not a valid SmartScan product QR code.');
     }
     if (!/^SS-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(serialNumber.trim())) {

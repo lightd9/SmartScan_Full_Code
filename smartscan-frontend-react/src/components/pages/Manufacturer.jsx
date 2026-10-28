@@ -164,8 +164,8 @@ export default function Manufacturer() {
             },
             {
               id: 3,
-              title: 'Verify Inbound Carrier Wallet Address',
-              description: 'Before releasing outbound crates, confirm recipient supplier address on IdenteefiV2 smart contract.',
+              title: 'Dispatch Into Registered Supply Chain',
+              description: 'Record the outbound dispatch on-chain. An eligible registered supplier confirms receipt using its linked wallet.',
               completed: false,
             },
           ]}
