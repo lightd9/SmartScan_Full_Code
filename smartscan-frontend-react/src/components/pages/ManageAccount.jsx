@@ -126,23 +126,60 @@ const ManageAccount = () => {
             }
             const oldWallet = operation.oldWalletAddress;
             const businessName = operation.businessName;
-            let transaction;
-            if (operation.action === 'link') {
-                transaction = await contract.grantRole(operation.newWalletAddress, ROLE_IDS[operation.role], businessName);
-            } else if (operation.action === 'replace') {
-                transaction = await contract.replaceRole(oldWallet, operation.newWalletAddress, businessName);
-            } else if (operation.action === 'restore') {
-                transaction = await contract.grantRole(oldWallet, ROLE_IDS[operation.role], businessName);
-            } else {
-                transaction = await contract.revokeRole(oldWallet);
+
+            const targetWallet = ['link', 'replace'].includes(operation.action) ? operation.newWalletAddress : oldWallet;
+            const expectedRoleId = ROLE_IDS[operation.role];
+            let currentOnchainRole = 0;
+            try {
+                currentOnchainRole = Number(await contract.roles(targetWallet));
+            } catch (roleErr) {
+                console.warn('Could not read on-chain role:', roleErr);
             }
-            setMessage(`Waiting for owner-authorized transaction ${transaction.hash}…`);
-            operation = { ...operation, txHash: transaction.hash };
-            setPendingOperation(operation);
-            await axios.post(`/admin/wallet-operations/${operation.operationId}/record-transaction`, { txHash: transaction.hash });
-            await transaction.wait();
-            await axios.post(`/admin/wallet-operations/${operation.operationId}/complete`, { txHash: transaction.hash });
-            setMessage(`Wallet ${operation.action} completed and audited: ${transaction.hash}`);
+
+            let txHashToComplete = operation.txHash || null;
+
+            // If the role was already granted or replaced on-chain, recover the mined transaction hash
+            if (!txHashToComplete && ['link', 'restore'].includes(operation.action) && currentOnchainRole === expectedRoleId) {
+                try {
+                    const filter = contract.filters.RoleGranted(targetWallet);
+                    const events = await contract.queryFilter(filter, -10000);
+                    if (events.length > 0) {
+                        txHashToComplete = events[events.length - 1].transactionHash;
+                        setMessage(`Found confirmed on-chain role grant transaction: ${txHashToComplete}`);
+                    }
+                } catch (filterErr) {
+                    console.warn('Could not query RoleGranted event filter:', filterErr);
+                }
+            }
+
+            if (!txHashToComplete) {
+                let transaction;
+                if (operation.action === 'link') {
+                    transaction = await contract.grantRole(operation.newWalletAddress, ROLE_IDS[operation.role], businessName);
+                } else if (operation.action === 'replace') {
+                    transaction = await contract.replaceRole(oldWallet, operation.newWalletAddress, businessName);
+                } else if (operation.action === 'restore') {
+                    transaction = await contract.grantRole(oldWallet, ROLE_IDS[operation.role], businessName);
+                } else {
+                    transaction = await contract.revokeRole(oldWallet);
+                }
+                setMessage(`Waiting for owner-authorized transaction ${transaction.hash}…`);
+                operation = { ...operation, txHash: transaction.hash };
+                setPendingOperation(operation);
+
+                // Best-effort mempool notification (ignore if backend RPC has not seen the tx in its mempool yet)
+                try {
+                    await axios.post(`/admin/wallet-operations/${operation.operationId}/record-transaction`, { txHash: transaction.hash });
+                } catch (recordError) {
+                    console.warn('Backend mempool pre-record deferred to mined receipt:', recordError.response?.data || recordError.message);
+                }
+
+                await transaction.wait();
+                txHashToComplete = transaction.hash;
+            }
+
+            await axios.post(`/admin/wallet-operations/${operation.operationId}/complete`, { txHash: txHashToComplete });
+            setMessage(`Wallet ${operation.action} completed and audited: ${txHashToComplete}`);
             setPendingOperation(null);
             setNewWalletAddress('');
             await handleData();

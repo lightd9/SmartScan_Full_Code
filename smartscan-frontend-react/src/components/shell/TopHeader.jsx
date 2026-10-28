@@ -229,6 +229,17 @@ export default function TopHeader({ onSearch }) {
           ))}
         </Menu>
 
+        {/* Notifications sit immediately before the combined account control */}
+        <button
+          type="button"
+          className="header-icon-btn"
+          aria-label="View notifications and alerts"
+          onClick={(e) => setNotifMenuAnchor(e.currentTarget)}
+        >
+          <NotificationsNoneRoundedIcon sx={{ fontSize: 20 }} />
+          {unreadNotifications && <span className="unread-pip"></span>}
+        </button>
+
         {/* Combined profile and wallet control */}
         <button
           type="button"
@@ -324,17 +335,7 @@ export default function TopHeader({ onSearch }) {
           </MenuItem>
         </Menu>
 
-        {/* Notifications Icon with Interactive Notification Center Drawer */}
-        <button
-          type="button"
-          className="header-icon-btn"
-          aria-label="View notifications and alerts"
-          onClick={(e) => setNotifMenuAnchor(e.currentTarget)}
-        >
-          <NotificationsNoneRoundedIcon sx={{ fontSize: 20 }} />
-          {unreadNotifications && <span className="unread-pip"></span>}
-        </button>
-
+        {/* Interactive notification center */}
         <Menu
           anchorEl={notifMenuAnchor}
           open={Boolean(notifMenuAnchor)}
