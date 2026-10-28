@@ -20,6 +20,7 @@ function createFakePool() {
     product: [],
     scans: [],
     walletOperations: [],
+    walletChallenges: [],
     passwordEvents: [],
     manufacturerAssignments: [],
     identityRekeys: [],
@@ -29,6 +30,66 @@ function createFakePool() {
     state,
     async query(sql, params = []) {
       const s = sql.trim().toLowerCase();
+
+      if (s.startsWith('select a.role, a.wallet_address, a.wallet_status, p.name as business_name from auth a join profile p')) {
+        const account = state.auth.find((item) => item.username === params[0]);
+        const profile = state.profile.find((item) => item.username === params[0]);
+        return { rows: account && profile ? [{ role: account.role, wallet_address: account.wallet_address, wallet_status: account.wallet_status, business_name: profile.name }] : [] };
+      }
+      if (s.startsWith('select * from wallet_operations where username = $1 and status in')) {
+        return { rows: state.walletOperations.filter((item) => item.username === params[0] && ['pending_wallet_proof', 'ready_onchain'].includes(item.status)) };
+      }
+      if (s.startsWith('select username from auth where lower(wallet_address)')) {
+        return { rows: state.auth.filter((item) => item.wallet_address?.toLowerCase() === String(params[0]).toLowerCase() && item.username !== params[1]).map(({ username }) => ({ username })) };
+      }
+      if (s.startsWith('insert into wallet_operations')) {
+        state.walletOperations.push({ id: params[0], username: params[1], action: params[2], old_wallet_address: params[3], new_wallet_address: params[4], role: params[5], business_name: params[6], requested_by: params[7], status: 'pending_wallet_proof' });
+        return { rows: [], rowCount: 1 };
+      }
+      if (s.startsWith('delete from wallet_link_challenges')) {
+        state.walletChallenges = state.walletChallenges.filter((item) => item.username !== params[0] || item.consumed_at);
+        return { rows: [], rowCount: 1 };
+      }
+      if (s.startsWith('insert into wallet_link_challenges')) {
+        state.walletChallenges.push({ id: params[0], username: params[1], operation_id: params[2], wallet_address: params[3], message: params[4], expires_at: params[5], consumed_at: null });
+        return { rows: [], rowCount: 1 };
+      }
+      if (s.startsWith('select * from wallet_link_challenges where id = $1 and username = $2 and operation_id is not null')) {
+        return { rows: state.walletChallenges.filter((item) => item.id === params[0] && item.username === params[1] && item.operation_id) };
+      }
+      if (s.startsWith('select * from wallet_link_challenges where id = $1 and operation_id is null')) {
+        return { rows: state.walletChallenges.filter((item) => item.id === params[0] && !item.operation_id) };
+      }
+      if (s.startsWith('select * from wallet_operations where id = $1 and username = $2')) {
+        return { rows: state.walletOperations.filter((item) => item.id === params[0] && item.username === params[1]) };
+      }
+      if (s.startsWith('select role, wallet_address, wallet_status from auth where username')) {
+        const account = state.auth.find((item) => item.username === params[0]);
+        return { rows: account ? [{ role: account.role, wallet_address: account.wallet_address, wallet_status: account.wallet_status }] : [] };
+      }
+      if (s.startsWith('update wallet_link_challenges set consumed_at')) {
+        const challenge = state.walletChallenges.find((item) => item.id === params[0]);
+        if (challenge) challenge.consumed_at = new Date();
+        return { rows: [], rowCount: challenge ? 1 : 0 };
+      }
+      if (s.startsWith("update wallet_operations set status = 'ready_onchain'")) {
+        const operation = state.walletOperations.find((item) => item.id === params[0]);
+        if (operation) operation.status = 'ready_onchain';
+        return { rows: [], rowCount: operation ? 1 : 0 };
+      }
+      if (s.startsWith("update auth set wallet_address = $1, wallet_status = 'pending_onchain'")) {
+        const account = state.auth.find((item) => item.username === params[1]);
+        if (account) Object.assign(account, { wallet_address: params[0], wallet_status: 'pending_onchain' });
+        return { rows: [], rowCount: account ? 1 : 0 };
+      }
+      if (s.startsWith('select username, role, wallet_address, wallet_status from auth where lower(wallet_address)')) {
+        const account = state.auth.find((item) => item.wallet_address?.toLowerCase() === String(params[0]).toLowerCase());
+        return { rows: account ? [{ username: account.username, role: account.role, wallet_address: account.wallet_address, wallet_status: account.wallet_status }] : [] };
+      }
+      if (s.startsWith('select username, role, wallet_address, wallet_status, token_version from auth where username')) {
+        const account = state.auth.find((item) => item.username === params[0]);
+        return { rows: account ? [{ username: account.username, role: account.role, wallet_address: account.wallet_address, wallet_status: account.wallet_status, token_version: account.token_version }] : [] };
+      }
 
       if (s.startsWith('select * from wallet_operations where id')) return { rows: state.walletOperations.filter((operation) => operation.id === params[0]) };
       if (s.startsWith("update wallet_operations set tx_hash = $1 where id = $2")) {
@@ -260,6 +321,73 @@ test('POST /auth returns a token for valid credentials', async () => {
   assert.equal(res.headers['x-content-type-options'], 'nosniff');
   assert.equal(res.headers['x-frame-options'], 'DENY');
   assert.equal(res.headers['referrer-policy'], 'no-referrer');
+});
+
+test('business user proves their own wallet and the account stays write-disabled pending owner approval', async () => {
+  const userWallet = ethers.Wallet.createRandom();
+  const owner = '0x0000000000000000000000000000000000000099';
+  const chainAdapter = () => ({
+    address: '0x0000000000000000000000000000000000000022',
+    provider: {},
+    contract: {
+      async owner() { return owner; },
+      async roles() { return 0; },
+      async businessNames() { return ''; },
+      async walletSuccessor() { return ethers.ZeroAddress; },
+    },
+  });
+  const { app, pool } = buildApp({ chainAdapter });
+  pool.state.auth.push({ id: 3, username: 'supplier', password: hashPassword('supplier-password'), role: 'supplier', wallet_address: null, wallet_status: 'unlinked', token_version: 0 });
+  pool.state.profile.push({ username: 'supplier', name: 'Example Supply Ltd' });
+  const token = await loginAs(app, 'supplier', 'supplier-password');
+
+  const challenge = await request(app).post('/wallet-link/challenge')
+    .set('Authorization', `Bearer ${token}`).send({ walletAddress: userWallet.address });
+  assert.equal(challenge.status, 201, challenge.body.error);
+  assert.equal(challenge.body.action, 'link');
+  const signature = await userWallet.signMessage(challenge.body.message);
+  const verified = await request(app).post('/wallet-link/verify')
+    .set('Authorization', `Bearer ${token}`).send({ challengeId: challenge.body.challengeId, signature });
+  assert.equal(verified.status, 200, verified.body.error);
+  assert.equal(verified.body.walletStatus, 'pending_onchain');
+  assert.equal(pool.state.auth.find((account) => account.username === 'supplier').wallet_status, 'pending_onchain');
+  assert.equal(pool.state.walletOperations[0].status, 'ready_onchain');
+  assert.equal(pool.state.walletOperations[0].new_wallet_address.toLowerCase(), userWallet.address.toLowerCase());
+  assert.equal(pool.state.walletOperations[0].requested_by, 'supplier');
+
+  const adminToken = await loginAs(app, 'admin', 'admin');
+  const adminCannotSignOwnership = await request(app).post('/admin/wallet-operations')
+    .set('Authorization', `Bearer ${adminToken}`)
+    .send({ username: 'supplier', action: 'link', newWalletAddress: userWallet.address });
+  assert.equal(adminCannotSignOwnership.status, 403);
+});
+
+test('wallet login requires a fresh signature from an active linked business wallet', async () => {
+  const userWallet = ethers.Wallet.createRandom();
+  const owner = '0x0000000000000000000000000000000000000099';
+  const chainAdapter = () => ({
+    address: '0x0000000000000000000000000000000000000022',
+    provider: {},
+    contract: {
+      async owner() { return owner; },
+      async roles(address) { return address.toLowerCase() === userWallet.address.toLowerCase() ? 3 : 0; },
+      async businessNames() { return 'Example Supply Ltd'; },
+      async walletSuccessor() { return ethers.ZeroAddress; },
+    },
+  });
+  const { app, pool } = buildApp({ chainAdapter });
+  pool.state.auth.push({ id: 3, username: 'supplier', password: hashPassword('supplier-password'), role: 'supplier', wallet_address: userWallet.address, wallet_status: 'active', token_version: 0 });
+
+  const challenge = await request(app).post('/auth/wallet/challenge').send({ walletAddress: userWallet.address });
+  assert.equal(challenge.status, 200, challenge.body.error);
+  const signature = await userWallet.signMessage(challenge.body.message);
+  const signedIn = await request(app).post('/auth/wallet/verify').send({ challengeId: challenge.body.challengeId, signature });
+  assert.equal(signedIn.status, 200, signedIn.body.error);
+  assert.equal(signedIn.body.user.username, 'supplier');
+  assert.ok(signedIn.body.token);
+
+  const replay = await request(app).post('/auth/wallet/verify').send({ challengeId: challenge.body.challengeId, signature });
+  assert.equal(replay.status, 410);
 });
 
 test('malformed JSON gets generic error and security headers', async () => {

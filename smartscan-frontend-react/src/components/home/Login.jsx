@@ -10,6 +10,7 @@ import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
 import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { ethers } from 'ethers';
 
 const LOGIN_URL = '/auth';
 
@@ -23,6 +24,7 @@ export default function Login() {
     const [user, setUser] = useState('');
     const [pwd, setPwd] = useState('');
     const [errMsg, setErrMsg] = useState('');
+    const [walletBusy, setWalletBusy] = useState(false);
 
     const handleBack = () => {
         navigate('/');
@@ -63,6 +65,28 @@ export default function Login() {
             }
             errRef.current?.focus();
         }
+    };
+
+    const handleWalletLogin = async () => {
+        setErrMsg('');
+        setWalletBusy(true);
+        try {
+            if (!window.ethereum) throw new Error('Install or enable MetaMask to sign in with your linked wallet.');
+            const provider = new ethers.BrowserProvider(window.ethereum);
+            await provider.send('eth_requestAccounts', []);
+            const signer = await provider.getSigner();
+            const walletAddress = await signer.getAddress();
+            const challenge = await axios.post('/auth/wallet/challenge', { walletAddress });
+            const signature = await signer.signMessage(challenge.data.message);
+            const response = await axios.post('/auth/wallet/verify', { challengeId: challenge.data.challengeId, signature });
+            const account = response?.data?.user;
+            if (!account || !response?.data?.token) throw new Error('Wallet sign-in could not be completed.');
+            setAuth({ ...account, token: response.data.token });
+            navigate(`/${account.role}`, { replace: true });
+        } catch (error) {
+            setErrMsg(error.response?.data?.error || error.message || 'Unable to sign in with this wallet.');
+            errRef.current?.focus();
+        } finally { setWalletBusy(false); }
     };
 
     return (
@@ -149,6 +173,16 @@ export default function Login() {
                             sx={{ mt: 3, mb: 2 }}
                         >
                             Login
+                        </Button>
+                        <Button
+                            type="button"
+                            fullWidth
+                            variant="outlined"
+                            onClick={handleWalletLogin}
+                            disabled={walletBusy}
+                            sx={{ mb: 2 }}
+                        >
+                            {walletBusy ? 'Verify wallet signature…' : 'Sign in with linked wallet'}
                         </Button>
                         <Box
                             sx={{

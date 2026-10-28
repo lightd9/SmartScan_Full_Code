@@ -25,6 +25,8 @@ export default function Profile() {
   const [location, setLocation] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
   const [walletStatus, setWalletStatus] = useState('unlinked');
+  const [walletPendingAddress, setWalletPendingAddress] = useState('');
+  const [walletOperationStatus, setWalletOperationStatus] = useState('');
   const [walletMessage, setWalletMessage] = useState('');
   const [linkingWallet, setLinkingWallet] = useState(false);
 
@@ -50,6 +52,19 @@ export default function Profile() {
           setWalletAddress(p.wallet_address || '');
           setWalletStatus(p.wallet_status || 'unlinked');
         }
+        const pending = await axios.get('/wallet-link/status');
+        if (pending.data?.operation) {
+          const operation = pending.data.operation;
+          setWalletOperationStatus(operation.status);
+          setWalletPendingAddress(operation.new_wallet_address || '');
+          if (operation.action === 'link' && operation.status === 'ready_onchain') {
+            setWalletAddress(operation.new_wallet_address || '');
+            setWalletStatus('pending_onchain');
+          } else if (operation.action === 'link' && operation.status === 'pending_wallet_proof') {
+            setWalletAddress(operation.new_wallet_address || '');
+            setWalletStatus('proof_pending');
+          }
+        } else { setWalletPendingAddress(''); setWalletOperationStatus(''); }
       } catch (err) {
         console.error('Failed to load profile:', err);
       }
@@ -75,7 +90,13 @@ export default function Profile() {
       });
       setWalletAddress(verified.data.walletAddress);
       setWalletStatus(verified.data.walletStatus);
-      setWalletMessage('Corporate wallet cryptographically linked. Blockchain writes authorized.');
+      setWalletPendingAddress(verified.data.pendingWalletAddress || '');
+      setWalletOperationStatus(verified.data.operationStatus || '');
+      setWalletMessage(verified.data.operationStatus === 'ready_onchain'
+        ? 'Wallet ownership verified. The administrator can now see this request and must approve the on-chain role before it takes effect.'
+        : verified.data.walletStatus === 'active'
+        ? 'Wallet linked and verified. Blockchain writes are enabled for this account.'
+        : 'Wallet ownership verified. Your wallet is visible to the administrator and will be enabled for blockchain writes after its on-chain role is approved.');
     } catch (error) {
       setWalletMessage(error.response?.data?.error || error.message || 'Unable to link wallet.');
     } finally {
@@ -222,14 +243,14 @@ export default function Profile() {
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Active Signing Address
+                  {walletStatus === 'active' ? 'Active Signing Address' : 'Wallet address'}
                 </span>
-                <span className={`status-pill ${walletAddress ? 'green' : 'amber'}`}>
-                  {walletStatus === 'linked' || walletStatus === 'active' ? 'Linked & Verified' : 'Unlinked'}
+                <span className={`status-pill ${walletStatus === 'active' ? 'green' : 'amber'}`}>
+                  {walletStatus === 'active' ? 'Active' : walletStatus === 'pending_onchain' ? 'Awaiting admin approval' : walletStatus === 'proof_pending' ? 'Awaiting your signature' : walletAddress ? walletStatus : 'Unlinked'}
                 </span>
               </div>
               <code style={{ fontSize: '13px', color: 'var(--color-text-main)', wordBreak: 'break-all', display: 'block' }}>
-                {walletAddress || '0x — No wallet linked to this account'}
+                {walletAddress || '— No wallet linked to this account'}
               </code>
             </div>
 
@@ -238,8 +259,8 @@ export default function Profile() {
                 style={{
                   padding: '10px 14px',
                   borderRadius: '10px',
-                  background: walletStatus === 'active' || walletStatus === 'linked' ? 'var(--status-green-bg)' : 'var(--color-surface-subtle)',
-                  color: walletStatus === 'active' || walletStatus === 'linked' ? 'var(--status-green-text)' : 'var(--color-text-secondary)',
+                  background: walletStatus === 'active' ? 'var(--status-green-bg)' : 'var(--color-surface-subtle)',
+                  color: walletStatus === 'active' ? 'var(--status-green-text)' : 'var(--color-text-secondary)',
                   fontSize: '12.5px',
                   marginBottom: 12,
                 }}
@@ -248,7 +269,7 @@ export default function Profile() {
               </div>
             )}
 
-            {!walletAddress ? (
+            {!walletAddress || (walletStatus === 'active' && !walletPendingAddress) || walletOperationStatus === 'pending_wallet_proof' ? (
               <button
                 type="button"
                 className="btn-primary-action"
@@ -256,21 +277,21 @@ export default function Profile() {
                 onClick={linkWallet}
                 disabled={linkingWallet}
               >
-                {linkingWallet ? 'Signing Verification Challenge…' : 'Link Corporate Wallet (EIP-191)'}
+                {linkingWallet ? 'Signing Verification Challenge…' : walletOperationStatus === 'pending_wallet_proof' ? 'Resume Wallet Verification' : walletAddress ? 'Replace Business Wallet' : 'Connect Your Wallet'}
               </button>
             ) : (
-              <button
-                type="button"
-                className="btn-secondary-action"
-                style={{ width: '100%', justifyContent: 'center', marginBottom: 8 }}
-                onClick={linkWallet}
-                disabled={linkingWallet}
-              >
-                {linkingWallet ? 'Signing Verification Challenge…' : 'Re-verify / Switch Connected Wallet'}
-              </button>
+              <p style={{ margin: 0, fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
+                Your wallet ownership is verified. It becomes usable for supply-chain actions after the administrator approves its on-chain role. You do not need to share your wallet or recovery phrase.
+              </p>
             )}
 
-            {walletAddress && (
+            {walletPendingAddress && walletStatus === 'active' && (
+              <p style={{ margin: '8px 0 0', fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
+                {walletOperationStatus === 'pending_wallet_proof' ? 'Replacement awaiting your wallet signature:' : 'Replacement proof verified; awaiting administrator approval:'} <code>{walletPendingAddress}</code>. Your current wallet remains active until the on-chain change is confirmed.
+              </p>
+            )}
+
+            {walletAddress && walletStatus === 'active' && (
               <p style={{ margin: 0, fontSize: '12px', color: 'var(--color-text-muted)' }}>
                 Supply-chain writes on IdenteefiV2 are authorized only when this connected address matches transactions.
               </p>

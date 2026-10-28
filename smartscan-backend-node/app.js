@@ -286,52 +286,84 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     }
   });
 
+  app.get('/wallet-link/status', authenticate, async (req, res, next) => {
+    try {
+      const { rows } = await pool.query(
+        "SELECT id, action, new_wallet_address, status, created_at FROM wallet_operations WHERE username = $1 AND status IN ('pending_wallet_proof', 'ready_onchain') ORDER BY created_at DESC LIMIT 1",
+        [req.user.username],
+      );
+      return res.json({ operation: rows[0] || null });
+    } catch (err) { return next(err); }
+  });
+
+  // Users prove control of their own wallet. The owner/Safe remains responsible
+  // only for assigning the corresponding on-chain business role.
   app.post('/wallet-link/challenge', authenticate, authRateLimit, async (req, res, next) => {
+    const client = await pool.connect();
     try {
       const walletAddress = normalizedAddress(req.body?.walletAddress);
       if (!walletAddress) return res.status(400).json({ error: 'A valid wallet address is required' });
-      const { rows } = await pool.query('SELECT role, wallet_address, wallet_status FROM auth WHERE username = $1', [req.user.username]);
-      if (!rows.length) return res.status(404).json({ error: 'Account not found' });
-      const account = rows[0];
-      if (account.wallet_address || !['unlinked', 'revoked'].includes(account.wallet_status)) {
-        return res.status(409).json({ error: 'This account cannot self-link a wallet; ask an administrator to manage the existing link' });
+      await client.query('BEGIN');
+      const result = await client.query(
+        'SELECT a.role, a.wallet_address, a.wallet_status, p.name AS business_name FROM auth a JOIN profile p ON p.username = a.username WHERE a.username = $1 FOR UPDATE OF a',
+        [req.user.username],
+      );
+      if (!result.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Account not found' }); }
+      const account = result.rows[0];
+      if (!['manufacturer', 'supplier', 'retailer'].includes(account.role)) {
+        await client.query('ROLLBACK'); return res.status(403).json({ error: 'Wallet self-linking is available only for manufacturer, supplier, and retailer accounts.' });
       }
-      const { contract } = getChainContract();
-      if (Number(await contract.roles(walletAddress)) !== roleForChain(account.role) || !(await contract.businessNames(walletAddress)).trim() ||
-          (await contract.walletSuccessor(walletAddress)) !== ethers.ZeroAddress) {
-        return res.status(403).json({ error: 'The wallet does not have the matching on-chain role' });
-      }
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const lockedAccount = await client.query('SELECT role, wallet_address, wallet_status FROM auth WHERE username = $1 FOR UPDATE', [req.user.username]);
-        if (!lockedAccount.rows.length || lockedAccount.rows[0].wallet_address || !['unlinked', 'revoked'].includes(lockedAccount.rows[0].wallet_status)) {
-          await client.query('ROLLBACK');
-          return res.status(409).json({ error: 'Account wallet state changed; refresh before requesting a challenge' });
-        }
-        const openOperation = await client.query(
-          "SELECT 1 FROM wallet_operations WHERE username = $1 AND status IN ('pending_wallet_proof', 'ready_onchain') LIMIT 1",
-          [req.user.username],
-        );
-        if (openOperation.rowCount) {
-          await client.query('ROLLBACK');
-          return res.status(409).json({ error: 'An administrator wallet operation is already pending for this account' });
-        }
-        if (Number(await contract.roles(walletAddress)) !== roleForChain(lockedAccount.rows[0].role) || !(await contract.businessNames(walletAddress)).trim() ||
-            (await contract.walletSuccessor(walletAddress)) !== ethers.ZeroAddress) {
-          await client.query('ROLLBACK');
-          return res.status(403).json({ error: 'The wallet does not have the matching on-chain role and registered business name' });
-        }
-        const challenge = await createWalletChallenge(client, {
-          username: req.user.username, role: lockedAccount.rows[0].role, walletAddress,
-        });
-        await client.query('COMMIT');
-        return res.json(challenge);
-      } catch (error) {
+      const action = account.wallet_status === 'active' && account.wallet_address ? 'replace' : 'link';
+      if ((action === 'link' && !['unlinked', 'revoked'].includes(account.wallet_status)) ||
+          (action === 'replace' && account.wallet_status !== 'active')) {
         await client.query('ROLLBACK');
-        throw error;
-      } finally { client.release(); }
-    } catch (err) { return next(err); }
+        return res.status(409).json({ error: 'A wallet operation is already pending or the account wallet is suspended.' });
+      }
+      if (action === 'replace' && account.wallet_address.toLowerCase() === walletAddress.toLowerCase()) {
+        await client.query('ROLLBACK'); return res.status(400).json({ error: 'Connect a different wallet to replace the current one.' });
+      }
+      const openOperation = await client.query(
+        "SELECT * FROM wallet_operations WHERE username = $1 AND status IN ('pending_wallet_proof', 'ready_onchain') LIMIT 1 FOR UPDATE",
+        [req.user.username],
+      );
+      if (openOperation.rowCount) {
+        const operation = openOperation.rows[0];
+        if (operation.status === 'pending_wallet_proof' && operation.new_wallet_address.toLowerCase() === walletAddress.toLowerCase()) {
+          const challenge = await createWalletChallenge(client, {
+            username: req.user.username, role: account.role, walletAddress, operationId: operation.id, action: operation.action,
+          });
+          await client.query('COMMIT');
+          return res.json({ ...challenge, operationId: operation.id, action: operation.action });
+        }
+        await client.query('ROLLBACK'); return res.status(409).json({ error: 'A wallet operation is already in progress. Finish or ask an administrator to cancel it before choosing another wallet.' });
+      }
+      const duplicate = await client.query('SELECT username FROM auth WHERE lower(wallet_address) = lower($1) AND username <> $2', [walletAddress, req.user.username]);
+      if (duplicate.rowCount) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'That wallet is already linked to another account.' }); }
+      const { contract } = getChainContract();
+      const [owner, chainRole, successor] = await Promise.all([contract.owner(), contract.roles(walletAddress), contract.walletSuccessor(walletAddress)]);
+      if (owner.toLowerCase() === walletAddress.toLowerCase() || Number(chainRole) !== 0 || successor !== ethers.ZeroAddress) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Choose an unused wallet with no existing business role or retired-wallet status.' });
+      }
+      const operationId = crypto.randomUUID();
+      await client.query(
+        "INSERT INTO wallet_operations (id, username, action, old_wallet_address, new_wallet_address, role, business_name, requested_by, status) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending_wallet_proof')",
+        [operationId, req.user.username, action, account.wallet_address, walletAddress, account.role, account.business_name, req.user.username],
+      );
+      await client.query(
+        'INSERT INTO wallet_operation_events (operation_id, actor_username, event_type, details) VALUES ($1,$2,$3,$4)',
+        [operationId, req.user.username, 'user_requested_wallet_link', { action, walletAddress }],
+      );
+      const challenge = await createWalletChallenge(client, {
+        username: req.user.username, role: account.role, walletAddress, operationId, action,
+      });
+      await client.query('COMMIT');
+      return res.status(201).json({ ...challenge, operationId, action });
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_rollbackError) { /* transaction may already be closed */ }
+      if (err.code === '23505') return res.status(409).json({ error: 'A wallet is already linked or an operation is in progress.' });
+      return next(err);
+    } finally { client.release(); }
   });
 
   app.post('/wallet-link/verify', authenticate, authRateLimit, async (req, res, next) => {
@@ -341,52 +373,103 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!/^[0-9a-f-]{36}$/i.test(challengeId || '') || !validText(signature, 300)) return res.status(400).json({ error: 'Challenge and signature are required' });
       await client.query('BEGIN');
       const challengeResult = await client.query(
-        'SELECT * FROM wallet_link_challenges WHERE id = $1 AND username = $2 AND operation_id IS NULL FOR UPDATE',
+        'SELECT * FROM wallet_link_challenges WHERE id = $1 AND username = $2 AND operation_id IS NOT NULL FOR UPDATE',
         [challengeId, req.user.username],
       );
-      if (!challengeResult.rows.length) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Wallet challenge not found' });
-      }
+      if (!challengeResult.rows.length) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Wallet-link challenge not found' }); }
       const challenge = challengeResult.rows[0];
-      if (challenge.consumed_at || new Date(challenge.expires_at) <= new Date()) {
-        await client.query('ROLLBACK');
-        return res.status(410).json({ error: 'Wallet challenge expired or already used' });
-      }
+      if (challenge.consumed_at || new Date(challenge.expires_at) <= new Date()) { await client.query('ROLLBACK'); return res.status(410).json({ error: 'Wallet challenge expired or already used' }); }
       let recovered;
       try { recovered = normalizedAddress(ethers.verifyMessage(challenge.message, signature)); } catch (_signatureError) { recovered = null; }
-      if (!recovered || recovered.toLowerCase() !== challenge.wallet_address.toLowerCase()) {
-        await client.query('ROLLBACK');
-        return res.status(401).json({ error: 'Wallet signature does not match the challenged address' });
+      if (!recovered || recovered.toLowerCase() !== challenge.wallet_address.toLowerCase()) { await client.query('ROLLBACK'); return res.status(401).json({ error: 'Wallet signature does not match the challenged address' }); }
+      const operationResult = await client.query('SELECT * FROM wallet_operations WHERE id = $1 AND username = $2 FOR UPDATE', [challenge.operation_id, req.user.username]);
+      const operation = operationResult.rows[0];
+      if (!operation || operation.status !== 'pending_wallet_proof' || !challenge.message.includes(`Action: ${operation.action}`)) {
+        await client.query('ROLLBACK'); return res.status(409).json({ error: 'Wallet operation changed; request a new challenge.' });
+      }
+      const { contract } = getChainContract();
+      const [owner, chainRole, businessName, successor] = await Promise.all([
+        contract.owner(), contract.roles(recovered), contract.businessNames(recovered), contract.walletSuccessor(recovered),
+      ]);
+      if (owner.toLowerCase() === recovered.toLowerCase() || Number(chainRole) !== 0 || successor !== ethers.ZeroAddress) {
+        await client.query('ROLLBACK'); return res.status(409).json({ error: 'Wallet is no longer available for this business role.' });
       }
       const accountResult = await client.query('SELECT role, wallet_address, wallet_status FROM auth WHERE username = $1 FOR UPDATE', [req.user.username]);
       const account = accountResult.rows[0];
-      if (account.wallet_address || !['unlinked', 'revoked'].includes(account.wallet_status)) {
-        await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'Account wallet state changed; request a fresh challenge' });
+      if (!account || account.role !== operation.role || (operation.action === 'link' && (account.wallet_address || !['unlinked', 'revoked'].includes(account.wallet_status))) ||
+          (operation.action === 'replace' && (account.wallet_address?.toLowerCase() !== operation.old_wallet_address?.toLowerCase() || account.wallet_status !== 'active'))) {
+        await client.query('ROLLBACK'); return res.status(409).json({ error: 'Account wallet state changed; contact an administrator.' });
       }
-      const { contract } = getChainContract();
-      if (Number(await contract.roles(recovered)) !== roleForChain(account.role) || !(await contract.businessNames(recovered)).trim() ||
-          (await contract.walletSuccessor(recovered)) !== ethers.ZeroAddress) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ error: 'The wallet role no longer matches the application account role' });
+      await client.query('UPDATE wallet_link_challenges SET consumed_at = now() WHERE id = $1', [challengeId]);
+      await client.query("UPDATE wallet_operations SET status = 'ready_onchain' WHERE id = $1", [operation.id]);
+      if (operation.action === 'link') {
+        await client.query("UPDATE auth SET wallet_address = $1, wallet_status = 'pending_onchain' WHERE username = $2", [recovered, req.user.username]);
       }
       await client.query(
-        "UPDATE auth SET wallet_address = $1, wallet_status = 'active' WHERE username = $2",
-        [recovered, req.user.username],
+        'INSERT INTO wallet_operation_events (operation_id, actor_username, event_type, details) VALUES ($1,$2,$3,$4)',
+        [operation.id, req.user.username, 'new_wallet_ownership_proved', { walletAddress: recovered }],
       );
-      await client.query('UPDATE wallet_link_challenges SET consumed_at = now() WHERE id = $1', [challengeId]);
       await client.query(
         'INSERT INTO wallet_account_events (username, wallet_address, event_type, details) VALUES ($1,$2,$3,$4)',
-        [req.user.username, recovered, 'wallet_linked', { challengeId, role: account.role }],
+        [req.user.username, recovered, 'wallet_ownership_proved', { operationId: operation.id, action: operation.action }],
       );
       await client.query('COMMIT');
-      return res.json({ walletAddress: recovered, walletStatus: 'active' });
+      return res.json({
+        walletAddress: operation.action === 'link' ? recovered : account.wallet_address,
+        pendingWalletAddress: recovered,
+        walletStatus: operation.action === 'link' ? 'pending_onchain' : 'active',
+        operationId: operation.id,
+        action: operation.action,
+        operationStatus: 'ready_onchain',
+      });
     } catch (err) {
       try { await client.query('ROLLBACK'); } catch (_rollbackError) { /* transaction may already be closed */ }
-      if (err.code === '23505') return res.status(409).json({ error: 'That wallet is already linked to another account' });
+      if (err.code === '23505') return res.status(409).json({ error: 'That wallet is already linked to another account.' });
       return next(err);
     } finally { client.release(); }
+  });
+
+  app.post('/auth/wallet/challenge', authRateLimit, async (req, res, next) => {
+    const client = await pool.connect();
+    try {
+      const walletAddress = normalizedAddress(req.body?.walletAddress);
+      if (!walletAddress) return res.status(400).json({ error: 'A valid wallet address is required.' });
+      await client.query('BEGIN');
+      const { rows } = await client.query('SELECT username, role, wallet_address, wallet_status FROM auth WHERE lower(wallet_address) = lower($1)', [walletAddress]);
+      const account = rows[0];
+      if (!account || account.wallet_status !== 'active') { await client.query('ROLLBACK'); return res.status(401).json({ error: 'No active SmartScan account is linked to this wallet.' }); }
+      if (!['manufacturer', 'supplier', 'retailer'].includes(account.role)) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'Wallet sign-in is available only for linked business accounts.' }); }
+      const { contract } = getChainContract();
+      if (Number(await contract.roles(walletAddress)) !== roleForChain(account.role)) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'The linked wallet role does not match this account.' }); }
+      const challenge = await createWalletChallenge(client, { username: account.username, role: account.role, walletAddress, action: 'wallet_login' });
+      await client.query('COMMIT');
+      return res.json(challenge);
+    } catch (err) { try { await client.query('ROLLBACK'); } catch (_rollbackError) {} return next(err); } finally { client.release(); }
+  });
+
+  app.post('/auth/wallet/verify', authRateLimit, async (req, res, next) => {
+    const client = await pool.connect();
+    try {
+      const { challengeId, signature } = req.body || {};
+      if (!/^[0-9a-f-]{36}$/i.test(challengeId || '') || !validText(signature, 300)) return res.status(400).json({ error: 'Challenge and signature are required.' });
+      await client.query('BEGIN');
+      const result = await client.query('SELECT * FROM wallet_link_challenges WHERE id = $1 AND operation_id IS NULL FOR UPDATE', [challengeId]);
+      const challenge = result.rows[0];
+      if (!challenge || !challenge.message.includes('Action: wallet_login')) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Wallet login challenge not found.' }); }
+      if (challenge.consumed_at || new Date(challenge.expires_at) <= new Date()) { await client.query('ROLLBACK'); return res.status(410).json({ error: 'Wallet login challenge expired or already used.' }); }
+      let recovered;
+      try { recovered = normalizedAddress(ethers.verifyMessage(challenge.message, signature)); } catch (_signatureError) { recovered = null; }
+      if (!recovered || recovered.toLowerCase() !== challenge.wallet_address.toLowerCase()) { await client.query('ROLLBACK'); return res.status(401).json({ error: 'Wallet signature is invalid.' }); }
+      const accountResult = await client.query('SELECT username, role, wallet_address, wallet_status, token_version FROM auth WHERE username = $1 FOR UPDATE', [challenge.username]);
+      const account = accountResult.rows[0];
+      if (!account || account.wallet_status !== 'active' || account.wallet_address?.toLowerCase() !== recovered.toLowerCase()) { await client.query('ROLLBACK'); return res.status(401).json({ error: 'This wallet is not actively linked to an account.' }); }
+      const { contract } = getChainContract();
+      if (Number(await contract.roles(recovered)) !== roleForChain(account.role)) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'On-chain wallet role does not match this account.' }); }
+      await client.query('UPDATE wallet_link_challenges SET consumed_at = now() WHERE id = $1', [challengeId]);
+      await client.query('COMMIT');
+      const token = jwt.sign({ username: account.username, role: account.role, tokenVersion: Number(account.token_version || 0) }, jwtSecret, { expiresIn: jwtExpiresIn });
+      return res.json({ token, user: { username: account.username, role: account.role, walletAddress: account.wallet_address, walletStatus: account.wallet_status } });
+    } catch (err) { try { await client.query('ROLLBACK'); } catch (_rollbackError) {} return next(err); } finally { client.release(); }
   });
 
   app.post('/wallet/authorize-write', authenticate, writeRateLimit, async (req, res, next) => {
@@ -741,6 +824,9 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!validText(username, 50) || !['link', 'replace', 'suspend', 'revoke', 'restore'].includes(action)) {
         return res.status(400).json({ error: 'A target account and valid wallet operation are required' });
       }
+      if (['link', 'replace'].includes(action)) {
+        return res.status(403).json({ error: 'Users must request linking or replacement from their own Profile using their wallet. Admins execute the resulting owner-authorized chain operation from the audit queue.' });
+      }
       if (['link', 'replace'].includes(action) && !newWalletAddress) return res.status(400).json({ error: 'A valid new wallet address is required' });
       await client.query('BEGIN');
       const result = await client.query(
@@ -818,44 +904,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   });
 
   app.post('/admin/wallet-operations/:id/verify-wallet', authenticate, authorize('admin'), writeRateLimit, async (req, res, next) => {
-    const client = await pool.connect();
-    try {
-      const { challengeId, signature } = req.body || {};
-      if (!/^[0-9a-f-]{36}$/i.test(req.params.id) || !/^[0-9a-f-]{36}$/i.test(challengeId || '')) {
-        return res.status(400).json({ error: 'Invalid wallet operation or challenge identifier' });
-      }
-      await client.query('BEGIN');
-      const result = await client.query(
-        'SELECT o.*, c.message, c.wallet_address AS challenged_wallet, c.expires_at, c.consumed_at, c.id AS challenge_id FROM wallet_operations o JOIN wallet_link_challenges c ON c.operation_id = o.id WHERE o.id = $1 AND c.id = $2 FOR UPDATE OF o, c',
-        [req.params.id, challengeId],
-      );
-      if (!result.rows.length) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'Wallet proof challenge not found' });
-      }
-      const operation = result.rows[0];
-      if (!['link', 'replace'].includes(operation.action) || operation.status !== 'pending_wallet_proof' || operation.consumed_at || new Date(operation.expires_at) <= new Date()) {
-        await client.query('ROLLBACK');
-        return res.status(410).json({ error: 'Wallet proof challenge expired or already used' });
-      }
-      let recovered;
-      try { recovered = normalizedAddress(ethers.verifyMessage(operation.message, signature || '')); } catch (_signatureError) { recovered = null; }
-      if (!recovered || recovered.toLowerCase() !== operation.challenged_wallet.toLowerCase()) {
-        await client.query('ROLLBACK');
-        return res.status(401).json({ error: 'Wallet signature does not match the challenged address' });
-      }
-      await client.query('UPDATE wallet_link_challenges SET consumed_at = now() WHERE id = $1', [operation.challenge_id]);
-      await client.query("UPDATE wallet_operations SET status = 'ready_onchain' WHERE id = $1", [operation.id]);
-      await client.query(
-        'INSERT INTO wallet_operation_events (operation_id, actor_username, event_type, details) VALUES ($1,$2,$3,$4)',
-        [operation.id, req.user.username, 'new_wallet_ownership_proved', { walletAddress: recovered }],
-      );
-      await client.query('COMMIT');
-      return res.json({ operationId: operation.id, status: 'ready_onchain', walletAddress: recovered });
-    } catch (err) {
-      try { await client.query('ROLLBACK'); } catch (_rollbackError) { /* transaction may already be closed */ }
-      return next(err);
-    } finally { client.release(); }
+    return res.status(403).json({ error: 'Wallet ownership proof must be signed by the business user from their own account.' });
   });
 
   app.post('/admin/wallet-operations/:id/cancel', authenticate, authorize('admin'), writeRateLimit, async (req, res, next) => {
@@ -1030,7 +1079,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       }
       let update;
       if (operation.action === 'link' || operation.action === 'replace') {
-        update = await client.query("UPDATE auth SET wallet_address = $1, wallet_status = 'active' WHERE username = $2 AND wallet_address IS NOT DISTINCT FROM $3", [newWallet, operation.username, oldWallet]);
+        update = await client.query(
+          "UPDATE auth SET wallet_address = $1, wallet_status = 'active' WHERE username = $2 AND (( $4 = 'link' AND wallet_address = $1 AND wallet_status = 'pending_onchain') OR ($4 = 'replace' AND wallet_address IS NOT DISTINCT FROM $3))",
+          [newWallet, operation.username, oldWallet, operation.action],
+        );
       } else if (operation.action === 'suspend') {
         update = await client.query("UPDATE auth SET wallet_status = 'suspended' WHERE username = $1 AND wallet_address = $2 AND wallet_status = 'active'", [operation.username, oldWallet]);
       } else if (operation.action === 'restore') {

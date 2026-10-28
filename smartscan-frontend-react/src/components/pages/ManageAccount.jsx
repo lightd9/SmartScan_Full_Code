@@ -35,7 +35,7 @@ const ManageAccount = () => {
     const [operations, setOperations] = useState([]);
     const [walletAudit, setWalletAudit] = useState([]);
     const [selected, setSelected] = useState(null);
-    const [action, setAction] = useState('link');
+    const [action, setAction] = useState('suspend');
     const [newWalletAddress, setNewWalletAddress] = useState('');
     const [pendingOperation, setPendingOperation] = useState(null);
     const [executionMode, setExecutionMode] = useState('direct');
@@ -68,6 +68,9 @@ const ManageAccount = () => {
                 throw new Error('Enter a valid new wallet address.');
             }
             let operation = pendingOperation;
+            if (operation && operation.status !== 'ready_onchain') {
+                throw new Error('This request is waiting for the business user to prove wallet ownership. The admin must not sign with the user’s wallet.');
+            }
             if (!operation) {
                 const created = await axios.post('/admin/wallet-operations', {
                     username: selected.username,
@@ -82,24 +85,6 @@ const ManageAccount = () => {
                     oldWalletAddress: selected.wallet_address,
                     newWalletAddress: ['link', 'replace'].includes(action) ? newWalletAddress : null,
                 };
-                setPendingOperation(operation);
-            }
-
-            if (operation.challenge && operation.status !== 'ready_onchain') {
-                if (!window.ethereum) throw new Error('MetaMask is required for the new wallet ownership proof.');
-                const proofProvider = new ethers.BrowserProvider(window.ethereum);
-                await proofProvider.send('eth_requestAccounts', []);
-                const proofSigner = await proofProvider.getSigner();
-                const proofAddress = await proofSigner.getAddress();
-                if (proofAddress.toLowerCase() !== operation.newWalletAddress.toLowerCase()) {
-                    throw new Error(`Switch MetaMask to the new wallet ${operation.newWalletAddress}. This operation is saved; retry after switching.`);
-                }
-                const signature = await proofSigner.signMessage(operation.challenge.message);
-                await axios.post(`/admin/wallet-operations/${operation.operationId}/verify-wallet`, {
-                    challengeId: operation.challenge.challengeId,
-                    signature,
-                });
-                operation = { ...operation, status: 'ready_onchain' };
                 setPendingOperation(operation);
             }
 
@@ -182,6 +167,18 @@ const ManageAccount = () => {
         } finally { setBusy(false); }
     };
 
+    const reviewOperation = (op) => {
+        setSelected(rows.find((row) => row.username === op.username) || null);
+        setPendingOperation({
+            operationId: op.id, action: op.action, username: op.username, role: op.role,
+            businessName: op.business_name, oldWalletAddress: op.old_wallet_address,
+            newWalletAddress: op.new_wallet_address, status: op.status, txHash: op.tx_hash,
+        });
+        setMessage(op.status === 'pending_wallet_proof'
+            ? 'Waiting for this business user to sign the wallet ownership challenge.'
+            : 'Review the user-proved wallet request, then execute its role change using the contract owner or Safe.');
+    };
+
     const safeCall = (() => {
         if (!pendingOperation || executionMode !== 'multisig' || pendingOperation.status !== 'ready_onchain') return null;
         const iface = new ethers.Interface(CONTRACT_ABI);
@@ -201,7 +198,7 @@ const ManageAccount = () => {
         <DashboardShell>
             <GreetingBanner
                 title="Account Directory & Corporate Wallets"
-                subtitle="Manage verified enterprise accounts, roles, and cryptographic signing keys"
+                subtitle="Review business-user wallet requests and manage authorized on-chain roles"
                 metrics={[
                     {
                         icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ACC</span>,
@@ -229,7 +226,7 @@ const ManageAccount = () => {
                             Registered Business Directory
                         </h2>
                         <span style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
-                            Select any partner account below to execute an audited wallet operation
+                            Select an account below for administrative suspension, restoration, or revocation. Users initiate linking and replacement from their own Profile.
                         </span>
                     </div>
                     {selected && (
@@ -255,17 +252,17 @@ const ManageAccount = () => {
                 <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--color-text-main)' }}>
                     Audited Wallet Key Management
                 </h2>
+                <Alert severity="info">
+                    A business user connects and signs with their own wallet from Profile. Select their proved request in Recent Wallet Operations Audit to grant or replace the on-chain role. The admin never needs the user’s wallet or recovery phrase.
+                </Alert>
                 <span style={{ fontSize: '13px', color: 'var(--color-text-secondary)' }}>
                     Selected Account: <strong>{selected ? `${selected.name} (${selected.username})` : 'None selected (click a row in the table above)'}</strong>
                 </span>
 
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 1 }}>
-                    <TextField select label="Operation Type" value={action} onChange={(event) => setAction(event.target.value)} sx={{ minWidth: 180 }}>
-                        {['link', 'replace', 'suspend', 'restore', 'revoke'].map((item) => <MenuItem key={item} value={item}>{item.toUpperCase()}</MenuItem>)}
-                    </TextField>
-                    {['link', 'replace'].includes(action) && (
-                        <TextField label="New Ethereum Wallet Address (0x...)" value={newWalletAddress} onChange={(event) => setNewWalletAddress(event.target.value)} sx={{ minWidth: 420 }} />
-                    )}
+                    {!pendingOperation && <TextField select label="Operation Type" value={action} onChange={(event) => setAction(event.target.value)} sx={{ minWidth: 180 }}>
+                        {['suspend', 'restore', 'revoke'].map((item) => <MenuItem key={item} value={item}>{item.toUpperCase()}</MenuItem>)}
+                    </TextField>}
                     <TextField select label="Owner Execution Mode" value={executionMode} onChange={(event) => setExecutionMode(event.target.value)} sx={{ minWidth: 200 }}>
                         <MenuItem value="direct">Direct Owner Wallet (MetaMask)</MenuItem>
                         <MenuItem value="multisig">Safe / Multisig Contract</MenuItem>
@@ -276,7 +273,7 @@ const ManageAccount = () => {
                         onClick={submitWalletOperation}
                         disabled={busy || (!selected && !pendingOperation)}
                     >
-                        Execute Audited Operation
+                        {pendingOperation ? 'Execute User Wallet Request' : 'Execute Admin Wallet Action'}
                     </button>
                     {pendingOperation?.status === 'pending_wallet_proof' && (
                         <button type="button" className="btn-secondary-action" onClick={() => cancelPendingProof()} disabled={busy}>
@@ -312,7 +309,7 @@ const ManageAccount = () => {
                             <span style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>No operations logged yet.</span>
                         ) : (
                             operations.map((op) => (
-                                <div key={op.id} style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', fontSize: '12.5px' }}>
+                                <button type="button" key={op.id} onClick={() => reviewOperation(op)} style={{ textAlign: 'left', cursor: 'pointer', padding: '10px 14px', borderRadius: 8, background: 'var(--color-surface-hover)', border: '1px solid var(--color-border)', fontSize: '12.5px' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                                         <strong style={{ color: 'var(--color-text-main)' }}>{op.action?.toUpperCase()} · @{op.username}</strong>
                                         <span className="status-pill blue">{op.status}</span>
@@ -320,7 +317,7 @@ const ManageAccount = () => {
                                     <span style={{ color: 'var(--color-text-muted)', fontSize: '11.5px', display: 'block' }}>
                                         {op.created_at} · Tx: {op.tx_hash ? `${op.tx_hash.slice(0, 16)}...` : 'None'}
                                     </span>
-                                </div>
+                                </button>
                             ))
                         )}
                     </div>
