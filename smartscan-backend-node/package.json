@@ -14,6 +14,7 @@
     "backup:database": "node backup-database.js",
     "migrate:uploads": "node migrate-uploads-to-s3.js",
     "migrate:init-base": "node apply-base-schema.js",
+    "seed:staging": "node seed-staging-users.js",
     "migrate": "node migrate.js",
     "migrate:preflight": "node migration-preflight-cli.js",
     "reconcile": "node reconcile.js",
