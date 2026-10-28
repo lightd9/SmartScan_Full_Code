@@ -1097,7 +1097,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       await client.query("UPDATE wallet_operations SET status = 'completed', tx_hash = $1, completed_at = now() WHERE id = $2", [txHash, operation.id]);
       await client.query(
         'INSERT INTO wallet_operation_events (operation_id, actor_username, event_type, details) VALUES ($1,$2,$3,$4)',
-        [operation.id, req.user.username, 'onchain_operation_completed', { txHash, chainId: transaction.chainId }],
+        [operation.id, req.user.username, 'onchain_operation_completed', { txHash, chainId: Number(transaction.chainId) }],
       );
       if (oldWallet) {
         await client.query(

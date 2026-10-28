@@ -29,6 +29,11 @@ function createFakePool() {
   const pool = {
     state,
     async query(sql, params = []) {
+      for (const param of params) {
+        if (param && typeof param === 'object' && !(param instanceof Date)) {
+          JSON.stringify(param);
+        }
+      }
       const s = sql.trim().toLowerCase();
 
       if (s.startsWith('select a.role, a.wallet_address, a.wallet_status, p.name as business_name from auth a join profile p')) {
