@@ -129,7 +129,11 @@ const UpdateProductDetails = () => {
                     await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'confirm_delivery' });
                     transaction = await productContract.confirmDelivery(serialNumber, currName, currLocation, currDate.toString());
                 } else if (currentStage === 1 || currentStage === 3) {
-                    if (custodian.toLowerCase() !== wallet) throw new Error("Connect the wallet currently recorded as custodian.");
+                    if (custodian.toLowerCase() !== wallet) {
+                        throw new Error(currentStage === 1
+                            ? "This product has not been dispatched yet. The manufacturer must record the dispatch on-chain before a supplier can confirm receipt. You do not need access to the manufacturer's wallet."
+                            : "This product is already marked delivered. Only its recorded custodian can initiate the next handover or mark it sold.");
+                    }
                     if (auth.role === "retailer") {
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'mark_sold' });
                         transaction = await productContract.markSold(serialNumber, currName, currLocation, currDate.toString());
@@ -250,12 +254,6 @@ const UpdateProductDetails = () => {
                         disabled
                         value={dayjs(currDate * 1000).format("MMMM D, YYYY h:mm A")}
                     />
-
-                    {(auth.role === "manufacturer" || auth.role === "supplier") && (
-                        <Alert severity="info">
-                            Dispatch does not require choosing a recipient. The next eligible registered supplier or retailer confirms receipt with their linked wallet.
-                        </Alert>
-                    )}
 
                     {auth.role === 'supplier' || auth.role === 'retailer' ? (
                         <Alert severity="info">If this item is awaiting receipt, submit from your linked wallet to claim custody. The contract checks your registered role.</Alert>

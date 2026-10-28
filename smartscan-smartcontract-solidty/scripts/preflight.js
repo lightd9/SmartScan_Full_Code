@@ -13,6 +13,7 @@ async function main() {
   }
 
   const [deployer] = await ethers.getSigners();
+  const balance = deployer ? await ethers.provider.getBalance(deployer.address) : 0n;
   const rawAssignments = [
     { address: process.env.MANUFACTURER_ADDRESS, name: process.env.MANUFACTURER_NAME, role: 2, roleName: "manufacturer" },
     { address: process.env.SUPPLIER_ADDRESS, name: process.env.SUPPLIER_NAME, role: 3, roleName: "supplier" },
@@ -44,6 +45,7 @@ async function main() {
     network: networkName,
     chainId: Number(chain.chainId),
     deployer: deployer?.address || null,
+    deployerBalance: ethers.formatEther(balance) + " ETH",
     initialAssignments: assignments,
     contract: contractState,
     writesSubmitted: false,
