@@ -145,9 +145,16 @@ const UpdateProduct = () => {
     }
 
     const handleSubmit = async (e) => {
-        e.preventDefault();;
+        e.preventDefault();
 
-        navigate('/update-product-details', { state: { qrData, warnings: location.state?.warnings || [] }});
+        const activeQr = qrData || (serialNumber ? `${CONTRACT_ADDRESS},${serialNumber}` : '');
+        navigate('/update-product-details', {
+            state: {
+                qrData: activeQr,
+                serialNumber,
+                warnings: location.state?.warnings || []
+            }
+        });
     }
     
 

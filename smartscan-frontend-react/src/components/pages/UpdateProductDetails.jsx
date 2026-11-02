@@ -12,6 +12,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../../config/contract';
 import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
+import { parseProductQr } from '../../api/productQr';
 
 const UpdateProductDetails = () => {
 
@@ -28,26 +29,29 @@ const UpdateProductDetails = () => {
     const { auth } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    const qrData = location.state?.qrData;
+    const incomingQr = location.state?.qrData || location.state?.serialNumber;
     const scanWarnings = location.state?.warnings || [];
 
 
     useEffect(() => {
-        if (!qrData) {
+        if (!incomingQr) {
             navigate('/scanner', { replace: true });
             return;
         }
 
-        const data = qrData.split(",");
-        setSerialNumber(data[1]);
-    }, [qrData, navigate]);
+        try {
+            const { serialNumber: resolvedSerial } = parseProductQr(incomingQr, CONTRACT_ADDRESS);
+            setSerialNumber(resolvedSerial);
+        } catch {
+            navigate('/scanner', { replace: true });
+        }
+    }, [incomingQr, navigate]);
 
     useEffect(() => {
-
         setCurrDate(dayjs().unix());
         getUsername();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [auth?.username]);
 
 
     useEffect(() => {
@@ -58,16 +62,25 @@ const UpdateProductDetails = () => {
             }
             return;
         }
-        Geocode.setApiKey(apiKey);
 
-        Geocode.fromLatLng(currLatitude, currLongtitude).then(
-            (response) => {
-                const address = response.results[0].formatted_address;
-                setCurrLocation(address.replace(/,/g, ';'));
-                setLoading('Approximate browser-reported location resolved. Review or edit it before submitting; it is unverified.');
-            },
-            () => setLoading('Unable to resolve your location. Check permission and enter it manually.')
-        ).catch(() => setLoading('Unable to resolve your location. Check permission and enter it manually.'));
+        try {
+            const geocoder = Geocode?.default || Geocode;
+            if (typeof geocoder?.setApiKey === 'function' && typeof geocoder?.fromLatLng === 'function') {
+                geocoder.setApiKey(apiKey);
+                geocoder.fromLatLng(currLatitude, currLongtitude).then(
+                    (response) => {
+                        const address = response.results?.[0]?.formatted_address || '';
+                        setCurrLocation(address.replace(/,/g, ';'));
+                        setLoading('Approximate browser-reported location resolved. Review or edit it before submitting; it is unverified.');
+                    },
+                    () => setLoading('Unable to resolve your location. Check permission and enter it manually.')
+                ).catch(() => setLoading('Unable to resolve your location. Check permission and enter it manually.'));
+            } else {
+                setLoading('Geocoding service unavailable. Enter location manually.');
+            }
+        } catch {
+            setLoading('Unable to resolve your location. Check permission and enter it manually.');
+        }
 
     }, [currLatitude, currLongtitude]);
 
@@ -87,13 +100,17 @@ const UpdateProductDetails = () => {
 
        
 
-    const getUsername = async (e) => {
-        await axios.get(`/profile/${auth.username}`)
-            .then(res => {
-                setCurrName(res?.data[0].name);
-
-            })
-    }
+    const getUsername = async () => {
+        if (!auth?.username) return;
+        try {
+            const res = await axios.get(`/profile/${encodeURIComponent(auth.username)}`);
+            if (res.data?.[0]?.name) {
+                setCurrName(res.data[0].name);
+            }
+        } catch (error) {
+            console.error('Failed to load profile display name', error);
+        }
+    };
 
     const updateProduct = async (e) => {
         e.preventDefault();
@@ -102,10 +119,23 @@ const UpdateProductDetails = () => {
             const { ethereum } = window;
 
             if (ethereum) {
+                if (!serialNumber) {
+                    throw new Error("Product identifier is missing. Please re-scan or re-select the product.");
+                }
+
+                setLoading("Connecting wallet...");
+                const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+                const connectedWallet = accounts?.[0]?.toLowerCase();
+                if (!connectedWallet) {
+                    throw new Error("No active wallet account found in MetaMask. Please connect an account.");
+                }
+
                 const provider = new ethers.BrowserProvider(ethereum);
                 const signer = await provider.getSigner();
                 const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
                 const wallet = (await signer.getAddress()).toLowerCase();
+
+                setLoading("Verifying product on blockchain...");
                 const product = await productContract.getProduct(serialNumber);
                 const currentStage = Number(product[6]);
                 const custodian = product[7];
@@ -126,7 +156,11 @@ const UpdateProductDetails = () => {
                         throw new Error("This product is assigned to a different recipient wallet.");
                     }
                     if (!mayReceive) throw new Error("Your account role is not eligible to confirm receipt of this dispatch.");
+
+                    setLoading("Authorizing delivery receipt...");
                     await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'confirm_delivery' });
+
+                    setLoading("Confirm delivery in your wallet popup...");
                     transaction = await productContract.confirmDelivery(serialNumber, currName, currLocation, currDate.toString());
                 } else if (currentStage === 1 || currentStage === 3) {
                     if (custodian.toLowerCase() !== wallet) {
@@ -135,10 +169,16 @@ const UpdateProductDetails = () => {
                             : "This product is already marked delivered. Only its recorded custodian can initiate the next handover or mark it sold.");
                     }
                     if (auth.role === "retailer") {
+                        setLoading("Authorizing mark sold...");
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'mark_sold' });
+
+                        setLoading("Confirm sale in your wallet popup...");
                         transaction = await productContract.markSold(serialNumber, currName, currLocation, currDate.toString());
                     } else {
+                        setLoading("Authorizing dispatch...");
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'dispatch' });
+
+                        setLoading("Confirm dispatch in your wallet popup...");
                         transaction = await productContract.dispatchProduct(serialNumber, ethers.ZeroAddress, currName, currLocation, currDate.toString());
                     }
                 } else {
@@ -159,12 +199,19 @@ const UpdateProductDetails = () => {
     const handleRecall = async () => {
         try {
             if (!recallReason.trim()) throw new Error("Enter a recall reason.");
-            const signer = await new ethers.BrowserProvider(window.ethereum).getSigner();
+            if (!serialNumber) throw new Error("Product identifier is missing.");
+            const { ethereum } = window;
+            if (!ethereum) throw new Error("Install or enable a wallet to submit a recall.");
+            await ethereum.request({ method: "eth_requestAccounts" });
+            const signer = await new ethers.BrowserProvider(ethereum).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+            const walletAddress = await signer.getAddress();
+            setLoading("Authorizing recall write...");
             await axios.post('/wallet/authorize-write', {
-                walletAddress: await signer.getAddress(),
+                walletAddress,
                 action: 'recall',
             });
+            setLoading("Confirm recall in your wallet popup...");
             const transaction = await contract.recallProduct(serialNumber, recallReason, currName, currLocation, currDate.toString());
             setLoading(`Recall submitted: ${transaction.hash}`);
             await transaction.wait();

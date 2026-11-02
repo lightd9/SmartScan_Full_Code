@@ -108,7 +108,7 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
   // 6. Clean custom error message if reasonably short and non-technical
   if (
     typeof error.message === 'string' &&
-    error.message.length < 150 &&
+    error.message.length < 350 &&
     !error.message.includes('action="') &&
     !error.message.includes('code=') &&
     !error.message.includes('transaction=')
