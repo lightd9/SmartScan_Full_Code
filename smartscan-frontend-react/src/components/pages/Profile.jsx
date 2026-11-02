@@ -79,8 +79,8 @@ export default function Profile() {
     setWalletMessage('');
     try {
       if (!window.ethereum) throw new Error('Install or enable MetaMask to link a business wallet.');
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
       const provider = new ethers.BrowserProvider(window.ethereum);
-      await provider.send('eth_requestAccounts', []);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       const challenge = await axios.post('/wallet-link/challenge', { walletAddress: address });

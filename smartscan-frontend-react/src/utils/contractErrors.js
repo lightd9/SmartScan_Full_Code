@@ -5,40 +5,91 @@
 export function formatContractError(error, defaultFallback = 'Blockchain transaction failed.') {
   if (!error) return defaultFallback;
 
-  // 1. User rejection in wallet (MetaMask / EIP-1193 code 4001 or ethers ACTION_REJECTED)
-  if (
-    error.code === 'ACTION_REJECTED' ||
-    error.code === 4001 ||
-    error.message?.includes('user rejected') ||
-    error.message?.includes('User denied')
-  ) {
-    return 'Transaction was cancelled in your wallet.';
+  // 1. Prioritize backend API error response (e.g. Axios 4xx/5xx responses)
+  if (error.response?.data?.error) {
+    return error.response.data.error;
   }
 
-  // 2. Insufficient funds for gas
+  // Extract nested error info from Ethers v6 wrapper (error.error or error.info?.error)
+  const nested = error.error || error.info?.error;
+  const errorCode = nested?.code ?? error.code;
+  const combinedMessage = [
+    error.message,
+    error.shortMessage,
+    error.reason,
+    nested?.message,
+    nested?.data?.message,
+  ]
+    .filter((m) => typeof m === 'string')
+    .join(' ');
+
+  // 2. MetaMask pending request (-32002: Request already pending)
   if (
-    error.code === 'INSUFFICIENT_FUNDS' ||
-    error.message?.includes('insufficient funds')
+    errorCode === -32002 ||
+    errorCode === '-32002' ||
+    combinedMessage.includes('already pending') ||
+    combinedMessage.includes('Resource unavailable')
+  ) {
+    return 'A MetaMask request is already pending. Please click the MetaMask extension icon in your browser toolbar to approve or reject it.';
+  }
+
+  // 3. User rejection in wallet (MetaMask / EIP-1193 code 4001 or ethers ACTION_REJECTED)
+  if (
+    errorCode === 'ACTION_REJECTED' ||
+    errorCode === 4001 ||
+    errorCode === '4001' ||
+    combinedMessage.toLowerCase().includes('user rejected') ||
+    combinedMessage.toLowerCase().includes('user denied')
+  ) {
+    return 'Request was cancelled in your wallet.';
+  }
+
+  // 4. Insufficient funds for gas
+  if (
+    errorCode === 'INSUFFICIENT_FUNDS' ||
+    combinedMessage.toLowerCase().includes('insufficient funds')
   ) {
     return 'Insufficient Sepolia ETH in your wallet to cover network gas fees.';
   }
 
-  // 3. Network or chain switch error
+  // 5. Network or chain switch error
   if (
-    error.code === 'NETWORK_ERROR' ||
-    error.message?.includes('chain mismatch')
+    errorCode === 'NETWORK_ERROR' ||
+    combinedMessage.toLowerCase().includes('chain mismatch')
   ) {
     return 'Please switch your wallet to Sepolia Test Network (Chain ID 11155111).';
   }
 
-  // 4. Extract raw revert reason from ethers error properties
+  // 6. Extract raw revert reason from ethers error properties
   let rawReason =
     error.reason ||
     error.revert?.args?.[0] ||
-    error.shortMessage ||
     '';
 
-  // If reason wasn't on top level, attempt to parse from error.message
+  // If error.shortMessage is present, ONLY use it if it's NOT the un-coalesced or generic wrapper message
+  if (!rawReason && typeof error.shortMessage === 'string') {
+    const sm = error.shortMessage.toLowerCase();
+    if (
+      !sm.includes('could not coalesce') &&
+      !sm.includes('unknown error') &&
+      !sm.includes('missing revert data')
+    ) {
+      rawReason = error.shortMessage;
+    }
+  }
+
+  // Check nested reason/message if rawReason is still empty
+  if (!rawReason && nested?.message && typeof nested.message === 'string') {
+    const nm = nested.message;
+    if (
+      !nm.toLowerCase().includes('could not coalesce') &&
+      !nm.toLowerCase().includes('unknown error')
+    ) {
+      rawReason = nm;
+    }
+  }
+
+  // If reason wasn't on top level, attempt to parse from error.message / combinedMessage
   if (!rawReason && typeof error.message === 'string') {
     const revertMatch =
       error.message.match(/execution reverted:\s*["']([^"']+)["']/i) ||
@@ -95,27 +146,36 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
       .replace(/["']/g, '')
       .trim();
 
-    if (cleaned && !cleaned.includes('{') && cleaned.length < 120) {
+    // Ensure we do not return "could not coalesce error" or technical strings
+    if (
+      cleaned &&
+      !cleaned.includes('{') &&
+      !cleaned.toLowerCase().includes('could not coalesce') &&
+      cleaned.length < 120
+    ) {
       return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
     }
   }
 
-  // 5. Backend API error response
-  if (error.response?.data?.error) {
-    return error.response.data.error;
+  // 7. If this was an un-coalesced error from ethers, return a clean instruction rather than the raw string
+  if (
+    combinedMessage.toLowerCase().includes('could not coalesce') ||
+    error.code === 'UNKNOWN_ERROR'
+  ) {
+    return 'MetaMask encountered an unexpected communication issue. Please open the MetaMask extension icon in your toolbar, make sure it is unlocked, and try again.';
   }
 
-  // 6. Clean custom error message if reasonably short and non-technical
+  // 8. Clean custom error message if reasonably short and non-technical
   if (
     typeof error.message === 'string' &&
     error.message.length < 350 &&
     !error.message.includes('action="') &&
     !error.message.includes('code=') &&
-    !error.message.includes('transaction=')
+    !error.message.includes('transaction=') &&
+    !error.message.toLowerCase().includes('could not coalesce')
   ) {
     return error.message;
   }
 
   return defaultFallback;
 }
-

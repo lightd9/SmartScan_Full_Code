@@ -28,7 +28,7 @@ describe('formatContractError', () => {
 
   it('translates MetaMask user rejection cleanly', () => {
     const error = { code: 'ACTION_REJECTED', message: 'user rejected action' };
-    expect(formatContractError(error)).toBe('Transaction was cancelled in your wallet.');
+    expect(formatContractError(error)).toBe('Request was cancelled in your wallet.');
   });
 
   it('translates insufficient funds error', () => {
@@ -38,9 +38,58 @@ describe('formatContractError', () => {
     );
   });
 
-  it('prioritizes API server error messages', () => {
-    const error = { response: { data: { error: 'Account wallet changed while this operation was pending' } } };
-    expect(formatContractError(error)).toBe('Account wallet changed while this operation was pending');
+  it('prioritizes API server error messages even when error.shortMessage exists', () => {
+    const error = {
+      shortMessage: 'could not coalesce error',
+      response: { data: { error: 'This wallet is already linked to another business account' } }
+    };
+    expect(formatContractError(error)).toBe('This wallet is already linked to another business account');
+  });
+
+  it('unwraps ethers UNKNOWN_ERROR with nested -32002 already pending error', () => {
+    const error = {
+      code: 'UNKNOWN_ERROR',
+      shortMessage: 'could not coalesce error',
+      message: 'could not coalesce error (error={"code":-32002,"message":"Request of type eth_requestAccounts already pending..."}, payload={...})',
+      error: {
+        code: -32002,
+        message: "Request of type 'eth_requestAccounts' already pending for origin http://localhost:5173. Please wait."
+      }
+    };
+
+    expect(formatContractError(error)).toBe(
+      'A MetaMask request is already pending. Please click the MetaMask extension icon in your browser toolbar to approve or reject it.'
+    );
+  });
+
+  it('unwraps nested 4001 user rejection inside ethers un-coalesced error', () => {
+    const error = {
+      code: 'UNKNOWN_ERROR',
+      shortMessage: 'could not coalesce error',
+      info: {
+        error: {
+          code: 4001,
+          message: 'User rejected the request.'
+        }
+      }
+    };
+
+    expect(formatContractError(error)).toBe('Request was cancelled in your wallet.');
+  });
+
+  it('never outputs raw "Could not coalesce error" for generic ethers unknown errors', () => {
+    const error = {
+      code: 'UNKNOWN_ERROR',
+      shortMessage: 'could not coalesce error',
+      message: 'could not coalesce error (payload={...})'
+    };
+
+    const formatted = formatContractError(error);
+    expect(formatted).not.toContain('could not coalesce');
+    expect(formatted).not.toContain('Could not coalesce');
+    expect(formatted).toBe(
+      'MetaMask encountered an unexpected communication issue. Please open the MetaMask extension icon in your toolbar, make sure it is unlocked, and try again.'
+    );
   });
 
   it('strips IdenteefiV2 prefix from unknown revert messages', () => {
@@ -48,4 +97,3 @@ describe('formatContractError', () => {
     expect(formatContractError(error)).toBe('Custom validation check failed');
   });
 });
-

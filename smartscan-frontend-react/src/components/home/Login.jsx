@@ -11,6 +11,7 @@ import useAuth from '../../hooks/useAuth';
 import { useRef, useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ethers } from 'ethers';
+import { formatContractError } from '../../utils/contractErrors';
 
 const LOGIN_URL = '/auth';
 
@@ -72,8 +73,8 @@ export default function Login() {
         setWalletBusy(true);
         try {
             if (!window.ethereum) throw new Error('Install or enable MetaMask to sign in with your linked wallet.');
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
             const provider = new ethers.BrowserProvider(window.ethereum);
-            await provider.send('eth_requestAccounts', []);
             const signer = await provider.getSigner();
             const walletAddress = await signer.getAddress();
             const challenge = await axios.post('/auth/wallet/challenge', { walletAddress });
@@ -84,7 +85,7 @@ export default function Login() {
             setAuth({ ...account, token: response.data.token });
             navigate(`/${account.role}`, { replace: true });
         } catch (error) {
-            setErrMsg(error.response?.data?.error || error.message || 'Unable to sign in with this wallet.');
+            setErrMsg(formatContractError(error, 'Unable to sign in with this wallet.'));
             errRef.current?.focus();
         } finally { setWalletBusy(false); }
     };
