@@ -8,7 +8,7 @@ import axios from '../../api/axios';
 import QRCode from 'qrcode.react';
 import dayjs from 'dayjs';
 import useAuth from '../../hooks/useAuth';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Geocode from "react-geocode";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC_URL, BLOCK_EXPLORER_URL, NATIVE_CURRENCY_NAME, NATIVE_CURRENCY_SYMBOL, NATIVE_CURRENCY_DECIMALS } from '../../config/contract';
 import { formatContractError } from '../../utils/contractErrors';
@@ -50,24 +50,59 @@ const AddProduct = () => {
 
     const { auth } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     
     useEffect(() => {
         setManuDate(dayjs().unix());
         getUsername();
         loadRetryableProducts();
+        if (location.state?.resumeProduct) {
+            resumeProductRetry(location.state.resumeProduct);
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [location.state]);
 
     const loadRetryableProducts = async () => {
         try {
-            const [retryable, failed] = await Promise.all([
+            const [pending, retryable, failed] = await Promise.all([
+                axios.get('/product/chain-status?status=pending_wallet'),
                 axios.get('/product/chain-status?status=needs_retry'),
                 axios.get('/product/chain-status?status=failed'),
             ]);
-            const products = [...retryable.data, ...failed.data];
+            const products = [...pending.data, ...retryable.data, ...failed.data];
             setRetryableProducts(products);
         } catch (_error) {
             setChainNotice('Unable to load recoverable registrations. Refresh before starting another registration.');
+        }
+    };
+
+    const resetForm = () => {
+        setSerialNumber(createProductIdentifier());
+        setName("");
+        setBrand("");
+        setDescription("");
+        setImage({ file: [], filepreview: null });
+        setSavedImageName("");
+        setProductCreated(false);
+        setRetryAvailable(false);
+        setSubmitError("");
+        setChainNotice("Draft discarded. You can register a new product.");
+        setQrData("");
+    };
+
+    const handleDiscardDraft = async () => {
+        if (!window.confirm("Are you sure you want to discard this unconfirmed product draft? It will be permanently removed from your inventory.")) {
+            return;
+        }
+        try {
+            setLoading("Discarding draft registration...");
+            await axios.delete(`/product/${encodeURIComponent(serialNumber)}`);
+            resetForm();
+            await loadRetryableProducts();
+        } catch (err) {
+            setSubmitError(err.response?.data?.error || "Failed to discard draft");
+        } finally {
+            setLoading("");
         }
     };
 
@@ -82,7 +117,7 @@ const AddProduct = () => {
         setSavedImageName(product.chain_image || "");
         setProductCreated(true);
         setRetryAvailable(true);
-        setChainNotice(`Product ${product.serialnumber} is recoverable after ${product.chain_status}.`);
+        setChainNotice(`Product ${product.serialnumber} is recoverable (${product.chain_status}${product.failure_reason ? `: ${product.failure_reason}` : ''}). You can retry registration or discard the draft.`);
         setImage({ file: [], filepreview: null });
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -353,13 +388,19 @@ const handleSubmit = async (e) => {
         await switchToConfiguredNetwork();
         await registerProduct(retryAvailable);
     } catch (err) {
+        const friendlyMessage = formatContractError(err, "Registration did not complete. The transaction was either rejected or failed on the blockchain.");
         try {
-            if (productCreated) await refreshChainStatus();
+            if (productCreated) {
+                await axios.post(`/product/${encodeURIComponent(serialNumber)}/failed`, {
+                    reason: friendlyMessage
+                }).catch(() => {});
+                await refreshChainStatus();
+            }
         } catch (_statusError) { setChainNotice('Unable to read the latest registration status. Please refresh before retrying.'); }
         setLoading("");
-        const friendlyMessage = formatContractError(err, "Registration did not complete. The server will reconcile any transaction that was submitted.");
         setSubmitError(friendlyMessage);
         setChainNotice(friendlyMessage);
+        setRetryAvailable(true);
     }
 };
 
@@ -566,6 +607,18 @@ const persistTransactionHash = async () => {
                             >
                                 {productCreated && !retryAvailable ? "Refresh Registration Status" : retryAvailable ? "Retry Blockchain Registration" : "Sign & Register on Blockchain"}
                             </button>
+
+                            {productCreated && !qrData && (
+                                <button
+                                    type="button"
+                                    className="btn-secondary-action"
+                                    style={{ width: '100%', justifyContent: 'center', borderColor: '#EF4444', color: '#EF4444' }}
+                                    onClick={handleDiscardDraft}
+                                    disabled={loading !== ""}
+                                >
+                                    🗑️ Discard Draft Registration
+                                </button>
+                            )}
 
                             <button
                                 type="button"

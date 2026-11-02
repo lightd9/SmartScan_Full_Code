@@ -38,9 +38,18 @@ async function reconcile({ pool, provider, registrationContract, contractAddress
     const scanFromBlock = product.chain_event_scan_block == null
       ? Number(deploymentBlock)
       : Math.max(Number(deploymentBlock), Number(product.chain_event_scan_block));
-    const matchingEvents = safeThroughBlock >= scanFromBlock
-      ? await contract.queryFilter(contract.filters.ProductRegistered(product.serialnumber, sender), scanFromBlock, safeThroughBlock)
-      : [];
+    let matchingEvents = [];
+    if (safeThroughBlock >= scanFromBlock) {
+      try {
+        matchingEvents = await contract.queryFilter(
+          contract.filters.ProductRegistered(product.serialnumber, null, null, sender),
+          scanFromBlock,
+          safeThroughBlock
+        );
+      } catch (_filterError) {
+        // Public RPC nodes may prune historical log queries or reject large block spans.
+      }
+    }
     const eventHashes = [...new Set(matchingEvents.map((event) => event.transactionHash))];
     let confirmedHash = null;
     for (const hash of eventHashes) {

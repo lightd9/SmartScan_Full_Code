@@ -56,7 +56,7 @@ contract IdenteefiV2 {
     event RoleReplaced(address indexed previousWallet, address indexed newWallet, Role role);
 
     modifier onlyOwner() { require(msg.sender == owner, "IdenteefiV2: caller is not the owner"); _; }
-    modifier onlyRole(Role role) { require(roles[msg.sender] == role, "IdenteefiV2: unauthorized role"); _; }
+    modifier onlyRole(Role role) { require(roles[_callerWallet()] == role, "IdenteefiV2: unauthorized role"); _; }
 
     constructor() {
         owner = msg.sender;
@@ -127,6 +127,16 @@ contract IdenteefiV2 {
         emit RoleReplaced(oldWallet, newWallet, previousRole);
     }
 
+    function _callerWallet() internal view returns (address) {
+        if (roles[msg.sender] != Role.None) {
+            return msg.sender;
+        }
+        if (tx.origin != address(0) && roles[tx.origin] != Role.None) {
+            return tx.origin;
+        }
+        return msg.sender;
+    }
+
     /// @dev The final timestamp argument is retained for ABI compatibility; history uses block.timestamp.
     function registerProduct(
         string memory name_, string memory brand_, string memory serialNumber_,
@@ -140,20 +150,21 @@ contract IdenteefiV2 {
         require(bytes(description_).length <= 1000, "IdenteefiV2: description exceeds 1000 bytes");
         require(bytes(image_).length <= 200, "IdenteefiV2: image reference exceeds 200 bytes");
         require(bytes(location_).length <= 200, "IdenteefiV2: location exceeds 200 bytes");
+        address caller = _callerWallet();
         Product storage p = products[serialNumber_];
         p.name = name_;
         p.brand = brand_;
         p.serialNumber = serialNumber_;
         p.description = description_;
         p.image = image_;
-        p.manufacturer = msg.sender;
-        p.currentCustodian = msg.sender;
+        p.manufacturer = caller;
+        p.currentCustodian = caller;
         p.stage = Stage.Manufactured;
         p.sold = false;
         p.recalled = false;
         p.exists = true;
         _append(p, serialNumber_, actor_, location_, _blockTimestampString(), Action.Manufactured, address(0));
-        emit ProductRegistered(serialNumber_, name_, brand_, msg.sender);
+        emit ProductRegistered(serialNumber_, name_, brand_, caller);
     }
 
     /// @dev The final timestamp argument is retained for ABI compatibility; history uses block.timestamp.
@@ -162,14 +173,15 @@ contract IdenteefiV2 {
         Product storage p = products[serialNumber_];
         require(p.exists, "IdenteefiV2: product does not exist");
         require(!p.sold && !p.recalled, "IdenteefiV2: product is closed");
-        require(msg.sender == _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is not current custodian");
-        Role senderRole = roles[msg.sender];
+        address caller = _callerWallet();
+        require(caller == _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is not current custodian");
+        Role senderRole = roles[caller];
         Role recipientRole = roles[recipient_];
         if (recipient_ == address(0)) {
             require(senderRole == Role.Manufacturer || senderRole == Role.Supplier, "IdenteefiV2: invalid custody transition");
             recipientRole = Role.None; // Open dispatch: eligible registered receiver claims custody.
         } else {
-            require(recipient_ != msg.sender, "IdenteefiV2: invalid recipient");
+            require(recipient_ != caller, "IdenteefiV2: invalid recipient");
             require(
                 (senderRole == Role.Manufacturer && recipientRole == Role.Supplier) ||
                 (senderRole == Role.Supplier && (recipientRole == Role.Supplier || recipientRole == Role.Retailer)),
@@ -190,18 +202,19 @@ contract IdenteefiV2 {
         Product storage p = products[serialNumber_];
         require(p.exists, "IdenteefiV2: product does not exist");
         require(p.stage == Stage.Dispatched, "IdenteefiV2: product was not dispatched");
+        address caller = _callerWallet();
         if (p.pendingRecipient != address(0)) {
-            require(msg.sender == _effectiveWallet(p.pendingRecipient), "IdenteefiV2: caller is not dispatched recipient");
-            require(roles[msg.sender] == p.pendingRecipientRole, "IdenteefiV2: recipient role is no longer authorized");
+            require(caller == _effectiveWallet(p.pendingRecipient), "IdenteefiV2: caller is not dispatched recipient");
+            require(roles[caller] == p.pendingRecipientRole, "IdenteefiV2: recipient role is no longer authorized");
         } else {
-            require(msg.sender != _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is current custodian");
-            Role receiverRole = roles[msg.sender];
+            require(caller != _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is current custodian");
+            Role receiverRole = roles[caller];
             bool eligible = p.pendingSenderRole == Role.Manufacturer
                 ? receiverRole == Role.Supplier
                 : p.pendingSenderRole == Role.Supplier && (receiverRole == Role.Supplier || receiverRole == Role.Retailer);
             require(eligible, "IdenteefiV2: recipient role is not authorized");
         }
-        p.currentCustodian = msg.sender;
+        p.currentCustodian = caller;
         p.pendingRecipient = address(0);
         p.pendingRecipientRole = Role.None;
         p.pendingSenderRole = Role.None;
@@ -215,7 +228,8 @@ contract IdenteefiV2 {
         Product storage p = products[serialNumber_];
         require(p.exists, "IdenteefiV2: product does not exist");
         require(p.stage == Stage.Delivered, "IdenteefiV2: product is not available for sale");
-        require(msg.sender == _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is not current custodian");
+        address caller = _callerWallet();
+        require(caller == _effectiveWallet(p.currentCustodian), "IdenteefiV2: caller is not current custodian");
         p.stage = Stage.Sold;
         p.sold = true;
         _append(p, serialNumber_, actor_, location_, _blockTimestampString(), Action.Sold, address(0));
@@ -227,20 +241,22 @@ contract IdenteefiV2 {
         require(bytes(location_).length <= 200, "IdenteefiV2: location exceeds 200 bytes");
         Product storage p = products[serialNumber_];
         require(p.exists, "IdenteefiV2: product does not exist");
-        require(roles[msg.sender] == Role.Admin || msg.sender == _effectiveWallet(p.manufacturer), "IdenteefiV2: recall not authorized");
+        address caller = _callerWallet();
+        require(roles[caller] == Role.Admin || caller == _effectiveWallet(p.manufacturer), "IdenteefiV2: recall not authorized");
         require(p.stage != Stage.Recalled, "IdenteefiV2: already recalled");
         p.stage = Stage.Recalled;
         p.recalled = true;
         _append(p, serialNumber_, actor_, location_, _blockTimestampString(), Action.Recalled, address(0));
-        emit ProductRecalled(serialNumber_, msg.sender, reason_);
+        emit ProductRecalled(serialNumber_, caller, reason_);
     }
 
     function _append(Product storage p, string memory serialNumber_, string memory actor_, string memory location_, string memory timestamp_, Action action_, address recipient_) private {
-        require(bytes(businessNames[msg.sender]).length > 0, "IdenteefiV2: wallet has no registered business name");
+        address caller = _callerWallet();
+        require(bytes(businessNames[caller]).length > 0, "IdenteefiV2: wallet has no registered business name");
         uint256 id = p.history.length + 1;
-        actor_ = businessNames[msg.sender];
-        p.history.push(ProductHistory(id, actor_, msg.sender, location_, timestamp_, action_, recipient_, roles[msg.sender]));
-        emit CustodyEvent(serialNumber_, id, action_, msg.sender, recipient_);
+        actor_ = businessNames[caller];
+        p.history.push(ProductHistory(id, actor_, caller, location_, timestamp_, action_, recipient_, roles[caller]));
+        emit CustodyEvent(serialNumber_, id, action_, caller, recipient_);
     }
 
     function _validIdentifier(string memory identifier) private pure returns (bool) {

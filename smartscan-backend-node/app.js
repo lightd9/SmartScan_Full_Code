@@ -1340,7 +1340,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
              chain_tx_hash = NULL, chain_id = NULL, chain_expected_id = $5, chain_event_scan_block = NULL,
              chain_sender = $3, chain_contract_address = $4,
              chain_submitted_at = NULL, chain_updated_at = now(), failure_reason = NULL
-           WHERE serialnumber = $1 AND manufacturer_username = $2 AND chain_status IN ('failed', 'needs_retry')
+           WHERE serialnumber = $1 AND manufacturer_username = $2 AND chain_status IN ('pending_wallet', 'failed', 'needs_retry')
            RETURNING serialnumber, chain_attempt, chain_sender, chain_contract_address, chain_expected_id
          )
          INSERT INTO product_chain_attempts (serial_number, attempt_number, status, expected_chain_id, contract_address, sender_address, created_at)
@@ -1350,6 +1350,53 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       );
       if (!result.rowCount) return res.status(409).json({ error: 'Only failed or retryable registrations can be retried' });
       return res.status(202).json({ status: 'pending_wallet', attempt: result.rows[0].attempt_number });
+    } catch (err) { return next(err); }
+  });
+
+  app.post('/product/:serialNumber/failed', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
+    try {
+      const reason = validText(req.body?.reason, 500) ? req.body.reason : 'Wallet transaction failed or was rejected';
+      const productResult = await pool.query(
+        'SELECT chain_status, chain_attempt FROM product WHERE serialnumber = $1 AND manufacturer_username = $2',
+        [req.params.serialNumber, req.user.username],
+      );
+      if (!productResult.rows.length) return res.status(404).json({ error: 'Product not found' });
+      const product = productResult.rows[0];
+      if (product.chain_status === 'confirmed') return res.status(409).json({ error: 'Confirmed products cannot be marked as failed' });
+
+      await pool.query(
+        `UPDATE product SET chain_status = 'failed', failure_reason = $1, chain_updated_at = now()
+         WHERE serialnumber = $2 AND manufacturer_username = $3 AND chain_status IN ('pending_wallet', 'needs_retry', 'submitted')`,
+        [reason, req.params.serialNumber, req.user.username],
+      );
+      await pool.query(
+        `UPDATE product_chain_attempts SET status = 'failed', failure_reason = $1, finalized_at = now()
+         WHERE serial_number = $2 AND attempt_number = $3`,
+        [reason, req.params.serialNumber, product.chain_attempt || 1],
+      );
+      return res.json({ success: 1, status: 'failed', failure_reason: reason });
+    } catch (err) { return next(err); }
+  });
+
+  app.delete('/product/:serialNumber', authenticate, authorize('manufacturer', 'admin'), writeRateLimit, async (req, res, next) => {
+    try {
+      const isManufacturer = req.user.role === 'manufacturer';
+      const productResult = await pool.query(
+        `SELECT chain_status FROM product WHERE serialnumber = $1 ${isManufacturer ? 'AND manufacturer_username = $2' : ''}`,
+        isManufacturer ? [req.params.serialNumber, req.user.username] : [req.params.serialNumber],
+      );
+      if (!productResult.rows.length) return res.status(404).json({ error: 'Product not found' });
+      const { chain_status } = productResult.rows[0];
+      if (chain_status === 'confirmed') {
+        return res.status(409).json({ error: 'Confirmed products cannot be deleted as they are part of the blockchain immutable ledger' });
+      }
+      if (chain_status === 'submitted') {
+        return res.status(409).json({ error: 'In-flight transaction is currently submitted to the blockchain; wait for confirmation or failure before discarding' });
+      }
+
+      await pool.query('DELETE FROM product_chain_attempts WHERE serial_number = $1', [req.params.serialNumber]);
+      await pool.query('DELETE FROM product WHERE serialnumber = $1', [req.params.serialNumber]);
+      return res.json({ success: 1, message: 'Draft registration discarded successfully' });
     } catch (err) { return next(err); }
   });
 

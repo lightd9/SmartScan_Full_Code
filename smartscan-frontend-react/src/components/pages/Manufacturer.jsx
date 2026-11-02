@@ -42,12 +42,18 @@ export default function Manufacturer() {
   // Format table rows matching reference "My Projects" table
   const tableRows = products.slice(0, 6).map((item) => {
     const isConfirmed = item.chain_status === 'confirmed';
-    const isNeedsRetry = item.chain_status === 'needs_retry' || item.chain_status === 'failed';
-    const statusColor = isConfirmed ? 'green' : isNeedsRetry ? 'amber' : 'purple';
+    const isNeedsRetry = item.chain_status === 'needs_retry';
+    const isFailed = item.chain_status === 'failed';
+    const isDraft = item.chain_status === 'pending_wallet';
+    const statusColor = isConfirmed ? 'green' : isFailed ? 'red' : isNeedsRetry || isDraft ? 'amber' : 'purple';
     const statusLabel = isConfirmed
       ? 'Confirmed'
+      : isFailed
+      ? 'Failed'
       : isNeedsRetry
       ? 'Needs Retry'
+      : isDraft
+      ? 'Draft'
       : 'Submitted';
 
     return {
@@ -60,12 +66,18 @@ export default function Manufacturer() {
       assigneeAvatar: null,
       statusLabel,
       statusColor,
-      onClick: () => navigate('/update-product', { state: { qrData: item.serialnumber } }),
+      onClick: () => {
+        if (isConfirmed) {
+          navigate('/update-product', { state: { qrData: item.serialnumber } });
+        } else {
+          navigate('/add-product', { state: { resumeProduct: item } });
+        }
+      },
     };
   });
 
   const confirmedCount = products.filter((p) => p.chain_status === 'confirmed').length;
-  const retryCount = products.filter((p) => p.chain_status === 'needs_retry' || p.chain_status === 'failed').length;
+  const retryCount = products.filter((p) => p.chain_status === 'needs_retry' || p.chain_status === 'failed' || p.chain_status === 'pending_wallet').length;
 
   const manufacturerMetrics = [
     {
@@ -84,7 +96,7 @@ export default function Manufacturer() {
       icon: <HourglassEmptyRoundedIcon sx={{ fontSize: 17, color: retryCount > 0 ? '#DC2626' : '#8A92A6' }} />,
       value: `${retryCount || 0}`,
       label: 'Needs Review',
-      onClick: () => navigate('/update-product'),
+      onClick: () => navigate('/add-product'),
     },
   ];
 
