@@ -33,3 +33,37 @@ export async function assertConfiguredChain(provider) {
   }
   return network;
 }
+
+export async function ensureConfiguredNetwork(ethereum) {
+  if (!ethereum) throw new Error('MetaMask or Web3 wallet is required.');
+  try {
+    await ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: CHAIN_ID_HEX }],
+    });
+  } catch (switchError) {
+    // 4902 code indicates the requested chain has not been added to MetaMask
+    if (switchError.code === 4902 || switchError.data?.originalError?.code === 4902) {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: CHAIN_ID_HEX,
+          chainName: CHAIN_NAME,
+          rpcUrls: [CHAIN_RPC_URL],
+          nativeCurrency: {
+            name: NATIVE_CURRENCY_NAME,
+            symbol: NATIVE_CURRENCY_SYMBOL,
+            decimals: NATIVE_CURRENCY_DECIMALS,
+          },
+          blockExplorerUrls: [BLOCK_EXPLORER_URL],
+        }],
+      });
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: CHAIN_ID_HEX }],
+      });
+    } else {
+      throw switchError;
+    }
+  }
+}

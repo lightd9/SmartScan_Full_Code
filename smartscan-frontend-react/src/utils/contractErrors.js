@@ -52,10 +52,13 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
     return 'Insufficient Sepolia ETH in your wallet to cover network gas fees.';
   }
 
-  // 5. Network or chain switch error
+  // 5. Network, chain switch error or BAD_DATA (contract returns 0x because wallet is on wrong chain)
   if (
     errorCode === 'NETWORK_ERROR' ||
-    combinedMessage.toLowerCase().includes('chain mismatch')
+    errorCode === 'BAD_DATA' ||
+    combinedMessage.toLowerCase().includes('chain mismatch') ||
+    combinedMessage.toLowerCase().includes('could not decode result data') ||
+    combinedMessage.toLowerCase().includes('value="0x"')
   ) {
     return 'Please switch your wallet to Sepolia Test Network (Chain ID 11155111).';
   }
@@ -71,6 +74,7 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
     const sm = error.shortMessage.toLowerCase();
     if (
       !sm.includes('could not coalesce') &&
+      !sm.includes('could not decode') &&
       !sm.includes('unknown error') &&
       !sm.includes('missing revert data')
     ) {
@@ -83,6 +87,7 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
     const nm = nested.message;
     if (
       !nm.toLowerCase().includes('could not coalesce') &&
+      !nm.toLowerCase().includes('could not decode') &&
       !nm.toLowerCase().includes('unknown error')
     ) {
       rawReason = nm;
@@ -133,6 +138,8 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
         'Only the product manufacturer or system administrator can recall this product.',
       'IdenteefiV2: pending owner only':
         'Only the designated pending contract owner can claim ownership.',
+      'IdenteefiV2: caller is current custodian':
+        'The dispatching wallet cannot claim its own delivery. A different eligible wallet must confirm receipt.',
     };
 
     if (friendlyMap[rawReason]) {
@@ -151,6 +158,7 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
       cleaned &&
       !cleaned.includes('{') &&
       !cleaned.toLowerCase().includes('could not coalesce') &&
+      !cleaned.toLowerCase().includes('could not decode') &&
       cleaned.length < 120
     ) {
       return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
@@ -172,7 +180,8 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
     !error.message.includes('action="') &&
     !error.message.includes('code=') &&
     !error.message.includes('transaction=') &&
-    !error.message.toLowerCase().includes('could not coalesce')
+    !error.message.toLowerCase().includes('could not coalesce') &&
+    !error.message.toLowerCase().includes('could not decode')
   ) {
     return error.message;
   }

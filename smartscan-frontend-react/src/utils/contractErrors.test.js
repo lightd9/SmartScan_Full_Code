@@ -92,6 +92,17 @@ describe('formatContractError', () => {
     );
   });
 
+  it('translates BAD_DATA / could not decode result data to Sepolia network switch prompt', () => {
+    const error = {
+      code: 'BAD_DATA',
+      shortMessage: 'could not decode result data',
+      message: 'could not decode result data (value="0x", info={ "method": "getProduct" }, code=BAD_DATA, version=6.17.0)'
+    };
+    expect(formatContractError(error)).toBe(
+      'Please switch your wallet to Sepolia Test Network (Chain ID 11155111).'
+    );
+  });
+
   it('strips IdenteefiV2 prefix from unknown revert messages', () => {
     const error = { reason: 'IdenteefiV2: custom validation check failed' };
     expect(formatContractError(error)).toBe('Custom validation check failed');

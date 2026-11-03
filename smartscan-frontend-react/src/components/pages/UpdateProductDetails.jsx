@@ -10,7 +10,7 @@ import axios from '../../api/axios';
 import Geocode from "react-geocode";
 import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CONTRACT_ADDRESS, CONTRACT_ABI, BLOCK_EXPLORER_URL } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, BLOCK_EXPLORER_URL, CHAIN_RPC_URL, ensureConfiguredNetwork } from '../../config/contract';
 import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
 import { parseProductQr } from '../../api/productQr';
@@ -102,7 +102,7 @@ const UpdateProductDetails = () => {
             setCurrLongtitude(position.coords.longitude);
             setLocationNotice('Browser coordinates captured.');
         }, () => setLocationNotice('Location permission was not granted or could not be read. Enter the business location manually if needed.'),
-        { maximumAge: 60000, timeout: 10000 });
+            { maximumAge: 60000, timeout: 10000 });
     }
 
     const getUsername = async () => {
@@ -138,13 +138,23 @@ const UpdateProductDetails = () => {
                     throw new Error("No active wallet account found in MetaMask. Please connect an account.");
                 }
 
+                setStatusText("Verifying network (Sepolia)...");
+                await ensureConfiguredNetwork(ethereum);
+
                 const provider = new ethers.BrowserProvider(ethereum);
                 const signer = await provider.getSigner();
                 const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
                 const wallet = (await signer.getAddress()).toLowerCase();
 
                 setStatusText("Verifying product on blockchain...");
-                const product = await productContract.getProduct(serialNumber);
+                let product;
+                try {
+                    product = await productContract.getProduct(serialNumber);
+                } catch (_readErr) {
+                    const fallbackProvider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+                    const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fallbackProvider);
+                    product = await readContract.getProduct(serialNumber);
+                }
                 const currentStage = Number(product[6]);
                 const custodian = product[7];
                 const pendingRecipient = product[8];
@@ -200,15 +210,15 @@ const UpdateProductDetails = () => {
                     currentStage === 2
                         ? 'Delivery confirmed! Physical custody of this product has been successfully transferred to your account on the blockchain.'
                         : auth.role === 'retailer'
-                        ? 'Product marked as Sold! This digital passport is now finalized and permanently protected against resale counterfeiting.'
-                        : 'Product dispatched! The item is now in transit awaiting confirmation by the recipient.';
+                            ? 'Product marked as Sold! This digital passport is now finalized and permanently protected against resale counterfeiting.'
+                            : 'Product dispatched! The item is now in transit awaiting confirmation by the recipient.';
 
                 setSuccessInfo({
                     title: currentStage === 2
                         ? 'Custody Handover Confirmed'
                         : auth.role === 'retailer'
-                        ? 'Product Marked as Sold'
-                        : 'Product Dispatch Confirmed',
+                            ? 'Product Marked as Sold'
+                            : 'Product Dispatch Confirmed',
                     description: actionDescription,
                     txHash: transaction.hash,
                 });
@@ -238,6 +248,8 @@ const UpdateProductDetails = () => {
             const { ethereum } = window;
             if (!ethereum) throw new Error("Install or enable a wallet to submit a recall.");
             await ethereum.request({ method: "eth_requestAccounts" });
+            setStatusText("Verifying network (Sepolia)...");
+            await ensureConfiguredNetwork(ethereum);
             const signer = await new ethers.BrowserProvider(ethereum).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             const walletAddress = await signer.getAddress();
