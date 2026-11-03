@@ -14,6 +14,7 @@ import { CONTRACT_ADDRESS, CONTRACT_ABI, BLOCK_EXPLORER_URL, CHAIN_RPC_URL, ensu
 import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
 import { parseProductQr } from '../../api/productQr';
+import { determineCustodyAction } from '../../utils/stageActions';
 
 const UpdateProductDetails = () => {
 
@@ -30,13 +31,88 @@ const UpdateProductDetails = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [successInfo, setSuccessInfo] = useState(null);
     const [recallReason, setRecallReason] = useState("");
-
+    const [productData, setProductData] = useState({
+        stage: 0,
+        custodian: '',
+        pendingRecipient: '',
+        isSold: false,
+        isRecalled: false,
+        name: '',
+        brand: '',
+        history: [],
+    });
+    const [isLoadingProduct, setIsLoadingProduct] = useState(false);
+    const [activeWallet, setActiveWallet] = useState('');
 
     const { auth } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
     const incomingQr = location.state?.qrData || location.state?.serialNumber;
     const scanWarnings = location.state?.warnings || [];
+
+    const loadOnChainProduct = async (serial) => {
+        if (!serial) return;
+        setIsLoadingProduct(true);
+        try {
+            const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+            const product = await contract.getProduct(serial);
+            setProductData({
+                serialNumber: product[0],
+                name: product[1],
+                brand: product[2],
+                description: product[3],
+                image: product[4],
+                history: product[5],
+                stage: Number(product[6]),
+                custodian: product[7],
+                pendingRecipient: product[8],
+                isSold: Boolean(product[9]),
+                isRecalled: Boolean(product[10]),
+            });
+        } catch (err) {
+            console.error('Failed to load on-chain product details:', err);
+        } finally {
+            setIsLoadingProduct(false);
+        }
+    };
+
+    useEffect(() => {
+        if (serialNumber) {
+            loadOnChainProduct(serialNumber);
+        }
+    }, [serialNumber]);
+
+    useEffect(() => {
+        if (auth?.walletAddress) {
+            setActiveWallet(auth.walletAddress);
+        }
+        if (window.ethereum?.selectedAddress) {
+            setActiveWallet(window.ethereum.selectedAddress);
+        }
+        if (window.ethereum?.on) {
+            const handleAccountsChanged = (accounts) => {
+                if (accounts?.[0]) setActiveWallet(accounts[0]);
+            };
+            window.ethereum.on('accountsChanged', handleAccountsChanged);
+            return () => {
+                if (window.ethereum?.removeListener) {
+                    window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+                }
+            };
+        }
+    }, [auth?.walletAddress]);
+
+    const custodyAction = determineCustodyAction({
+        stage: productData.stage,
+        custodian: productData.custodian,
+        pendingRecipient: productData.pendingRecipient,
+        isSold: productData.isSold,
+        isRecalled: productData.isRecalled,
+        role: auth?.role,
+        walletAddress: activeWallet || auth?.walletAddress,
+        history: productData.history,
+    });
 
 
     useEffect(() => {
@@ -175,10 +251,10 @@ const UpdateProductDetails = () => {
                     }
                     if (!mayReceive) throw new Error("Your account role is not eligible to confirm receipt of this dispatch.");
 
-                    setStatusText("Authorizing delivery receipt...");
+                    setStatusText(`Authorizing ${custodyAction.actionTitle}...`);
                     await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'confirm_delivery' });
 
-                    setStatusText("Confirm delivery in your wallet popup...");
+                    setStatusText(`Confirm ${custodyAction.actionTitle} in your wallet popup...`);
                     transaction = await productContract.confirmDelivery(serialNumber, currName, currLocation, currDate.toString());
                 } else if (currentStage === 1 || currentStage === 3) {
                     if (custodian.toLowerCase() !== wallet) {
@@ -187,16 +263,16 @@ const UpdateProductDetails = () => {
                             : "This product is already marked delivered. Only its recorded custodian can initiate the next handover or mark it sold.");
                     }
                     if (auth.role === "retailer") {
-                        setStatusText("Authorizing mark sold...");
+                        setStatusText(`Authorizing ${custodyAction.actionTitle}...`);
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'mark_sold' });
 
-                        setStatusText("Confirm sale in your wallet popup...");
+                        setStatusText(`Confirm ${custodyAction.actionTitle} in your wallet popup...`);
                         transaction = await productContract.markSold(serialNumber, currName, currLocation, currDate.toString());
                     } else {
-                        setStatusText("Authorizing dispatch...");
+                        setStatusText(`Authorizing ${custodyAction.actionTitle}...`);
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'dispatch' });
 
-                        setStatusText("Confirm dispatch in your wallet popup...");
+                        setStatusText(`Confirm ${custodyAction.actionTitle} in your wallet popup...`);
                         transaction = await productContract.dispatchProduct(serialNumber, ethers.ZeroAddress, currName, currLocation, currDate.toString());
                     }
                 } else {
@@ -205,6 +281,7 @@ const UpdateProductDetails = () => {
 
                 setStatusText(`Transaction submitted (${transaction.hash.slice(0, 10)}...). Waiting for blockchain confirmation...`);
                 await transaction.wait();
+                await loadOnChainProduct(serialNumber);
 
                 const actionDescription =
                     currentStage === 2
@@ -292,10 +369,8 @@ const UpdateProductDetails = () => {
     return (
         <DashboardShell>
             <GreetingBanner
-                title="Update Physical Custody & Transition"
-                subtitle={auth?.role === 'retailer'
-                    ? "Record product sale on the blockchain to finalize the digital passport and protect against counterfeiting."
-                    : "Dispatch into the registered supply chain or confirm receipt from your linked business wallet."}
+                title={custodyAction.actionTitle || "Update Physical Custody & Transition"}
+                subtitle={custodyAction.actionDescription || "Dispatch into the registered supply chain or confirm receipt from your linked business wallet."}
                 metrics={[
                     {
                         icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
@@ -303,14 +378,14 @@ const UpdateProductDetails = () => {
                         label: 'Active Identifier',
                     },
                     {
-                        icon: <span style={{ color: '#10B981', fontWeight: 700 }}>ROLE</span>,
-                        value: (auth.role || 'Partner').toUpperCase(),
-                        label: 'Signing Role',
+                        icon: <span style={{ color: '#10B981', fontWeight: 700 }}>STAGE</span>,
+                        value: custodyAction.stageLabel || 'Active',
+                        label: 'Current Status',
                     },
                     {
-                        icon: <span style={{ color: '#9333EA', fontWeight: 700 }}>TIME</span>,
-                        value: dayjs(currDate * 1000).format("h:mm A"),
-                        label: 'Timestamp',
+                        icon: <span style={{ color: '#9333EA', fontWeight: 700 }}>ROLE</span>,
+                        value: (auth?.role || 'Partner').toUpperCase(),
+                        label: 'Signing Role',
                     },
                 ]}
             />
@@ -320,8 +395,39 @@ const UpdateProductDetails = () => {
             <div className="dashboard-grid-dual">
                 {/* Left Card: Custody Action Form */}
                 <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    <h2 style={{ margin: '0 0 6px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                        Custody Handover Execution
+                    {/* Explicit Action Card */}
+                    <div style={{
+                        padding: '16px',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--color-surface-subtle, #F8FAFC)',
+                        border: '1px solid var(--color-border, #E2E8F0)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Action To Be Performed
+                            </span>
+                            <span className={`status-pill ${custodyAction.pillColor}`}>
+                                {custodyAction.stageLabel}
+                            </span>
+                        </div>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                            {custodyAction.actionTitle}
+                        </div>
+                        <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                            {custodyAction.actionDescription}
+                        </p>
+                        {productData.name && (
+                            <div style={{ fontSize: '12.5px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
+                                Product: <strong style={{ color: 'var(--color-text-main)' }}>{productData.name}</strong> {productData.brand ? `· ${productData.brand}` : ''}
+                            </div>
+                        )}
+                    </div>
+
+                    <h2 style={{ margin: '4px 0 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                        Handover Information & Signer Details
                     </h2>
 
                     <TextField
@@ -359,13 +465,11 @@ const UpdateProductDetails = () => {
                         value={dayjs(currDate * 1000).format("MMMM D, YYYY h:mm A")}
                     />
 
-                    {auth.role === 'supplier' || auth.role === 'retailer' ? (
-                        <Alert severity="info">
-                            {auth.role === 'retailer'
-                                ? "If this item was in transit, submitting claims receipt. If already received in your store, submitting records the verified sale on-chain."
-                                : "If this item is awaiting receipt, submit from your linked wallet to claim custody. The contract checks your registered role."}
+                    {!custodyAction.canExecute && custodyAction.reason && (
+                        <Alert severity="warning" sx={{ width: '100%' }}>
+                            {custodyAction.reason}
                         </Alert>
-                    ) : null}
+                    )}
 
                     {actionError && (
                         <Alert severity="error" sx={{ width: '100%' }}>{actionError}</Alert>
@@ -451,13 +555,16 @@ const UpdateProductDetails = () => {
                                 className="btn-primary-action"
                                 style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
                                 onClick={handleSubmit}
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || !custodyAction.canExecute}
                             >
-                                {isSubmitting
-                                    ? 'Processing Transaction...'
-                                    : auth.role === 'retailer'
-                                        ? 'Sign & Mark Product as Sold'
-                                        : 'Sign & Submit Custody Action'}
+                                {isSubmitting ? (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <CircularProgress size={16} color="inherit" />
+                                        Executing on Blockchain...
+                                    </span>
+                                ) : (
+                                    custodyAction.buttonLabel
+                                )}
                             </button>
 
                             <button

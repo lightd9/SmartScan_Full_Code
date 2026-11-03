@@ -22,6 +22,7 @@ import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../
 import { formatContractError } from '../../utils/contractErrors';
 import { useScanner } from '../../context/ScannerContext';
 import useAuth from '../../hooks/useAuth';
+import { determineCustodyAction } from '../../utils/stageActions';
 
 
 
@@ -35,7 +36,11 @@ const UpdateProduct = () => {
     const [brand, setBrand] = useState("");
     const [description, setDescription] = useState("");
     const [history, setHistory] = useState([]);
+    const [stage, setStage] = useState(0);
+    const [custodian, setCustodian] = useState('');
+    const [pendingRecipient, setPendingRecipient] = useState('');
     const [isSold, setIsSold] = useState(false);
+    const [isRecalled, setIsRecalled] = useState(false);
     const [loadError, setLoadError] = useState('');
 
     const [image, setImage] = useState({
@@ -93,7 +98,11 @@ const UpdateProduct = () => {
         setBrand(product[2]);
         setDescription(product[3].replace(/;/g, ","));
         getImage(product[4]);
+        setStage(Number(product[6]));
+        setCustodian(product[7]);
+        setPendingRecipient(product[8]);
         setIsSold(Boolean(product[9]));
+        setIsRecalled(Boolean(product[10]));
         setHistory(product[5].map((event) => ({
             id: event.id.toString(),
             actor: event.actor,
@@ -111,6 +120,17 @@ const UpdateProduct = () => {
     const handleBack = () => {
         navigate(-1)
     }
+
+    const custodyAction = determineCustodyAction({
+        stage,
+        custodian,
+        pendingRecipient,
+        isSold,
+        isRecalled,
+        role: auth?.role,
+        walletAddress: auth?.walletAddress,
+        history,
+    });
 
 
     const getHistory = () => {
@@ -290,14 +310,9 @@ const UpdateProduct = () => {
                             className="btn-primary-action"
                             style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
                             onClick={handleSubmit}
-                            disabled={isSold}
+                            disabled={!custodyAction.canExecute}
                         >
-                            {isSold
-                                ? 'Product Already Finalized (Sold)'
-                                : auth?.role === 'retailer'
-                                    ? 'Proceed to Finalize Sale (Mark Sold) →'
-                                    : 'Proceed to Update Custody / Dispatch'
-                            }
+                            {custodyAction.proceedButtonLabel}
                         </button>
                         <button type="button" className="btn-secondary-action" style={{ width: '100%', justifyContent: 'center' }} onClick={handleBack}>
                             Back to Scanner
