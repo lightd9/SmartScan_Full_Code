@@ -1,4 +1,5 @@
-import { Box, Paper, Typography, Alert, TextField, Button } from '@mui/material';
+import { Box, Paper, Typography, Alert, TextField, Button, CircularProgress } from '@mui/material';
+import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import '../shell/shell.css';
@@ -9,7 +10,7 @@ import axios from '../../api/axios';
 import Geocode from "react-geocode";
 import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, BLOCK_EXPLORER_URL } from '../../config/contract';
 import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
 import { parseProductQr } from '../../api/productQr';
@@ -21,8 +22,13 @@ const UpdateProductDetails = () => {
     const [currLongtitude, setCurrLongtitude] = useState("");
     const [currName, setCurrName] = useState("");
     const [currLocation, setCurrLocation] = useState("");
+    const [locationNotice, setLocationNotice] = useState("");
     const [serialNumber, setSerialNumber] = useState("");
     const [loading, setLoading] = useState("");
+    const [statusText, setStatusText] = useState("");
+    const [actionError, setActionError] = useState("");
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [successInfo, setSuccessInfo] = useState(null);
     const [recallReason, setRecallReason] = useState("");
 
 
@@ -58,7 +64,7 @@ const UpdateProductDetails = () => {
         const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
         if (!apiKey || currLatitude === '' || currLongtitude === '') {
             if (currLatitude !== '' && currLongtitude !== '' && !apiKey) {
-                setLoading('Coordinates were received, but address lookup is not configured. Enter the location manually; browser location is unverified.');
+                setLocationNotice('Coordinates were received, but address lookup is not configured. Enter the location manually; browser location is unverified.');
             }
             return;
         }
@@ -71,34 +77,33 @@ const UpdateProductDetails = () => {
                     (response) => {
                         const address = response.results?.[0]?.formatted_address || '';
                         setCurrLocation(address.replace(/,/g, ';'));
-                        setLoading('Approximate browser-reported location resolved. Review or edit it before submitting; it is unverified.');
+                        setLocationNotice('Approximate browser-reported location resolved. Review or edit it before submitting.');
                     },
-                    () => setLoading('Unable to resolve your location. Check permission and enter it manually.')
-                ).catch(() => setLoading('Unable to resolve your location. Check permission and enter it manually.'));
+                    () => setLocationNotice('Unable to resolve your location. Check permission and enter it manually.')
+                ).catch(() => setLocationNotice('Unable to resolve your location. Check permission and enter it manually.'));
             } else {
-                setLoading('Geocoding service unavailable. Enter location manually.');
+                setLocationNotice('Geocoding service unavailable. Enter location manually.');
             }
         } catch {
-            setLoading('Unable to resolve your location. Check permission and enter it manually.');
+            setLocationNotice('Unable to resolve your location. Check permission and enter it manually.');
         }
 
     }, [currLatitude, currLongtitude]);
 
     const getCurrentTimeLocation = () => {
         setCurrDate(dayjs().unix());
-        setLoading('Requesting optional browser location…');
+        setLocationNotice('Requesting optional browser location…');
         if (!navigator.geolocation) {
-            setLoading('Location is unavailable in this browser. Enter the business location manually if needed.');
+            setLocationNotice('Location is unavailable in this browser. Enter the business location manually if needed.');
             return;
         }
         navigator.geolocation.getCurrentPosition((position) => {
             setCurrLatitude(position.coords.latitude);
             setCurrLongtitude(position.coords.longitude);
-        }, () => setLoading('Location permission was not granted or could not be read. Enter the business location manually if needed.'),
+            setLocationNotice('Browser coordinates captured.');
+        }, () => setLocationNotice('Location permission was not granted or could not be read. Enter the business location manually if needed.'),
         { maximumAge: 60000, timeout: 10000 });
     }
-
-       
 
     const getUsername = async () => {
         if (!auth?.username) return;
@@ -113,7 +118,10 @@ const UpdateProductDetails = () => {
     };
 
     const updateProduct = async (e) => {
-        e.preventDefault();
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        setActionError('');
+        setSuccessInfo(null);
+        setIsSubmitting(true);
 
         try {
             const { ethereum } = window;
@@ -123,7 +131,7 @@ const UpdateProductDetails = () => {
                     throw new Error("Product identifier is missing. Please re-scan or re-select the product.");
                 }
 
-                setLoading("Connecting wallet...");
+                setStatusText("Connecting wallet...");
                 const accounts = await ethereum.request({ method: "eth_requestAccounts" });
                 const connectedWallet = accounts?.[0]?.toLowerCase();
                 if (!connectedWallet) {
@@ -135,7 +143,7 @@ const UpdateProductDetails = () => {
                 const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
                 const wallet = (await signer.getAddress()).toLowerCase();
 
-                setLoading("Verifying product on blockchain...");
+                setStatusText("Verifying product on blockchain...");
                 const product = await productContract.getProduct(serialNumber);
                 const currentStage = Number(product[6]);
                 const custodian = product[7];
@@ -157,10 +165,10 @@ const UpdateProductDetails = () => {
                     }
                     if (!mayReceive) throw new Error("Your account role is not eligible to confirm receipt of this dispatch.");
 
-                    setLoading("Authorizing delivery receipt...");
+                    setStatusText("Authorizing delivery receipt...");
                     await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'confirm_delivery' });
 
-                    setLoading("Confirm delivery in your wallet popup...");
+                    setStatusText("Confirm delivery in your wallet popup...");
                     transaction = await productContract.confirmDelivery(serialNumber, currName, currLocation, currDate.toString());
                 } else if (currentStage === 1 || currentStage === 3) {
                     if (custodian.toLowerCase() !== wallet) {
@@ -169,34 +177,61 @@ const UpdateProductDetails = () => {
                             : "This product is already marked delivered. Only its recorded custodian can initiate the next handover or mark it sold.");
                     }
                     if (auth.role === "retailer") {
-                        setLoading("Authorizing mark sold...");
+                        setStatusText("Authorizing mark sold...");
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'mark_sold' });
 
-                        setLoading("Confirm sale in your wallet popup...");
+                        setStatusText("Confirm sale in your wallet popup...");
                         transaction = await productContract.markSold(serialNumber, currName, currLocation, currDate.toString());
                     } else {
-                        setLoading("Authorizing dispatch...");
+                        setStatusText("Authorizing dispatch...");
                         await axios.post('/wallet/authorize-write', { walletAddress: wallet, action: 'dispatch' });
 
-                        setLoading("Confirm dispatch in your wallet popup...");
+                        setStatusText("Confirm dispatch in your wallet popup...");
                         transaction = await productContract.dispatchProduct(serialNumber, ethers.ZeroAddress, currName, currLocation, currDate.toString());
                     }
                 } else {
                     throw new Error("This product is not ready for an action by this account.");
                 }
-                setLoading(`Transaction submitted: ${transaction.hash}`);
+
+                setStatusText(`Transaction submitted (${transaction.hash.slice(0, 10)}...). Waiting for blockchain confirmation...`);
                 await transaction.wait();
-                setLoading("Custody event confirmed on the blockchain.");
+
+                const actionDescription =
+                    currentStage === 2
+                        ? 'Delivery confirmed! Physical custody of this product has been successfully transferred to your account on the blockchain.'
+                        : auth.role === 'retailer'
+                        ? 'Product marked as Sold! This digital passport is now finalized and permanently protected against resale counterfeiting.'
+                        : 'Product dispatched! The item is now in transit awaiting confirmation by the recipient.';
+
+                setSuccessInfo({
+                    title: currentStage === 2
+                        ? 'Custody Handover Confirmed'
+                        : auth.role === 'retailer'
+                        ? 'Product Marked as Sold'
+                        : 'Product Dispatch Confirmed',
+                    description: actionDescription,
+                    txHash: transaction.hash,
+                });
+                setStatusText('');
+                setLoading('Custody event confirmed on the blockchain.');
 
             } else {
-                setLoading('Install or enable a wallet to submit a custody action.');
+                throw new Error('Install or enable a wallet to submit a custody action.');
             }
         } catch (error) {
-            setLoading(formatContractError(error, 'Unable to submit the custody action.'));
+            const formatted = formatContractError(error, 'Unable to submit the custody action.');
+            setActionError(formatted);
+            setStatusText('');
+            setLoading(formatted);
+        } finally {
+            setIsSubmitting(false);
         }
     }
 
     const handleRecall = async () => {
+        setActionError('');
+        setSuccessInfo(null);
+        setIsSubmitting(true);
         try {
             if (!recallReason.trim()) throw new Error("Enter a recall reason.");
             if (!serialNumber) throw new Error("Product identifier is missing.");
@@ -206,31 +241,39 @@ const UpdateProductDetails = () => {
             const signer = await new ethers.BrowserProvider(ethereum).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
             const walletAddress = await signer.getAddress();
-            setLoading("Authorizing recall write...");
+            setStatusText("Authorizing recall write...");
             await axios.post('/wallet/authorize-write', {
                 walletAddress,
                 action: 'recall',
             });
-            setLoading("Confirm recall in your wallet popup...");
+            setStatusText("Confirm recall in your wallet popup...");
             const transaction = await contract.recallProduct(serialNumber, recallReason, currName, currLocation, currDate.toString());
-            setLoading(`Recall submitted: ${transaction.hash}`);
+            setStatusText(`Recall submitted (${transaction.hash.slice(0, 10)}...). Waiting for confirmation...`);
             await transaction.wait();
+            setSuccessInfo({
+                title: 'Emergency Product Recall Recorded',
+                description: 'Product recall has been finalized on-chain. All future scans will immediately warn consumers of this recall.',
+                txHash: transaction.hash,
+            });
+            setStatusText('');
             setLoading("Recall recorded. Verification scans will show a recall warning.");
         } catch (error) {
-            setLoading(formatContractError(error, 'Unable to record recall.'));
+            const formatted = formatContractError(error, 'Unable to record recall.');
+            setActionError(formatted);
+            setStatusText('');
+            setLoading(formatted);
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setLoading("Please pay the transaction fee to update the product details...")
         await updateProduct(e);
-
-
     }
 
     const handleBack = () => {
-        navigate(-1)
+        navigate(-1);
     }
 
 
@@ -238,7 +281,7 @@ const UpdateProductDetails = () => {
         <DashboardShell>
             <GreetingBanner
                 title="Update Physical Custody & Transition"
-            subtitle="Dispatch into the registered supply chain or confirm receipt from your linked business wallet."
+                subtitle="Dispatch into the registered supply chain or confirm receipt from your linked business wallet."
                 metrics={[
                     {
                         icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
@@ -288,10 +331,10 @@ const UpdateProductDetails = () => {
                         minRows={2}
                         value={currLocation.replace(/;/g, ",")}
                         onChange={(event) => setCurrLocation(event.target.value.replace(/,/g, ';'))}
-                        helperText="Recorded with this on-chain event."
+                        helperText={locationNotice || "Recorded with this on-chain event."}
                     />
 
-                    <Button type="button" fullWidth variant="text" onClick={getCurrentTimeLocation} sx={{ textTransform: 'none' }}>
+                    <Button type="button" fullWidth variant="text" onClick={getCurrentTimeLocation} sx={{ textTransform: 'none' }} disabled={isSubmitting}>
                         📍 Detect Browser Location
                     </Button>
 
@@ -306,31 +349,92 @@ const UpdateProductDetails = () => {
                         <Alert severity="info">If this item is awaiting receipt, submit from your linked wallet to claim custody. The contract checks your registered role.</Alert>
                     ) : null}
 
-                    {loading && (
-                        <div style={{ padding: '12px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 600, textAlign: 'center' }}>
-                            {loading}
+                    {actionError && (
+                        <Alert severity="error" sx={{ width: '100%' }}>{actionError}</Alert>
+                    )}
+
+                    {statusText && (
+                        <div style={{ padding: '12px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', color: 'var(--color-primary)', fontSize: '13px', fontWeight: 600, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                            <CircularProgress size={16} sx={{ color: 'var(--color-primary)' }} />
+                            <span>{statusText}</span>
                         </div>
                     )}
 
-                    <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <button
-                            type="button"
-                            className="btn-primary-action"
-                            style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
-                            onClick={handleSubmit}
-                        >
-                            Sign & Submit Custody Action
-                        </button>
+                    {successInfo ? (
+                        <div style={{
+                            padding: '20px',
+                            borderRadius: '12px',
+                            backgroundColor: '#ECFDF5',
+                            border: '1px solid #A7F3D0',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '12px',
+                            marginTop: '8px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <CheckCircleOutlineRoundedIcon sx={{ fontSize: 24, color: '#10B981' }} />
+                                <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 700, color: '#065F46' }}>
+                                    {successInfo.title}
+                                </h4>
+                            </div>
+                            <p style={{ margin: 0, fontSize: '13px', color: '#047857', lineHeight: 1.5 }}>
+                                {successInfo.description}
+                            </p>
+                            {successInfo.txHash && (
+                                <div style={{ fontSize: '12px', color: '#065F46', wordBreak: 'break-all' }}>
+                                    <strong>Transaction Hash: </strong>
+                                    <a
+                                        href={`${BLOCK_EXPLORER_URL}/tx/${successInfo.txHash}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{ color: '#047857', textDecoration: 'underline', fontWeight: 600 }}
+                                    >
+                                        {successInfo.txHash.slice(0, 16)}...{successInfo.txHash.slice(-8)}
+                                    </a>
+                                </div>
+                            )}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+                                <button
+                                    type="button"
+                                    className="btn-primary-action"
+                                    style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+                                    onClick={() => navigate('/update-product', { state: { qrData: serialNumber } })}
+                                >
+                                    View Updated Custody Timeline →
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn-secondary-action"
+                                    style={{ width: '100%', justifyContent: 'center' }}
+                                    onClick={() => navigate(`/${auth.role || ''}`)}
+                                >
+                                    Return to Dashboard
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            <button
+                                type="button"
+                                className="btn-primary-action"
+                                style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+                                onClick={handleSubmit}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? 'Processing Transaction...' : 'Sign & Submit Custody Action'}
+                            </button>
 
-                        <button
-                            type="button"
-                            className="btn-secondary-action"
-                            style={{ width: '100%', justifyContent: 'center' }}
-                            onClick={handleBack}
-                        >
-                            Cancel & Return
-                        </button>
-                    </div>
+                            <button
+                                type="button"
+                                className="btn-secondary-action"
+                                style={{ width: '100%', justifyContent: 'center' }}
+                                onClick={handleBack}
+                                disabled={isSubmitting}
+                            >
+                                Cancel & Return
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right Card: Emergency Recall & Protocol Actions */}
@@ -361,8 +465,9 @@ const UpdateProductDetails = () => {
                                 className="btn-secondary-action"
                                 style={{ marginTop: 12, width: '100%', justifyContent: 'center', borderColor: '#DC2626', color: '#DC2626' }}
                                 onClick={handleRecall}
+                                disabled={isSubmitting}
                             >
-                                Execute On-Chain Recall
+                                {isSubmitting ? "Processing Recall..." : "Execute On-Chain Recall"}
                             </button>
                         </div>
                     ) : (
