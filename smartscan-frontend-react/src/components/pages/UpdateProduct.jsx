@@ -21,10 +21,12 @@ import { formatScanWarning } from '../../api/scanEvents';
 import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../../api/productQr';
 import { formatContractError } from '../../utils/contractErrors';
 import { useScanner } from '../../context/ScannerContext';
+import useAuth from '../../hooks/useAuth';
 
 
 
 const UpdateProduct = () => {
+    const { auth } = useAuth();
     const { openScanner } = useScanner();
     const ROLE_NAMES = ['Unregistered', 'Admin', 'Manufacturer', 'Supplier', 'Retailer'];
     const [serialNumber, setSerialNumber] = useState("");
@@ -283,8 +285,19 @@ const UpdateProduct = () => {
                     </div>
 
                     <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                        <button type="button" className="btn-primary-action" style={{ width: '100%', justifyContent: 'center', padding: '12px' }} onClick={handleSubmit}>
-                            Proceed to Update Custody / Dispatch
+                        <button
+                            type="button"
+                            className="btn-primary-action"
+                            style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+                            onClick={handleSubmit}
+                            disabled={isSold}
+                        >
+                            {isSold
+                                ? 'Product Already Finalized (Sold)'
+                                : auth?.role === 'retailer'
+                                    ? 'Proceed to Finalize Sale (Mark Sold) →'
+                                    : 'Proceed to Update Custody / Dispatch'
+                            }
                         </button>
                         <button type="button" className="btn-secondary-action" style={{ width: '100%', justifyContent: 'center' }} onClick={handleBack}>
                             Back to Scanner

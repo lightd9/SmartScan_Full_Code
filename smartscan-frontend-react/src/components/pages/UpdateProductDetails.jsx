@@ -293,7 +293,9 @@ const UpdateProductDetails = () => {
         <DashboardShell>
             <GreetingBanner
                 title="Update Physical Custody & Transition"
-                subtitle="Dispatch into the registered supply chain or confirm receipt from your linked business wallet."
+                subtitle={auth?.role === 'retailer'
+                    ? "Record product sale on the blockchain to finalize the digital passport and protect against counterfeiting."
+                    : "Dispatch into the registered supply chain or confirm receipt from your linked business wallet."}
                 metrics={[
                     {
                         icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
@@ -358,7 +360,11 @@ const UpdateProductDetails = () => {
                     />
 
                     {auth.role === 'supplier' || auth.role === 'retailer' ? (
-                        <Alert severity="info">If this item is awaiting receipt, submit from your linked wallet to claim custody. The contract checks your registered role.</Alert>
+                        <Alert severity="info">
+                            {auth.role === 'retailer'
+                                ? "If this item was in transit, submitting claims receipt. If already received in your store, submitting records the verified sale on-chain."
+                                : "If this item is awaiting receipt, submit from your linked wallet to claim custody. The contract checks your registered role."}
+                        </Alert>
                     ) : null}
 
                     {actionError && (
@@ -406,6 +412,20 @@ const UpdateProductDetails = () => {
                                 </div>
                             )}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+                                {auth.role === 'retailer' && successInfo.title === 'Custody Handover Confirmed' && (
+                                    <button
+                                        type="button"
+                                        className="btn-primary-action"
+                                        style={{ width: '100%', justifyContent: 'center', padding: '12px', backgroundColor: '#059669' }}
+                                        onClick={() => {
+                                            setSuccessInfo(null);
+                                            setActionError('');
+                                            setStatusText('');
+                                        }}
+                                    >
+                                        Proceed to Mark Product as Sold Now →
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     className="btn-primary-action"
@@ -433,7 +453,11 @@ const UpdateProductDetails = () => {
                                 onClick={handleSubmit}
                                 disabled={isSubmitting}
                             >
-                                {isSubmitting ? 'Processing Transaction...' : 'Sign & Submit Custody Action'}
+                                {isSubmitting
+                                    ? 'Processing Transaction...'
+                                    : auth.role === 'retailer'
+                                        ? 'Sign & Mark Product as Sold'
+                                        : 'Sign & Submit Custody Action'}
                             </button>
 
                             <button
