@@ -48,3 +48,5 @@ Thumbs.db
 # Agent metadata
 .agents/
 skills-lock.json
+
+.vercel

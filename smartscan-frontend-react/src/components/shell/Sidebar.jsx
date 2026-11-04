@@ -16,6 +16,7 @@ import HelpOutlineOutlinedIcon from '@mui/icons-material/HelpOutlineOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 
 export default function Sidebar() {
   const { auth, logout } = useAuth();
@@ -117,11 +118,18 @@ export default function Sidebar() {
       );
     }
 
-    baseItems.push({
-      to: '/profile',
-      label: 'Corporate Wallet',
-      icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" />,
-    });
+    baseItems.push(
+      {
+        to: '/subaccounts',
+        label: 'Facility Wallets',
+        icon: <AccountTreeOutlinedIcon className="nav-icon" />,
+      },
+      {
+        to: '/profile',
+        label: 'Corporate Wallet',
+        icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" />,
+      }
+    );
 
     return baseItems;
   };

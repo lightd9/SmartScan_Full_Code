@@ -57,6 +57,7 @@ export default function POSCheckoutPage() {
     const [cameraOpen, setCameraOpen] = useState(false);
     const [audioEnabled, setAudioEnabled] = useState(true);
     const [autoPrintReceipt, setAutoPrintReceipt] = useState(false);
+    const [autoSignEnabled, setAutoSignEnabled] = useState(true);
 
     // Verification State
     const [verifying, setVerifying] = useState(false);
@@ -292,11 +293,46 @@ export default function POSCheckoutPage() {
         setPosNotice(null);
 
         try {
-            // Check if user has web3 wallet connected
+            // 1. First priority: Autonomous Headless Fast-Sign via Facility Keystore (Zero MetaMask Popups)
+            if (autoSignEnabled) {
+                setPosNotice({ type: 'info', message: '⚡ Fast-signing on blockchain via Facility Custody Keystore...' });
+                try {
+                    const execRes = await api.post('/api/custody/auto-execute', {
+                        serialNumber: currentResult.serialNumber,
+                        action: 'mark_sold',
+                        location: storeLocation,
+                    });
+                    const txHash = execRes.data.txHash;
+                    const facilityName = execRes.data.facility?.name || 'Facility Keystore';
+
+                    const updated = {
+                        ...currentResult,
+                        isSold: true,
+                        status: 'SOLD_FINALIZED',
+                        canSell: false,
+                        txHash: txHash,
+                        alertTitle: 'SALE FINALIZED ON BLOCKCHAIN',
+                        alertMessage: `Digital passport sealed as SOLD by ${facilityName}. Official customer warranty certificate issued.`,
+                    };
+
+                    setCurrentResult(updated);
+                    setActiveReceipt(updated);
+                    setReceiptModalOpen(true);
+                    playPOSChime('success');
+                    setPosNotice({ type: 'success', message: `⚡ Sale finalized on-chain by ${facilityName}! Tx: ${txHash.slice(0, 14)}...` });
+                    return;
+                } catch (autoErr) {
+                    console.warn('Facility auto-execute attempt:', autoErr.response?.data?.error || autoErr.message);
+                    if (!window.ethereum) {
+                        throw new Error(autoErr.response?.data?.error || 'Autonomous signing failed and no browser wallet is connected.');
+                    }
+                }
+            }
+
+            // 2. Fallback to Browser Web3 Wallet (MetaMask)
             if (window.ethereum) {
                 const browserProvider = new ethers.BrowserProvider(window.ethereum);
                 const signer = await browserProvider.getSigner();
-                const signerAddress = await signer.getAddress();
 
                 // Switch chain if necessary
                 const network = await browserProvider.getNetwork();
@@ -396,6 +432,17 @@ export default function POSCheckoutPage() {
 
                 {/* POS Controls */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                size="small"
+                                checked={autoSignEnabled}
+                                color="success"
+                                onChange={(e) => setAutoSignEnabled(e.target.checked)}
+                            />
+                        }
+                        label={<span style={{ fontSize: '12px', fontWeight: 700, color: autoSignEnabled ? '#059669' : '#64748b' }}>⚡ Facility Auto-Sign</span>}
+                    />
                     <FormControlLabel
                         control={
                             <Switch

@@ -18,6 +18,7 @@ import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
+import FlashOnRoundedIcon from '@mui/icons-material/FlashOnRounded';
 import '../scanner/scannerModal.css';
 
 const ScannerPage = () => {
@@ -32,6 +33,7 @@ const ScannerPage = () => {
     const [isBatchMode, setIsBatchMode] = useState(false);
     const [batchQueue, setBatchQueue] = useState([]);
     const [batchNotice, setBatchNotice] = useState(null);
+    const [batchExecuting, setBatchExecuting] = useState(false);
     const lastScannedTimeRef = useRef(0);
 
     const { auth } = useAuth();
@@ -267,6 +269,39 @@ const ScannerPage = () => {
 
     const removeBatchItem = (serial) => {
         setBatchQueue(prev => prev.filter(item => item.serialNumber !== serial));
+    };
+
+    const handleBatchAutoExecute = async () => {
+        if (!batchQueue.length || batchExecuting) return;
+        setBatchExecuting(true);
+        setBatchNotice({ type: 'info', message: '⚡ Fast-signing batch on Ethereum Sepolia via Facility Keystore...' });
+
+        let completed = 0;
+        let failed = 0;
+
+        for (const item of batchQueue) {
+            try {
+                let action = 'confirm_delivery';
+                if (auth?.role === 'manufacturer') action = 'dispatch';
+                else if (auth?.role === 'retailer') action = 'mark_sold';
+
+                await api.post('/api/custody/auto-execute', {
+                    serialNumber: item.serialNumber,
+                    action,
+                    location: 'Warehouse Receiving Dock Floor',
+                });
+                completed++;
+            } catch (err) {
+                console.warn(`Batch execution item error for ${item.serialNumber}:`, err.message);
+                failed++;
+            }
+        }
+
+        setBatchNotice({
+            type: failed === 0 ? 'success' : 'warning',
+            message: `⚡ Batch fast-execution finished! ${completed} confirmed on-chain${failed > 0 ? `, ${failed} failed` : ''}.`,
+        });
+        setBatchExecuting(false);
     };
 
     const handlePasteClipboard = async () => {
@@ -548,7 +583,28 @@ const ScannerPage = () => {
                                         Scanned Items ({batchQueue.length})
                                     </span>
                                 </div>
-                                <div style={{ display: 'flex', gap: 8 }}>
+                                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                                    {auth?.role && ['supplier', 'retailer', 'manufacturer'].includes(auth.role) && (
+                                        <Button
+                                            size="small"
+                                            variant="contained"
+                                            disabled={batchExecuting || batchQueue.length === 0}
+                                            startIcon={batchExecuting ? <CircularProgress size={12} color="inherit" /> : <FlashOnRoundedIcon sx={{ fontSize: 14 }} />}
+                                            onClick={handleBatchAutoExecute}
+                                            sx={{
+                                                textTransform: 'none',
+                                                fontSize: '11px',
+                                                py: 0.3,
+                                                px: 1,
+                                                borderRadius: '6px',
+                                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                                color: '#fff',
+                                                fontWeight: 700,
+                                            }}
+                                        >
+                                            {batchExecuting ? 'Signing...' : '⚡ Auto-Sign Batch'}
+                                        </Button>
+                                    )}
                                     <Button
                                         size="small"
                                         variant="outlined"

@@ -9,6 +9,14 @@ const { hashPassword, isHashed, verifyPassword } = require('./password');
 const { createLocalUploadStore, hasValidImageSignature, MAX_UPLOAD_BYTES } = require('./upload-storage');
 const { createRateLimiters } = require('./rate-limiters');
 const { expectedCall, hasExpectedWalletOperationEvent, isDirectOwnerWalletOperation } = require('./wallet-operation-verification');
+const { generateEncapsulatedSubaccount, decryptSubaccountPrivateKey, getSubaccountSigner } = require('./crypto-vault');
+const { getTreasuryWallet, getTreasuryStatus, fundSubaccount } = require('./gas-treasury');
+
+const CUSTODY_EXECUTION_ABI = [
+  'function dispatchProduct(string serialNumber, address recipient, string actor, string location, string timestamp)',
+  'function confirmDelivery(string serialNumber, string actor, string location, string timestamp)',
+  'function markSold(string serialNumber, string actor, string location, string timestamp)',
+];
 
 const ROLES = ['admin', 'manufacturer', 'supplier', 'retailer'];
 const MAX_TEXT_LENGTH = 500;
@@ -1426,6 +1434,426 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   app.get('/api/pos/receipt/:receiptId', posReceiptHandler);
   app.get('/pos/receipt/:receiptId', posReceiptHandler);
+
+  // =========================================================================
+  // Phase 4: Encapsulated Subaccounts & Headless Operational Signing APIs
+  // =========================================================================
+
+  const ensureSubaccountTables = async () => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS facility_subaccounts (
+          id SERIAL PRIMARY KEY,
+          parent_username VARCHAR(50) NOT NULL REFERENCES auth(username) ON UPDATE CASCADE ON DELETE CASCADE,
+          subaccount_name VARCHAR(120) NOT NULL,
+          facility_code VARCHAR(50) NOT NULL UNIQUE,
+          role VARCHAR(32) NOT NULL CHECK (role IN ('manufacturer', 'supplier', 'retailer')),
+          wallet_address VARCHAR(42) NOT NULL UNIQUE,
+          encrypted_private_key TEXT NOT NULL,
+          key_iv VARCHAR(32) NOT NULL,
+          key_auth_tag VARCHAR(32) NOT NULL,
+          key_version INTEGER NOT NULL DEFAULT 1,
+          status VARCHAR(32) NOT NULL DEFAULT 'pending_approval',
+          gas_balance_wei NUMERIC(78, 0) NOT NULL DEFAULT 0,
+          last_funded_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE TABLE IF NOT EXISTS gas_treasury_disbursements (
+          id SERIAL PRIMARY KEY,
+          subaccount_id INTEGER REFERENCES facility_subaccounts(id) ON DELETE CASCADE,
+          recipient_wallet VARCHAR(42) NOT NULL,
+          amount_wei NUMERIC(78, 0) NOT NULL,
+          tx_hash VARCHAR(100) NOT NULL UNIQUE,
+          trigger_reason VARCHAR(64) NOT NULL,
+          disbursed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+    } catch (_tblErr) {
+      // Table already initialized or managed by migrations
+    }
+  };
+
+  // 1. Treasury Health Status
+  const treasuryStatusHandler = async (_req, res, next) => {
+    try {
+      const status = await getTreasuryStatus(rpcUrl);
+      return res.json(status);
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.get('/api/subaccounts/treasury-status', authenticate, treasuryStatusHandler);
+  app.get('/subaccounts/treasury-status', authenticate, treasuryStatusHandler);
+
+  // 2. Create Encapsulated Subaccount
+  const createSubaccountHandler = async (req, res, next) => {
+    try {
+      await ensureSubaccountTables();
+      const { subaccountName, facilityCode, role: requestedRole, parentUsername } = req.body || {};
+
+      if (!validText(subaccountName, 120)) {
+        return res.status(400).json({ error: 'A valid facility/subaccount name is required (max 120 chars)' });
+      }
+      if (!facilityCode || !/^[A-Z0-9_-]{3,50}$/i.test(facilityCode.trim())) {
+        return res.status(400).json({ error: 'A valid facility code is required (3-50 alphanumeric characters)' });
+      }
+
+      // Check role assignment permission
+      let role = (requestedRole || '').toLowerCase().trim();
+      if (!['manufacturer', 'supplier', 'retailer'].includes(role)) {
+        if (req.user.role !== 'admin' && ['manufacturer', 'supplier', 'retailer'].includes(req.user.role)) {
+          role = req.user.role;
+        } else {
+          return res.status(400).json({ error: 'Valid role is required (manufacturer, supplier, or retailer)' });
+        }
+      }
+
+      if (req.user.role !== 'admin' && role !== req.user.role) {
+        return res.status(403).json({ error: 'Organizations may only create subaccounts matching their assigned role' });
+      }
+
+      const assignedParent = (req.user.role === 'admin' && parentUsername) ? parentUsername.trim() : req.user.username;
+
+      // Generate encapsulated wallet
+      const encWallet = generateEncapsulatedSubaccount();
+
+      const insertRes = await pool.query(
+        `INSERT INTO facility_subaccounts
+          (parent_username, subaccount_name, facility_code, role, wallet_address, encrypted_private_key, key_iv, key_auth_tag, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id, parent_username, subaccount_name, facility_code, role, wallet_address, status, created_at`,
+        [
+          assignedParent,
+          subaccountName.trim(),
+          facilityCode.trim().toUpperCase(),
+          role,
+          encWallet.walletAddress,
+          encWallet.encryptedPrivateKey,
+          encWallet.keyIv,
+          encWallet.keyAuthTag,
+          'pending_approval'
+        ]
+      );
+
+      const created = insertRes.rows[0];
+      return res.status(201).json({
+        success: true,
+        message: 'Encapsulated subaccount provisioned successfully. Awaiting on-chain role grant and gas funding.',
+        subaccount: created,
+      });
+    } catch (err) {
+      if (err.code === '23505') {
+        return res.status(409).json({ error: 'A facility with this facility code or wallet already exists' });
+      }
+      return next(err);
+    }
+  };
+
+  app.post('/api/subaccounts/create', authenticate, writeRateLimit, createSubaccountHandler);
+  app.post('/subaccounts/create', authenticate, writeRateLimit, createSubaccountHandler);
+
+  // 3. List Subaccounts
+  const listSubaccountsHandler = async (req, res, next) => {
+    try {
+      await ensureSubaccountTables();
+      const isAdmin = req.user.role === 'admin';
+      const query = isAdmin
+        ? 'SELECT id, parent_username, subaccount_name, facility_code, role, wallet_address, status, gas_balance_wei, last_funded_at, created_at FROM facility_subaccounts ORDER BY created_at DESC'
+        : 'SELECT id, parent_username, subaccount_name, facility_code, role, wallet_address, status, gas_balance_wei, last_funded_at, created_at FROM facility_subaccounts WHERE parent_username = $1 ORDER BY created_at DESC';
+      const params = isAdmin ? [] : [req.user.username];
+      const { rows } = await pool.query(query, params);
+
+      // Asynchronously enrich active subaccounts with live on-chain balance
+      const enriched = await Promise.all(
+        rows.map(async (row) => {
+          let liveEth = '0';
+          if (scanProvider && row.wallet_address) {
+            try {
+              const bal = await scanProvider.getBalance(row.wallet_address);
+              liveEth = ethers.formatEther(bal);
+            } catch (_balErr) {
+              // ignore rpc timeout
+            }
+          }
+          return {
+            ...row,
+            balanceEth: liveEth,
+            hasGas: parseFloat(liveEth) >= 0.0005,
+          };
+        })
+      );
+
+      return res.json(enriched);
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.get('/api/subaccounts', authenticate, listSubaccountsHandler);
+  app.get('/subaccounts', authenticate, listSubaccountsHandler);
+
+  // 4. Approve Subaccount & Auto-Fund Gas (Admin Only)
+  const approveSubaccountHandler = async (req, res, next) => {
+    try {
+      await ensureSubaccountTables();
+      const subaccountId = parseInt(req.params.id, 10);
+      if (isNaN(subaccountId)) return res.status(400).json({ error: 'Invalid subaccount ID' });
+
+      const findRes = await pool.query('SELECT * FROM facility_subaccounts WHERE id = $1', [subaccountId]);
+      const subaccount = findRes.rows[0];
+      if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
+
+      if (subaccount.status === 'active') {
+        return res.json({ success: true, message: 'Subaccount is already active and approved', subaccount });
+      }
+
+      const roleId = CHAIN_ROLE_IDS[subaccount.role];
+      if (!roleId) return res.status(400).json({ error: 'Unrecognized subaccount role' });
+
+      // Grant on-chain role via Admin/Owner wallet
+      const treasuryWallet = getTreasuryWallet(rpcUrl);
+      if (!treasuryWallet) {
+        return res.status(503).json({ error: 'Contract owner / treasury wallet is not configured in backend' });
+      }
+
+      const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, treasuryWallet);
+      const onchainRole = Number(await roleContract.roles(subaccount.wallet_address));
+
+      let grantTxHash = null;
+      if (onchainRole !== roleId) {
+        const grantTx = await roleContract.grantRole(subaccount.wallet_address, roleId, subaccount.subaccount_name);
+        const grantReceipt = await grantTx.wait(1);
+        grantTxHash = grantReceipt.hash;
+      }
+
+      // Automatically disburse initial operational gas
+      let fundResult = null;
+      try {
+        fundResult = await fundSubaccount({
+          recipientWallet: subaccount.wallet_address,
+          subaccountId: subaccount.id,
+          amountEth: '0.005',
+          triggerReason: 'onboarding_approval_grant',
+          pool,
+          rpcUrl,
+        });
+      } catch (fundErr) {
+        console.warn('Initial gas funding warning:', fundErr.message);
+      }
+
+      // Mark subaccount active in database
+      await pool.query(
+        'UPDATE facility_subaccounts SET status = $1, updated_at = NOW() WHERE id = $2',
+        ['active', subaccount.id]
+      );
+
+      return res.json({
+        success: true,
+        message: 'Subaccount approved, on-chain role granted, and initial gas funded!',
+        subaccountId: subaccount.id,
+        walletAddress: subaccount.wallet_address,
+        role: subaccount.role,
+        roleGrantedTxHash: grantTxHash,
+        gasFunded: fundResult?.success || false,
+        gasTxHash: fundResult?.txHash || null,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.post('/api/subaccounts/:id/approve', authenticate, authorize('admin'), writeRateLimit, approveSubaccountHandler);
+  app.post('/subaccounts/:id/approve', authenticate, authorize('admin'), writeRateLimit, approveSubaccountHandler);
+
+  // 5. Fund Operational Gas to Subaccount (Admin Only)
+  const fundSubaccountHandler = async (req, res, next) => {
+    try {
+      const subaccountId = parseInt(req.params.id, 10);
+      const { amountEth = '0.005' } = req.body || {};
+      const findRes = await pool.query('SELECT * FROM facility_subaccounts WHERE id = $1', [subaccountId]);
+      const subaccount = findRes.rows[0];
+      if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
+
+      const result = await fundSubaccount({
+        recipientWallet: subaccount.wallet_address,
+        subaccountId: subaccount.id,
+        amountEth: String(amountEth),
+        triggerReason: 'admin_manual_grant',
+        pool,
+        rpcUrl,
+      });
+
+      return res.json({ success: true, message: `Disbursed ${amountEth} ETH gas to subaccount`, ...result });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.post('/api/subaccounts/:id/fund', authenticate, authorize('admin'), writeRateLimit, fundSubaccountHandler);
+  app.post('/subaccounts/:id/fund', authenticate, authorize('admin'), writeRateLimit, fundSubaccountHandler);
+
+  // 6. Revoke Subaccount
+  const revokeSubaccountHandler = async (req, res, next) => {
+    try {
+      const subaccountId = parseInt(req.params.id, 10);
+      const findRes = await pool.query('SELECT * FROM facility_subaccounts WHERE id = $1', [subaccountId]);
+      const subaccount = findRes.rows[0];
+      if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
+
+      // On-chain role revocation
+      const treasuryWallet = getTreasuryWallet(rpcUrl);
+      if (treasuryWallet) {
+        const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, treasuryWallet);
+        try {
+          const revTx = await roleContract.revokeRole(subaccount.wallet_address);
+          await revTx.wait(1);
+        } catch (_revErr) {
+          // ignore if already revoked on chain
+        }
+      }
+
+      await pool.query('UPDATE facility_subaccounts SET status = $1, updated_at = NOW() WHERE id = $2', ['revoked', subaccount.id]);
+      return res.json({ success: true, message: 'Subaccount revoked successfully', status: 'revoked' });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.post('/api/subaccounts/:id/revoke', authenticate, authorize('admin'), writeRateLimit, revokeSubaccountHandler);
+  app.post('/subaccounts/:id/revoke', authenticate, authorize('admin'), writeRateLimit, revokeSubaccountHandler);
+
+  // 7. Headless Custody Auto-Execution API (Zero-Friction Transaction Execution)
+  const autoExecuteCustodyHandler = async (req, res, next) => {
+    try {
+      await ensureSubaccountTables();
+      const {
+        serialNumber: rawSerial,
+        action,
+        subaccountId,
+        location = 'Facility Dock Floor',
+        recipientWallet = ethers.ZeroAddress,
+      } = req.body || {};
+
+      let serial = (rawSerial || '').trim();
+      if (serial.includes('/verify/')) {
+        const parts = serial.split('/verify/');
+        serial = parts[parts.length - 1].split(/[?#]/)[0].trim();
+      }
+
+      if (!validProductIdentifier(serial)) {
+        return res.status(400).json({ error: 'Invalid product identifier format' });
+      }
+
+      if (!['dispatch', 'confirm_delivery', 'mark_sold'].includes(action)) {
+        return res.status(400).json({ error: 'Invalid custody action. Must be dispatch, confirm_delivery, or mark_sold' });
+      }
+
+      // Find an active approved subaccount
+      let subaccountQuery;
+      let subaccountParams;
+
+      if (subaccountId) {
+        subaccountQuery = (req.user.role === 'admin')
+          ? 'SELECT * FROM facility_subaccounts WHERE id = $1 AND status = \'active\''
+          : 'SELECT * FROM facility_subaccounts WHERE id = $1 AND parent_username = $2 AND status = \'active\'';
+        subaccountParams = (req.user.role === 'admin') ? [subaccountId] : [subaccountId, req.user.username];
+      } else {
+        subaccountQuery = (req.user.role === 'admin')
+          ? 'SELECT * FROM facility_subaccounts WHERE status = \'active\' ORDER BY updated_at DESC LIMIT 1'
+          : 'SELECT * FROM facility_subaccounts WHERE parent_username = $1 AND status = \'active\' ORDER BY updated_at DESC LIMIT 1';
+        subaccountParams = (req.user.role === 'admin') ? [] : [req.user.username];
+      }
+
+      const subRes = await pool.query(subaccountQuery, subaccountParams);
+      const subaccount = subRes.rows[0];
+
+      if (!subaccount) {
+        return res.status(400).json({
+          error: 'No active, approved facility subaccount is available to execute this on-chain action. Please provision or activate a facility subaccount first.'
+        });
+      }
+
+      // Validate role permissions for action
+      const subRole = subaccount.role;
+      if (action === 'dispatch' && !['manufacturer', 'supplier'].includes(subRole)) {
+        return res.status(403).json({ error: `Facility role (${subRole}) is not authorized to dispatch products` });
+      }
+      if (action === 'confirm_delivery' && !['supplier', 'retailer'].includes(subRole)) {
+        return res.status(403).json({ error: `Facility role (${subRole}) is not authorized to confirm delivery receipts` });
+      }
+      if (action === 'mark_sold' && subRole !== 'retailer') {
+        return res.status(403).json({ error: `Facility role (${subRole}) is not authorized to finalize consumer sales` });
+      }
+
+      // Decrypt signer in memory
+      const signer = getSubaccountSigner({
+        encryptedPrivateKey: subaccount.encrypted_private_key,
+        keyIv: subaccount.key_iv,
+        keyAuthTag: subaccount.key_auth_tag,
+        walletAddress: subaccount.wallet_address,
+      }, scanProvider);
+
+      // Check gas balance
+      const gasBalance = await scanProvider.getBalance(subaccount.wallet_address);
+      if (gasBalance < ethers.parseEther('0.0002')) {
+        // Auto-replenish in background if treasury is configured
+        try {
+          await fundSubaccount({
+            recipientWallet: subaccount.wallet_address,
+            subaccountId: subaccount.id,
+            amountEth: '0.005',
+            triggerReason: 'auto_execute_replenishment',
+            pool,
+            rpcUrl,
+          });
+        } catch (_fundErr) {
+          return res.status(503).json({
+            error: `Facility wallet (${subaccount.wallet_address}) has insufficient gas to broadcast the transaction. Please wait for treasury top-up.`
+          });
+        }
+      }
+
+      const custodyContract = new ethers.Contract(expectedContractAddress, CUSTODY_EXECUTION_ABI, signer);
+      const timestampSec = Math.floor(Date.now() / 1000).toString();
+      const actorName = subaccount.subaccount_name;
+
+      let tx;
+      if (action === 'dispatch') {
+        const recipient = (recipientWallet && ethers.isAddress(recipientWallet)) ? ethers.getAddress(recipientWallet) : ethers.ZeroAddress;
+        tx = await custodyContract.dispatchProduct(serial, recipient, actorName, location, timestampSec);
+      } else if (action === 'confirm_delivery') {
+        tx = await custodyContract.confirmDelivery(serial, actorName, location, timestampSec);
+      } else if (action === 'mark_sold') {
+        tx = await custodyContract.markSold(serial, actorName, location, timestampSec);
+      }
+
+      const receipt = await tx.wait(1);
+
+      return res.json({
+        success: true,
+        message: `Custody action (${action}) signed and confirmed on Ethereum Sepolia!`,
+        action,
+        serialNumber: serial,
+        txHash: receipt.hash,
+        blockNumber: receipt.blockNumber,
+        facility: {
+          id: subaccount.id,
+          name: subaccount.subaccount_name,
+          facilityCode: subaccount.facility_code,
+          walletAddress: subaccount.wallet_address,
+          role: subaccount.role,
+        },
+      });
+    } catch (err) {
+      console.error('Headless custody auto-execution error:', err);
+      return res.status(500).json({ error: err.reason || err.message || 'On-chain auto-execution failed' });
+    }
+  };
+
+  app.post('/api/custody/auto-execute', authenticate, writeRateLimit, autoExecuteCustodyHandler);
+  app.post('/custody/auto-execute', authenticate, writeRateLimit, autoExecuteCustodyHandler);
 
   app.post('/addproduct', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {

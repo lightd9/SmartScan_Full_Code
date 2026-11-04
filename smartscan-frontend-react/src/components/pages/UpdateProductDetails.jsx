@@ -1,4 +1,4 @@
-import { Box, Paper, Typography, Alert, TextField, Button, CircularProgress } from '@mui/material';
+import { Box, Paper, Typography, Alert, TextField, Button, CircularProgress, Switch, FormControlLabel } from '@mui/material';
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
@@ -45,6 +45,7 @@ const UpdateProductDetails = () => {
     });
     const [isLoadingProduct, setIsLoadingProduct] = useState(false);
     const [activeWallet, setActiveWallet] = useState('');
+    const [autoSignEnabled, setAutoSignEnabled] = useState(true);
 
     const { auth } = useAuth();
     const navigate = useNavigate();
@@ -202,6 +203,65 @@ const UpdateProductDetails = () => {
         setIsSubmitting(true);
 
         try {
+            // 1. First Priority: Autonomous Fast Facility Keystore Execution (Zero MetaMask Popups)
+            if (autoSignEnabled) {
+                if (!serialNumber) {
+                    throw new Error("Product identifier is missing. Please re-scan or re-select the product.");
+                }
+
+                setStatusText("Reading product stage on blockchain...");
+                const fallbackProvider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+                const readContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fallbackProvider);
+                const onchainProduct = await readContract.getProduct(serialNumber);
+                const currentStage = Number(onchainProduct[6]);
+
+                let desiredAction = 'dispatch';
+                if (currentStage === 2) {
+                    desiredAction = 'confirm_delivery';
+                } else if (auth.role === 'retailer') {
+                    desiredAction = 'mark_sold';
+                }
+
+                setStatusText(`⚡ Fast-signing ${desiredAction} on Sepolia via Facility Keystore...`);
+                try {
+                    const execRes = await axios.post('/api/custody/auto-execute', {
+                        serialNumber,
+                        action: desiredAction,
+                        location: currLocation,
+                    });
+
+                    setStatusText("Transaction confirmed! Reloading passport...");
+                    await loadOnChainProduct(serialNumber);
+
+                    const actionDescription =
+                        desiredAction === 'confirm_delivery'
+                            ? 'Delivery confirmed! Physical custody of this product has been successfully transferred on the blockchain.'
+                            : desiredAction === 'mark_sold'
+                                ? 'Product marked as Sold! This digital passport is now finalized and permanently protected against resale counterfeiting.'
+                                : 'Product dispatched! The item is now in transit awaiting confirmation by the recipient.';
+
+                    setSuccessInfo({
+                        title: desiredAction === 'confirm_delivery'
+                            ? 'Custody Handover Confirmed'
+                            : desiredAction === 'mark_sold'
+                                ? 'Product Marked as Sold'
+                                : 'Product Dispatch Confirmed',
+                        description: actionDescription,
+                        txHash: execRes.data.txHash,
+                        blockNumber: execRes.data.blockNumber,
+                        account: execRes.data.facility?.name || 'Facility Keystore',
+                        location: currLocation,
+                    });
+                    return;
+                } catch (autoErr) {
+                    console.warn('Facility auto-execute attempt:', autoErr.response?.data?.error || autoErr.message);
+                    if (!window.ethereum) {
+                        throw new Error(autoErr.response?.data?.error || 'Autonomous signing failed and no browser wallet is connected.');
+                    }
+                }
+            }
+
+            // 2. Fallback to Browser Wallet (MetaMask)
             const { ethereum } = window;
 
             if (ethereum) {
@@ -431,6 +491,29 @@ const UpdateProductDetails = () => {
                     <h2 style={{ margin: '4px 0 0 0', fontSize: '15px', fontWeight: 700, color: 'var(--color-text-main)' }}>
                         Handover Information & Signer Details
                     </h2>
+
+                    <Box sx={{ p: 1.5, background: 'rgba(59, 130, 246, 0.05)', borderRadius: '10px', border: '1px solid rgba(59, 130, 246, 0.2)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'var(--color-text-main)' }}>
+                                ⚡ Facility Auto-Sign Mode
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: 'var(--color-text-secondary)' }}>
+                                Instant on-chain execution with encapsulated facility keystore (No MetaMask prompt needed).
+                            </Typography>
+                        </Box>
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    size="small"
+                                    checked={autoSignEnabled}
+                                    color="primary"
+                                    onChange={(e) => setAutoSignEnabled(e.target.checked)}
+                                />
+                            }
+                            label=""
+                            sx={{ m: 0 }}
+                        />
+                    </Box>
 
                     <TextField
                         fullWidth
