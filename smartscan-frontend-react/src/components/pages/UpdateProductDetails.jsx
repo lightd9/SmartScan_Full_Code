@@ -15,6 +15,7 @@ import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
 import { parseProductQr } from '../../api/productQr';
 import { determineCustodyAction } from '../../utils/stageActions';
+import { detectLocation } from '../../utils/locationResolver';
 
 const UpdateProductDetails = () => {
 
@@ -24,6 +25,7 @@ const UpdateProductDetails = () => {
     const [currName, setCurrName] = useState("");
     const [currLocation, setCurrLocation] = useState("");
     const [locationNotice, setLocationNotice] = useState("");
+    const [isDetectingLocation, setIsDetectingLocation] = useState(false);
     const [serialNumber, setSerialNumber] = useState("");
     const [loading, setLoading] = useState("");
     const [statusText, setStatusText] = useState("");
@@ -136,50 +138,34 @@ const UpdateProductDetails = () => {
     }, [auth?.username]);
 
 
-    useEffect(() => {
-        const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
-        if (!apiKey || currLatitude === '' || currLongtitude === '') {
-            if (currLatitude !== '' && currLongtitude !== '' && !apiKey) {
-                setLocationNotice('Coordinates were received, but address lookup is not configured. Enter the location manually; browser location is unverified.');
-            }
-            return;
-        }
-
-        try {
-            const geocoder = Geocode?.default || Geocode;
-            if (typeof geocoder?.setApiKey === 'function' && typeof geocoder?.fromLatLng === 'function') {
-                geocoder.setApiKey(apiKey);
-                geocoder.fromLatLng(currLatitude, currLongtitude).then(
-                    (response) => {
-                        const address = response.results?.[0]?.formatted_address || '';
-                        setCurrLocation(address.replace(/,/g, ';'));
-                        setLocationNotice('Approximate browser-reported location resolved. Review or edit it before submitting.');
-                    },
-                    () => setLocationNotice('Unable to resolve your location. Check permission and enter it manually.')
-                ).catch(() => setLocationNotice('Unable to resolve your location. Check permission and enter it manually.'));
-            } else {
-                setLocationNotice('Geocoding service unavailable. Enter location manually.');
-            }
-        } catch {
-            setLocationNotice('Unable to resolve your location. Check permission and enter it manually.');
-        }
-
-    }, [currLatitude, currLongtitude]);
-
-    const getCurrentTimeLocation = () => {
+    const handleDetectLocation = async () => {
         setCurrDate(dayjs().unix());
-        setLocationNotice('Requesting optional browser location…');
-        if (!navigator.geolocation) {
-            setLocationNotice('Location is unavailable in this browser. Enter the business location manually if needed.');
-            return;
+        setIsDetectingLocation(true);
+        setLocationNotice('Detecting location (device GPS / network)...');
+        try {
+            const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
+            const res = await detectLocation(apiKey);
+            if (res.latitude) setCurrLatitude(res.latitude);
+            if (res.longitude) setCurrLongtitude(res.longitude);
+            if (res.location) {
+                setCurrLocation(res.location.replace(/,/g, ';'));
+            }
+            setLocationNotice(res.notice || 'Location resolved successfully.');
+        } catch (err) {
+            console.error('Location detection failed:', err);
+            setLocationNotice(err.message || 'Unable to detect location. Please type your location manually.');
+        } finally {
+            setIsDetectingLocation(false);
         }
-        navigator.geolocation.getCurrentPosition((position) => {
-            setCurrLatitude(position.coords.latitude);
-            setCurrLongtitude(position.coords.longitude);
-            setLocationNotice('Browser coordinates captured.');
-        }, () => setLocationNotice('Location permission was not granted or could not be read. Enter the business location manually if needed.'),
-            { maximumAge: 60000, timeout: 10000 });
-    }
+    };
+
+    // Automatically attempt location detection on load if empty
+    useEffect(() => {
+        if (!currLocation) {
+            handleDetectLocation();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const getUsername = async () => {
         if (!auth?.username) return;
@@ -454,8 +440,22 @@ const UpdateProductDetails = () => {
                         helperText={locationNotice || "Recorded with this on-chain event."}
                     />
 
-                    <Button type="button" fullWidth variant="text" onClick={getCurrentTimeLocation} sx={{ textTransform: 'none' }} disabled={isSubmitting}>
-                        📍 Detect Browser Location
+                    <Button
+                        type="button"
+                        fullWidth
+                        variant="text"
+                        onClick={handleDetectLocation}
+                        sx={{ textTransform: 'none' }}
+                        disabled={isSubmitting || isDetectingLocation}
+                    >
+                        {isDetectingLocation ? (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <CircularProgress size={16} color="inherit" />
+                                Detecting Device & Network Location...
+                            </span>
+                        ) : (
+                            '📍 Detect Browser / Network Location'
+                        )}
                     </Button>
 
                     <TextField

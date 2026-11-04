@@ -12,6 +12,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Geocode from "react-geocode";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC_URL, BLOCK_EXPLORER_URL, NATIVE_CURRENCY_NAME, NATIVE_CURRENCY_SYMBOL, NATIVE_CURRENCY_DECIMALS } from '../../config/contract';
 import { formatContractError } from '../../utils/contractErrors';
+import { detectLocation } from '../../utils/locationResolver';
 
 function createProductIdentifier() {
     if (window.crypto.randomUUID) return `SS-${window.crypto.randomUUID()}`;
@@ -39,6 +40,7 @@ const AddProduct = () => {
     const [manuName, setManuName] = useState("");
     const [loading, setLoading] = useState("");
     const [manuLocation, setManuLocation] = useState("");
+    const [isDetectingLocation, setIsDetectingLocation] = useState(false);
     const [isUnique, setIsUnique] = useState(true);
     const [productCreated, setProductCreated] = useState(false);
     const [retryAvailable, setRetryAvailable] = useState(false);
@@ -122,26 +124,33 @@ const AddProduct = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    useEffect(() => {
-        const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
-        if (!apiKey || manuLatitude === '' || manuLongtitude === '') {
-            if (manuLatitude !== '' && manuLongtitude !== '' && !apiKey) {
-                setChainNotice('Coordinates were received, but address lookup is not configured. Enter the location manually; browser location is unverified.');
+    const handleDetectLocation = async () => {
+        setManuDate(dayjs().unix());
+        setIsDetectingLocation(true);
+        setChainNotice('Detecting location (device GPS / network)...');
+        try {
+            const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
+            const res = await detectLocation(apiKey);
+            if (res.latitude) setManuLatitude(res.latitude);
+            if (res.longitude) setManuLongtitude(res.longitude);
+            if (res.location) {
+                setManuLocation(res.location.replace(/,/g, ';'));
             }
-            return;
+            setChainNotice(res.notice || 'Location resolved successfully.');
+        } catch (err) {
+            console.error('Location detection failed:', err);
+            setChainNotice(err.message || 'Unable to detect location. Please type your location manually.');
+        } finally {
+            setIsDetectingLocation(false);
         }
-        Geocode.setApiKey(apiKey);
+    };
 
-        Geocode.fromLatLng(manuLatitude, manuLongtitude).then(
-            (response) => {
-              const address = response.results[0].formatted_address;
-              setManuLocation(address.replace(/,/g, ';'));
-              setChainNotice('Approximate browser-reported location resolved. Review or edit it before submitting; it is unverified.');
-            },
-            () => setChainNotice('Unable to resolve your location. Check location permission and enter the business location manually.')
-          );
-
-    }, [manuLatitude, manuLongtitude]);
+    useEffect(() => {
+        if (!manuLocation) {
+            handleDetectLocation();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const generateQRCode = async (serialNumber) => {
         // const qrCode = await productContract.getProduct(serialNumber);
@@ -277,21 +286,6 @@ const registerProduct = async (retry = false) => {
     setChainNotice("Product registered and confirmed on Sepolia blockchain! Packaging QR code generated.");
     return registerTxn.hash;
 };
-
-    const getCurrentTimeLocation = () => {
-        setManuDate(dayjs().unix());
-        setChainNotice('Requesting optional browser location…');
-        if (!navigator.geolocation) {
-            setChainNotice('Location is unavailable in this browser. Enter the business location manually if needed.');
-            return;
-        }
-        navigator.geolocation.getCurrentPosition((position) => {
-            setManuLatitude(position.coords.latitude);
-            setManuLongtitude(position.coords.longitude);
-          }, () => {
-            setChainNotice('Location permission was not granted or could not be read. Enter the business location manually if needed.');
-          }, { maximumAge: 60000, timeout: 10000 });
-    }   
 
     const addProductDB = async (imageName) => {
         const profileData = JSON.stringify({
@@ -566,8 +560,22 @@ const persistTransactionHash = async () => {
                             helperText="Optional. Browser location is unverified; you can edit or enter it manually."
                         />
 
-                        <Button type="button" variant="text" fullWidth onClick={getCurrentTimeLocation} sx={{ textTransform: 'none' }}>
-                            📍 Detect Current Coordinates (Browser GPS)
+                        <Button
+                            type="button"
+                            variant="text"
+                            fullWidth
+                            onClick={handleDetectLocation}
+                            sx={{ textTransform: 'none' }}
+                            disabled={isDetectingLocation}
+                        >
+                            {isDetectingLocation ? (
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <CircularProgress size={14} color="inherit" />
+                                    Detecting Location (Device & Network)...
+                                </span>
+                            ) : (
+                                '📍 Detect Browser / Network Location'
+                            )}
                         </Button>
 
                         {/* QR Code Preview & Download */}
