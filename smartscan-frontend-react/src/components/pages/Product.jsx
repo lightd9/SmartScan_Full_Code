@@ -10,7 +10,7 @@ import TimelineOppositeContent, {
     timelineOppositeContentClasses,
 } from '@mui/lab/TimelineOppositeContent';
 import dayjs from 'dayjs';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
@@ -48,12 +48,15 @@ const Product = () => {
 
     const navigate = useNavigate();
     const location = useLocation();
-    const qrData = location.state?.qrData;
+    const params = useParams();
+    const urlSerial = params?.serialNumber;
+    const querySerial = new URLSearchParams(location.search).get('serialNumber');
+    const qrData = location.state?.qrData || urlSerial || querySerial;
     const scanWarnings = location.state?.warnings || [];
 
     useEffect(() => {
         if (qrData) {
-            handleScan(qrData)
+            handleScan(qrData);
         }
 
         // eslint-disable-next-line react-hooks/exhaustive-deps

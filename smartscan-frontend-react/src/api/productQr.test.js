@@ -12,6 +12,15 @@ describe('parseProductQr', () => {
         expect(parseProductQr(serial, contract)).toEqual({ contractAddress: contract, serialNumber: serial });
     });
 
+    it('accepts universal verification web URLs and attaches the expected contract', () => {
+        expect(parseProductQr(`https://smart-scan-ten.vercel.app/verify/${serial}`, contract)).toEqual({ contractAddress: contract, serialNumber: serial });
+        expect(parseProductQr(`http://localhost:3000/verify/${serial}`, contract)).toEqual({ contractAddress: contract, serialNumber: serial });
+    });
+
+    it('accepts product URLs with query parameters and attaches the expected contract', () => {
+        expect(parseProductQr(`https://smart-scan-ten.vercel.app/product?serialNumber=${serial}`, contract)).toEqual({ contractAddress: contract, serialNumber: serial });
+    });
+
     it.each([null, '', 'not-a-wallet,serial', `${contract},`, `${contract},${serial},extra`])('rejects malformed payload %s', (payload) => {
         expect(() => parseProductQr(payload, contract)).toThrow('valid SmartScan product QR');
     });

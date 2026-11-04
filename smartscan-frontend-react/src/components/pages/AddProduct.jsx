@@ -49,6 +49,9 @@ const AddProduct = () => {
     const [chainNotice, setChainNotice] = useState("");
     const [submitError, setSubmitError] = useState("");
     const [retryableProducts, setRetryableProducts] = useState([]);
+    const [autoDispatchOnCreate, setAutoDispatchOnCreate] = useState(false);
+    const [isDispatched, setIsDispatched] = useState(false);
+    const [dispatchLoading, setDispatchLoading] = useState(false);
 
     const { auth } = useAuth();
     const navigate = useNavigate();
@@ -88,8 +91,11 @@ const AddProduct = () => {
         setProductCreated(false);
         setRetryAvailable(false);
         setSubmitError("");
-        setChainNotice("Draft discarded. You can register a new product.");
+        setChainNotice("You can now register another product.");
         setQrData("");
+        setIsDispatched(false);
+        setAutoDispatchOnCreate(false);
+        setDispatchLoading(false);
     };
 
     const handleDiscardDraft = async () => {
@@ -173,12 +179,13 @@ const AddProduct = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const generateQRCode = async (serialNumber) => {
-        // const qrCode = await productContract.getProduct(serialNumber);
-        const data = CONTRACT_ADDRESS + ',' + serialNumber
-        setQrData(data);
-
-    }
+    const generateQRCode = (serialNum) => {
+        const baseUrl = typeof window !== 'undefined' && window.location?.origin
+            ? window.location.origin
+            : 'https://smart-scan-ten.vercel.app';
+        const verifyUrl = `${baseUrl}/verify/${serialNum}`;
+        setQrData(verifyUrl);
+    };
 
     const downloadQR = () => {
         const canvas = document.getElementById("QRCode");
@@ -191,7 +198,53 @@ const AddProduct = () => {
         document.body.appendChild(downloadLink);
         downloadLink.click();
         document.body.removeChild(downloadLink);
-      };
+    };
+
+    const handleDispatchProduct = async () => {
+        if (!serialNumber) return;
+        setDispatchLoading(true);
+        setSubmitError("");
+        setChainNotice("Initiating outbound transit dispatch to supply chain (Open Dispatch)...");
+        try {
+            const { ethereum } = window;
+            if (!ethereum) throw new Error("MetaMask is required to sign transit dispatch.");
+            const accounts = await ethereum.request({ method: "eth_requestAccounts" });
+            const account = accounts[0];
+
+            setLoading("Authorizing transit dispatch...");
+            await axios.post('/wallet/authorize-write', {
+                walletAddress: account,
+                action: 'dispatch',
+            });
+
+            const provider = new ethers.BrowserProvider(ethereum);
+            const signer = await provider.getSigner();
+            const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+
+            setLoading("Confirm transit dispatch in your MetaMask popup window...");
+            const dispatchTxn = await productContract.dispatchProduct(
+                serialNumber,
+                ethers.ZeroAddress, // Open dispatch: any registered distributor can claim
+                manuName,
+                manuLocation,
+                dayjs().unix().toString()
+            );
+
+            setLoading(`Broadcasting dispatch (${dispatchTxn.hash.slice(0, 10)}...). Waiting for block confirmation...`);
+            await dispatchTxn.wait();
+
+            setIsDispatched(true);
+            setChainNotice("🚀 Consignment dispatched to distribution network! Registered logistics partners can now confirm receipt.");
+        } catch (err) {
+            console.error("Dispatch failed:", err);
+            const formatted = formatContractError(err, "Unable to record dispatch.");
+            setSubmitError(formatted);
+            setChainNotice(formatted);
+        } finally {
+            setDispatchLoading(false);
+            setLoading("");
+        }
+    };
 
     
     const handleBack = () => {
@@ -305,6 +358,33 @@ const registerProduct = async (retry = false) => {
     setProductCreated(true);
     setRetryAvailable(false);
     setChainNotice("Product registered and confirmed on Sepolia blockchain! Packaging QR code generated.");
+
+    if (autoDispatchOnCreate) {
+        setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");
+        try {
+            await axios.post('/wallet/authorize-write', {
+                walletAddress: account,
+                action: 'dispatch',
+            });
+            const dispatchTxn = await productContract.dispatchProduct(
+                serialNumber,
+                ethers.ZeroAddress,
+                manuName,
+                manuLocation,
+                dayjs().unix().toString()
+            );
+            setLoading(`Broadcasting transit dispatch (${dispatchTxn.hash.slice(0, 10)}...). Waiting for block confirmation...`);
+            await dispatchTxn.wait();
+            setIsDispatched(true);
+            setChainNotice("✅ Product successfully registered AND dispatched to distribution network! Packaging QR tag generated.");
+        } catch (dispatchErr) {
+            console.warn("Auto-dispatch step failed after registration:", dispatchErr);
+            setChainNotice("Product registered on blockchain! Automatic dispatch could not complete; you can click '1-Click Dispatch' below.");
+        } finally {
+            setLoading("");
+        }
+    }
+
     return registerTxn.hash;
 };
 
@@ -602,18 +682,83 @@ const persistTransactionHash = async () => {
                             )}
                         </Button>
 
-                        {/* QR Code Preview & Download */}
+                        {/* Optional Auto-Dispatch Card */}
+                        {!productCreated && (
+                            <div style={{
+                                padding: '12px 14px',
+                                borderRadius: '10px',
+                                backgroundColor: 'var(--color-surface-subtle, #F8FAFC)',
+                                border: '1px solid var(--color-border, #E2E8F0)',
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: '10px',
+                            }}>
+                                <input
+                                    type="checkbox"
+                                    id="autoDispatchToggle"
+                                    checked={autoDispatchOnCreate}
+                                    onChange={(e) => setAutoDispatchOnCreate(e.target.checked)}
+                                    style={{ marginTop: '2px', width: '16px', height: '16px', cursor: 'pointer' }}
+                                    disabled={loading !== ""}
+                                />
+                                <label htmlFor="autoDispatchToggle" style={{ cursor: 'pointer', fontSize: '13px' }}>
+                                    <strong style={{ color: 'var(--color-text-main)', display: 'block', marginBottom: '2px' }}>
+                                        Auto-Dispatch for Distribution
+                                    </strong>
+                                    <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.35, display: 'block', fontSize: '12px' }}>
+                                        Immediately transitions item into transit (Open Dispatch) so downstream partners can accept custody without separate re-scanning.
+                                    </span>
+                                </label>
+                            </div>
+                        )}
+
+                        {/* QR Code Preview, Download & 1-Click Transit Dispatch */}
                         {qrData && (
                             <div style={{ background: 'var(--color-surface-subtle)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 18, textAlign: 'center' }}>
-                                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
-                                    Generated Packaging QR Tag
-                                </Typography>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                        Packaging QR Tag
+                                    </Typography>
+                                    <span className={`status-pill ${isDispatched ? 'pill-orange' : 'pill-blue'}`} style={{ fontSize: '11px' }}>
+                                        {isDispatched ? 'Consignment In Transit' : 'Manufactured'}
+                                    </span>
+                                </div>
                                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
                                     <QRCode value={qrData} id="QRCode" size={160} />
                                 </div>
-                                <Button variant="outlined" fullWidth onClick={downloadQR} sx={{ textTransform: 'none', borderRadius: '10px' }}>
+                                <Button variant="outlined" fullWidth onClick={downloadQR} sx={{ textTransform: 'none', borderRadius: '10px', mb: 1.5 }}>
                                     Download High-Res PNG Label
                                 </Button>
+
+                                {!isDispatched ? (
+                                    <Button
+                                        variant="contained"
+                                        fullWidth
+                                        onClick={handleDispatchProduct}
+                                        disabled={loading !== "" || dispatchLoading}
+                                        sx={{
+                                            py: 1.2,
+                                            backgroundColor: '#2563EB',
+                                            fontWeight: 700,
+                                            textTransform: 'none',
+                                            borderRadius: '10px',
+                                            '&:hover': { backgroundColor: '#1D4ED8' }
+                                        }}
+                                    >
+                                        {dispatchLoading ? (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <CircularProgress size={16} color="inherit" />
+                                                Dispatching to Supply Chain...
+                                            </span>
+                                        ) : (
+                                            '🚀 1-Click Dispatch to Distribution Network'
+                                        )}
+                                    </Button>
+                                ) : (
+                                    <div style={{ padding: '8px 12px', borderRadius: 8, backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF', fontSize: '12.5px', fontWeight: 600 }}>
+                                        🚀 Consignment Dispatched & In Transit to Partners
+                                    </div>
+                                )}
                             </div>
                         )}
 
@@ -631,14 +776,26 @@ const persistTransactionHash = async () => {
                         )}
 
                         <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            <button
-                                type="submit"
-                                className="btn-primary-action"
-                                style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px' }}
-                                disabled={loading !== ""}
-                            >
-                                {productCreated && !retryAvailable ? "Refresh Registration Status" : retryAvailable ? "Retry Blockchain Registration" : "Sign & Register on Blockchain"}
-                            </button>
+                            {productCreated && qrData ? (
+                                <button
+                                    type="button"
+                                    className="btn-primary-action"
+                                    style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px', backgroundColor: '#059669' }}
+                                    onClick={resetForm}
+                                    disabled={loading !== "" || dispatchLoading}
+                                >
+                                    + Register Another Product
+                                </button>
+                            ) : (
+                                <button
+                                    type="submit"
+                                    className="btn-primary-action"
+                                    style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px' }}
+                                    disabled={loading !== ""}
+                                >
+                                    {retryAvailable ? "Retry Blockchain Registration" : "Sign & Register on Blockchain"}
+                                </button>
+                            )}
 
                             {productCreated && !qrData && (
                                 <button

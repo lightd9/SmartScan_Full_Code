@@ -33,6 +33,8 @@ function App() {
         <Route exact path='/' element={< Home />}></Route>
         <Route exact path='/login' element={< Login />}></Route>
         <Route exact path='/scanner' element={< ScannerPage />}></Route>
+        <Route exact path='/verify/:serialNumber' element={< Product />}></Route>
+        <Route exact path='/verify' element={< ScannerPage />}></Route>
         <Route exact path='/product' element={< Product />}></Route>
         <Route exact path='/authentic-product' element={< AuthenticProduct />}></Route>
         <Route exact path='/fake-product' element={< FakeProduct />}></Route>

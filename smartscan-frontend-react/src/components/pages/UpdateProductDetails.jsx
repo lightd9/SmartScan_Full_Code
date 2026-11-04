@@ -549,6 +549,20 @@ const UpdateProductDetails = () => {
                                         Proceed to Mark Product as Sold Now →
                                     </button>
                                 )}
+                                {auth.role === 'supplier' && successInfo.title === 'Custody Handover Confirmed' && (
+                                    <button
+                                        type="button"
+                                        className="btn-primary-action"
+                                        style={{ width: '100%', justifyContent: 'center', padding: '12px', backgroundColor: '#2563EB' }}
+                                        onClick={() => {
+                                            setSuccessInfo(null);
+                                            setActionError('');
+                                            setStatusText('');
+                                        }}
+                                    >
+                                        Proceed to Dispatch to Downstream Partner →
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     className="btn-primary-action"

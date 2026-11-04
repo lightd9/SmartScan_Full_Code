@@ -6,7 +6,14 @@ export function parseProductQr(qrData, expectedContract) {
     let contractAddress;
     let serialNumber;
 
-    if (trimmed.includes(',')) {
+    // Check if qrData is a verification URL containing a valid SmartScan UUID
+    const urlSerialMatch = trimmed.match(/SS-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+    const isUrl = /^https?:\/\//i.test(trimmed);
+
+    if (isUrl && urlSerialMatch) {
+        contractAddress = expectedContract;
+        serialNumber = urlSerialMatch[0];
+    } else if (trimmed.includes(',')) {
         const parts = trimmed.split(',');
         if (parts.length !== 2) throw new Error('This is not a valid SmartScan product QR code.');
         [contractAddress, serialNumber] = parts;
