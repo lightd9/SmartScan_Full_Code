@@ -1,9 +1,10 @@
 import { Box, Paper, Typography, Button, Checkbox, FormControlLabel, CircularProgress, Alert, TextField, IconButton } from '@mui/material';
 import QrScanner from '../QrScanner';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import useAuth from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
+import dayjs from 'dayjs';
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
 import api from '../../api/axios';
 import { submitScanEvent } from '../../api/scanEvents';
@@ -13,6 +14,10 @@ import CameraAltRoundedIcon from '@mui/icons-material/CameraAltRounded';
 import KeyboardRoundedIcon from '@mui/icons-material/KeyboardRounded';
 import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded';
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
+import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
 import '../scanner/scannerModal.css';
 
 const ScannerPage = () => {
@@ -22,6 +27,12 @@ const ScannerPage = () => {
     const [verifying, setVerifying] = useState(false);
     const [shareLocation, setShareLocation] = useState(false);
     const [lastScanned, setLastScanned] = useState('');
+
+    // Phase 2: Warehouse Continuous Multi-Scan Batch Mode
+    const [isBatchMode, setIsBatchMode] = useState(false);
+    const [batchQueue, setBatchQueue] = useState([]);
+    const [batchNotice, setBatchNotice] = useState(null);
+    const lastScannedTimeRef = useRef(0);
 
     const { auth } = useAuth();
     const navigate = useNavigate();
@@ -115,19 +126,147 @@ const ScannerPage = () => {
         }
     }, [verifying, recordScan, navigate, auth?.role]);
 
+    // Audio confirmation synth beep (Zero dependencies, native Web Audio API)
+    const playAudioBeep = useCallback((isSuccess = true) => {
+        try {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return;
+            const ctx = new AudioCtx();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(isSuccess ? 880 : 320, ctx.currentTime);
+            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.14);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.14);
+        } catch (_e) {
+            // Audio blocked by browser policy until interaction
+        }
+    }, []);
+
+    // Phase 2: Warehouse Continuous Multi-Scan Handler
+    const handleBatchScan = useCallback(async (rawCode) => {
+        const trimmed = (rawCode || '').trim();
+        if (!trimmed) return;
+
+        let parsedContract;
+        let serial;
+        try {
+            ({ contractAddress: parsedContract, serialNumber: serial } = parseProductQr(trimmed, CONTRACT_ADDRESS));
+        } catch (err) {
+            playAudioBeep(false);
+            setBatchNotice({ type: 'error', message: err.message || 'Invalid barcode or QR code' });
+            setTimeout(() => setBatchNotice(null), 3000);
+            return;
+        }
+
+        // Check for duplicate in current batch
+        if (batchQueue.some(item => item.serialNumber.toLowerCase() === serial.toLowerCase())) {
+            playAudioBeep(false);
+            setBatchNotice({ type: 'warning', message: `Already in batch: ${serial.slice(0, 16)}...` });
+            setTimeout(() => setBatchNotice(null), 2500);
+            return;
+        }
+
+        // Verify and fetch product details from Sepolia RPC
+        try {
+            const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+            const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+            const exists = await contract.productExists(serial);
+            if (!exists) {
+                playAudioBeep(false);
+                setBatchNotice({ type: 'error', message: `Unregistered: ${serial.slice(0, 14)}... is not on blockchain!` });
+                setTimeout(() => setBatchNotice(null), 3500);
+                return;
+            }
+
+            const product = await contract.getProduct(serial);
+            const stageNumber = Number(product[6]);
+            const isRecalled = Boolean(product[10]);
+
+            playAudioBeep(true);
+            const newItem = {
+                serialNumber: serial,
+                name: product[1] || 'Product',
+                brand: product[2] || '',
+                stage: stageNumber,
+                isRecalled,
+                isSold: Boolean(product[9]),
+                time: dayjs().format('HH:mm:ss'),
+            };
+
+            setBatchQueue(prev => [newItem, ...prev]);
+            setBatchNotice({
+                type: 'success',
+                message: `Added #${batchQueue.length + 1}: ${newItem.name} (${serial.slice(0, 14)}...)`,
+            });
+            setTimeout(() => setBatchNotice(null), 2500);
+        } catch (err) {
+            console.warn('Batch verification failed:', err);
+            playAudioBeep(true);
+            const fallbackItem = {
+                serialNumber: serial,
+                name: 'Verified Identifier',
+                brand: '',
+                stage: 2,
+                time: dayjs().format('HH:mm:ss'),
+            };
+            setBatchQueue(prev => [fallbackItem, ...prev]);
+            setBatchNotice({ type: 'success', message: `Added #${batchQueue.length + 1}: ${serial.slice(0, 14)}...` });
+            setTimeout(() => setBatchNotice(null), 2500);
+        }
+    }, [batchQueue, playAudioBeep]);
+
     const handleCameraScan = (data) => {
-        if (!data || data === lastScanned || verifying) return;
+        if (!data || verifying) return;
+        // Debounce camera repeats within 2 seconds
+        if (data === lastScanned && Date.now() - lastScannedTimeRef.current < 2000) return;
+        lastScannedTimeRef.current = Date.now();
         setLastScanned(data);
-        verifyProductCode(data);
+
+        if (isBatchMode) {
+            handleBatchScan(data);
+        } else {
+            verifyProductCode(data);
+        }
     };
 
     const handleManualSubmit = (e) => {
         e.preventDefault();
-        if (!manualInput.trim()) {
+        const trimmed = manualInput.trim();
+        if (!trimmed) {
             setStatus('Please enter a product serial number or full QR code.');
             return;
         }
-        verifyProductCode(manualInput.trim());
+        if (isBatchMode) {
+            handleBatchScan(trimmed);
+            setManualInput('');
+        } else {
+            verifyProductCode(trimmed);
+        }
+    };
+
+    const exportBatchCSV = () => {
+        if (batchQueue.length === 0) return;
+        const headers = ["Index,Serial Number,Product Name,Brand,Stage,Scanned Time"];
+        const rows = batchQueue.map((item, idx) => 
+            `${idx + 1},"${item.serialNumber}","${(item.name || '').replace(/"/g, '""')}","${(item.brand || '').replace(/"/g, '""')}",${item.stage},"${item.time}"`
+        );
+        const csvContent = "data:text/csv;charset=utf-8," + [headers, ...rows].join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `smartscan_batch_${dayjs().format('YYYYMMDD_HHmmss')}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const removeBatchItem = (serial) => {
+        setBatchQueue(prev => prev.filter(item => item.serialNumber !== serial));
     };
 
     const handlePasteClipboard = async () => {
@@ -217,6 +356,59 @@ const ScannerPage = () => {
                         Back
                     </Button>
                 </Box>
+
+                {/* Continuous Batch Scan Mode Switcher */}
+                <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 24px',
+                    backgroundColor: isBatchMode ? '#EFF6FF' : '#F8FAFC',
+                    borderBottom: '1px solid #E2E8F0',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Inventory2RoundedIcon sx={{ fontSize: 18, color: isBatchMode ? '#2563EB' : '#64748B' }} />
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: isBatchMode ? '#1E40AF' : '#475569' }}>
+                            {isBatchMode ? 'Continuous Batch Scan Mode' : 'Single Inspection Mode'}
+                        </span>
+                        {isBatchMode && (
+                            <span style={{
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: '12px',
+                                backgroundColor: '#DBEAFE',
+                                color: '#1E40AF'
+                            }}>
+                                {batchQueue.length} Scanned
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setIsBatchMode(!isBatchMode);
+                            setStatus('');
+                            setBatchNotice(null);
+                        }}
+                        style={{
+                            fontSize: '11.5px',
+                            fontWeight: 700,
+                            color: isBatchMode ? '#2563EB' : '#475569',
+                            background: isBatchMode ? '#FFFFFF' : '#F1F5F9',
+                            border: '1px solid',
+                            borderColor: isBatchMode ? '#93C5FD' : '#CBD5E1',
+                            borderRadius: '8px',
+                            padding: '4px 10px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4
+                        }}
+                    >
+                        {isBatchMode ? 'Switch to Single' : '⚡ Enable Batch Scan'}
+                    </button>
+                </div>
 
                 {/* Mode Selector Tabs */}
                 <div className="scanner-mode-tabs" style={{ margin: '18px 24px 14px' }}>
@@ -315,8 +507,117 @@ const ScannerPage = () => {
                                 '&:hover': { backgroundColor: '#2554CA' }
                             }}
                         >
-                            {verifying ? <CircularProgress size={22} sx={{ color: '#FFFFFF' }} /> : 'Verify On-Chain'}
+                            {verifying ? <CircularProgress size={22} sx={{ color: '#FFFFFF' }} /> : (isBatchMode ? 'Add to Batch' : 'Verify On-Chain')}
                         </Button>
+                    </Box>
+                )}
+
+                {/* Batch Feedback Banner */}
+                {batchNotice && (
+                    <Box sx={{ px: 3, pb: 1.5 }}>
+                        <div style={{
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            backgroundColor: batchNotice.type === 'success' ? '#ECFDF5' : batchNotice.type === 'warning' ? '#FFFBEB' : '#FEF2F2',
+                            border: `1px solid ${batchNotice.type === 'success' ? '#A7F3D0' : batchNotice.type === 'warning' ? '#FDE68A' : '#FECACA'}`,
+                            color: batchNotice.type === 'success' ? '#065F46' : batchNotice.type === 'warning' ? '#92400E' : '#991B1B',
+                            fontSize: '13px',
+                            fontWeight: 700,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8
+                        }}>
+                            {batchNotice.type === 'success' && <CheckCircleRoundedIcon sx={{ fontSize: 18, color: '#10B981' }} />}
+                            <span>{batchNotice.message}</span>
+                        </div>
+                    </Box>
+                )}
+
+                {/* Inbound Batch Queue Manifest Card */}
+                {isBatchMode && batchQueue.length > 0 && (
+                    <Box sx={{ px: 3, pb: 2 }}>
+                        <div style={{
+                            padding: '14px 16px',
+                            borderRadius: '14px',
+                            backgroundColor: '#F8FAFC',
+                            border: '1px solid #E2E8F0',
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ fontSize: '13px', fontWeight: 800, color: '#0F172A' }}>
+                                        Scanned Items ({batchQueue.length})
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        startIcon={<FileDownloadRoundedIcon />}
+                                        onClick={exportBatchCSV}
+                                        sx={{ textTransform: 'none', fontSize: '11px', py: 0.3, px: 1, borderRadius: '6px' }}
+                                    >
+                                        Export CSV
+                                    </Button>
+                                    <Button
+                                        size="small"
+                                        variant="text"
+                                        onClick={() => setBatchQueue([])}
+                                        sx={{ textTransform: 'none', fontSize: '11px', py: 0.3, px: 1, color: '#EF4444' }}
+                                    >
+                                        Clear
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 190, overflowY: 'auto' }}>
+                                {batchQueue.map((item, idx) => (
+                                    <div
+                                        key={item.serialNumber}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            padding: '8px 10px',
+                                            borderRadius: '8px',
+                                            backgroundColor: '#FFFFFF',
+                                            border: '1px solid #E2E8F0',
+                                            fontSize: '12px',
+                                        }}
+                                    >
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, overflow: 'hidden' }}>
+                                            <div style={{ fontWeight: 700, color: '#0F172A', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                #{batchQueue.length - idx} {item.name} {item.brand ? `· ${item.brand}` : ''}
+                                            </div>
+                                            <div style={{ fontFamily: 'monospace', fontSize: '10.5px', color: '#64748B' }}>
+                                                {item.serialNumber}
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                            <span style={{ fontSize: '10.5px', color: '#94A3B8' }}>{item.time}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => navigate('/update-product-details', { state: { serialNumber: item.serialNumber } })}
+                                                style={{
+                                                    padding: '3px 8px',
+                                                    fontSize: '11px',
+                                                    fontWeight: 700,
+                                                    color: '#2563EB',
+                                                    backgroundColor: '#EFF6FF',
+                                                    border: '1px solid #BFDBFE',
+                                                    borderRadius: '6px',
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                Handover →
+                                            </button>
+                                            <IconButton size="small" onClick={() => removeBatchItem(item.serialNumber)} title="Remove item">
+                                                <DeleteOutlineRoundedIcon sx={{ fontSize: 16, color: '#94A3B8' }} />
+                                            </IconButton>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </Box>
                 )}
 

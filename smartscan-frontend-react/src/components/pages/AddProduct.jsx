@@ -13,6 +13,7 @@ import Geocode from "react-geocode";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC_URL, BLOCK_EXPLORER_URL, NATIVE_CURRENCY_NAME, NATIVE_CURRENCY_SYMBOL, NATIVE_CURRENCY_DECIMALS } from '../../config/contract';
 import { formatContractError } from '../../utils/contractErrors';
 import { autoDetectLocation, detectLocation } from '../../utils/locationResolver';
+import ThermalPackagingLabelModal from './ThermalPackagingLabelModal';
 
 function createProductIdentifier() {
     if (window.crypto.randomUUID) return `SS-${window.crypto.randomUUID()}`;
@@ -52,6 +53,7 @@ const AddProduct = () => {
     const [autoDispatchOnCreate, setAutoDispatchOnCreate] = useState(false);
     const [isDispatched, setIsDispatched] = useState(false);
     const [dispatchLoading, setDispatchLoading] = useState(false);
+    const [isLabelModalOpen, setIsLabelModalOpen] = useState(false);
 
     const { auth } = useAuth();
     const navigate = useNavigate();
@@ -726,8 +728,24 @@ const persistTransactionHash = async () => {
                                 <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
                                     <QRCode value={qrData} id="QRCode" size={160} />
                                 </div>
-                                <Button variant="outlined" fullWidth onClick={downloadQR} sx={{ textTransform: 'none', borderRadius: '10px', mb: 1.5 }}>
+                                <Button variant="outlined" fullWidth onClick={downloadQR} sx={{ textTransform: 'none', borderRadius: '10px', mb: 1 }}>
                                     Download High-Res PNG Label
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    fullWidth
+                                    onClick={() => setIsLabelModalOpen(true)}
+                                    sx={{
+                                        textTransform: 'none',
+                                        borderRadius: '10px',
+                                        mb: 1.5,
+                                        borderColor: '#3B82F6',
+                                        color: '#1D4ED8',
+                                        fontWeight: 600,
+                                        '&:hover': { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' }
+                                    }}
+                                >
+                                    🖨️ Print 4×6″ Packaging Label (Thermal / Sticker)
                                 </Button>
 
                                 {!isDispatched ? (
@@ -821,6 +839,18 @@ const persistTransactionHash = async () => {
                     </div>
                 </div>
             </form>
+
+            <ThermalPackagingLabelModal
+                open={isLabelModalOpen}
+                onClose={() => setIsLabelModalOpen(false)}
+                serialNumber={serialNumber}
+                name={name}
+                brand={brand}
+                location={manuLocation}
+                date={manuDate}
+                qrData={qrData}
+                contractAddress={CONTRACT_ADDRESS}
+            />
         </DashboardShell>
     );
 }
