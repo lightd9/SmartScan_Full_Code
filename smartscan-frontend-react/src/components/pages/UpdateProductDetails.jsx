@@ -3,7 +3,7 @@ import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlin
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import '../shell/shell.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import useAuth from '../../hooks/useAuth';
 import { ethers } from "ethers";
 import axios from '../../api/axios';
@@ -15,7 +15,7 @@ import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
 import { parseProductQr } from '../../api/productQr';
 import { determineCustodyAction } from '../../utils/stageActions';
-import { detectLocation } from '../../utils/locationResolver';
+import { autoDetectLocation, detectLocation } from '../../utils/locationResolver';
 
 const UpdateProductDetails = () => {
 
@@ -138,32 +138,48 @@ const UpdateProductDetails = () => {
     }, [auth?.username]);
 
 
-    const handleDetectLocation = async () => {
+    const isLocationManuallyEditedRef = useRef(false);
+
+    const resolveLocationProgressive = useCallback(async (isManualTrigger = false) => {
+        if (isManualTrigger) {
+            isLocationManuallyEditedRef.current = false;
+        }
         setCurrDate(dayjs().unix());
         setIsDetectingLocation(true);
-        setLocationNotice('Detecting location (device GPS / network)...');
+        if (isManualTrigger) {
+            setLocationNotice('Resolving location (device & network)...');
+        }
         try {
             const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
-            const res = await detectLocation(apiKey);
-            if (res.latitude) setCurrLatitude(res.latitude);
-            if (res.longitude) setCurrLongtitude(res.longitude);
-            if (res.location) {
-                setCurrLocation(res.location.replace(/,/g, ';'));
-            }
-            setLocationNotice(res.notice || 'Location resolved successfully.');
+            await autoDetectLocation({
+                googleApiKey: apiKey,
+                onUpdate: (res) => {
+                    if (isLocationManuallyEditedRef.current) return;
+                    if (res.latitude) setCurrLatitude(res.latitude);
+                    if (res.longitude) setCurrLongtitude(res.longitude);
+                    if (res.location) {
+                        setCurrLocation(res.location.replace(/,/g, ';'));
+                    }
+                    setLocationNotice(res.notice || 'Location resolved successfully.');
+                },
+            });
         } catch (err) {
-            console.error('Location detection failed:', err);
-            setLocationNotice(err.message || 'Unable to detect location. Please type your location manually.');
+            console.warn('Location detection failed:', err);
+            if (!currLocation) {
+                setLocationNotice(err.message || 'Unable to detect location automatically. Please enter your location manually.');
+            }
         } finally {
             setIsDetectingLocation(false);
         }
+    }, [currLocation]);
+
+    const handleDetectLocation = () => {
+        resolveLocationProgressive(true);
     };
 
-    // Automatically attempt location detection on load if empty
+    // Automatically resolve location on component mount
     useEffect(() => {
-        if (!currLocation) {
-            handleDetectLocation();
-        }
+        resolveLocationProgressive(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
@@ -436,8 +452,11 @@ const UpdateProductDetails = () => {
                         multiline
                         minRows={2}
                         value={currLocation.replace(/;/g, ",")}
-                        onChange={(event) => setCurrLocation(event.target.value.replace(/,/g, ';'))}
-                        helperText={locationNotice || "Recorded with this on-chain event."}
+                        onChange={(event) => {
+                            isLocationManuallyEditedRef.current = true;
+                            setCurrLocation(event.target.value.replace(/,/g, ';'));
+                        }}
+                        helperText={locationNotice || "Automatically detected. Recorded with this on-chain event."}
                     />
 
                     <Button
@@ -451,10 +470,10 @@ const UpdateProductDetails = () => {
                         {isDetectingLocation ? (
                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <CircularProgress size={16} color="inherit" />
-                                Detecting Device & Network Location...
+                                Resolving Location (Device & Network)...
                             </span>
                         ) : (
-                            '📍 Detect Browser / Network Location'
+                            '📍 Refresh Location'
                         )}
                     </Button>
 

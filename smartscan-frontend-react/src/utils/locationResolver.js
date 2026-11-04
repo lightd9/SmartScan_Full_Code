@@ -108,51 +108,119 @@ export async function fetchIpLocation() {
 }
 
 /**
- * Detect location with multiple fallbacks:
- * 1. High-accuracy GPS/Wi-Fi
- * 2. Low-accuracy Wi-Fi/Cell
- * 3. IP-based location fallback
+ * Auto-detect location progressively:
+ * 1. Instantly queries IP geolocation (resolves in ~150-300ms) and calls onUpdate immediately.
+ * 2. Concurrently queries browser navigator.geolocation (GPS / Wi-Fi).
+ *    - Timeout is kept short (4500ms).
+ *    - If device coordinates resolve, reverse geocodes them and invokes onUpdate with the refined address.
+ *    - If device coordinates fail/time out, it fails gracefully because onUpdate was ALREADY called with the valid IP location!
+ * 3. Returns the final resolved location object.
+ * 
+ * @param {Object} [options]
+ * @param {string} [options.googleApiKey]
+ * @param {Function} [options.onUpdate] - Callback ({ location, latitude, longitude, source, notice })
+ * @param {Function} [options.onProgress] - Callback (message)
+ * @returns {Promise<Object>}
+ */
+export async function autoDetectLocation({
+  googleApiKey = '',
+  onUpdate = () => {},
+  onProgress = () => {},
+} = {}) {
+  let resolvedResult = null;
+  let isDeviceRefined = false;
+
+  if (typeof onProgress === 'function') onProgress('Resolving location...');
+
+  // 1. FAST-PATH: Run IP geolocation immediately
+  const ipPromise = (async () => {
+    try {
+      const ipRes = await fetchIpLocation();
+      if (!isDeviceRefined && ipRes && ipRes.location) {
+        resolvedResult = ipRes;
+        if (typeof onUpdate === 'function') {
+          onUpdate(ipRes);
+        }
+      }
+      return ipRes;
+    } catch (err) {
+      console.warn('IP fast-path lookup failed:', err);
+      return null;
+    }
+  })();
+
+  // 2. DEVICE GEOLOCATION: Run in parallel / background
+  const devicePromise = (async () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      return null;
+    }
+
+    // Check permission state if permissions API is available
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'geolocation' });
+        if (perm.state === 'denied') {
+          return null; // Don't delay if user explicitly blocked browser location
+        }
+      } catch (_e) {
+        // Permissions query not supported or throws, proceed to getCurrentPosition
+      }
+    }
+
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+            const address = await reverseGeocode(lat, lng, googleApiKey);
+
+            const deviceRes = {
+              location: address,
+              latitude: lat,
+              longitude: lng,
+              source: 'browser_location',
+              notice: `Location refined via device GPS / Wi-Fi (${address}). Review or edit if needed.`,
+            };
+
+            isDeviceRefined = true;
+            resolvedResult = deviceRes;
+            if (typeof onUpdate === 'function') {
+              onUpdate(deviceRes);
+            }
+            resolve(deviceRes);
+          } catch (err) {
+            console.warn('Reverse geocoding device coordinates failed:', err);
+            resolve(null);
+          }
+        },
+        (err) => {
+          console.info('Device geolocation unresolvable or timed out (code ' + (err?.code || 'unknown') + '): ' + (err?.message || 'timeout'));
+          resolve(null);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 4500,
+          maximumAge: 60000,
+        }
+      );
+    });
+  })();
+
+  const [ipResult, deviceResult] = await Promise.all([ipPromise, devicePromise]);
+
+  if (deviceResult) return deviceResult;
+  if (ipResult) return ipResult;
+  if (resolvedResult) return resolvedResult;
+
+  // Final fallback
+  return await fetchIpLocation();
+}
+
+/**
+ * Standard detectLocation function (backward-compatible)
  */
 export async function detectLocation(googleApiKey = '') {
-  // If browser doesn't support geolocation at all, go straight to IP fallback
-  if (typeof navigator === 'undefined' || !navigator.geolocation) {
-    return await fetchIpLocation();
-  }
-
-  // Helper for Promise-wrapped getCurrentPosition
-  const getPosition = (options) => {
-    return new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, options);
-    });
-  };
-
-  let position = null;
-
-  // Attempt 1: High accuracy
-  try {
-    position = await getPosition({ enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 });
-  } catch (err1) {
-    console.warn('High accuracy geolocation timed out or failed, trying low accuracy...', err1);
-    // Attempt 2: Low accuracy (coarse, works better on desktop/Windows without GPS hardware)
-    try {
-      position = await getPosition({ enableHighAccuracy: false, timeout: 6000, maximumAge: 300000 });
-    } catch (err2) {
-      console.warn('Browser geolocation failed completely, falling back to IP geolocation...', err2);
-      // Attempt 3: IP fallback
-      return await fetchIpLocation();
-    }
-  }
-
-  // If we got coordinates from browser
-  const lat = position.coords.latitude;
-  const lng = position.coords.longitude;
-  const address = await reverseGeocode(lat, lng, googleApiKey);
-
-  return {
-    location: address,
-    latitude: lat,
-    longitude: lng,
-    source: 'browser_location',
-    notice: `Location detected via device (${address}). Review or edit if needed.`,
-  };
+  return await autoDetectLocation({ googleApiKey });
 }
+

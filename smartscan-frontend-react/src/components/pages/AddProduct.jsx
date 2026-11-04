@@ -2,7 +2,7 @@ import { Box, Paper, Typography, TextField, Button, CircularProgress } from '@mu
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import '../shell/shell.css';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { ethers } from "ethers";
 import axios from '../../api/axios';
 import QRCode from 'qrcode.react';
@@ -12,7 +12,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Geocode from "react-geocode";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX, CHAIN_NAME, CHAIN_RPC_URL, BLOCK_EXPLORER_URL, NATIVE_CURRENCY_NAME, NATIVE_CURRENCY_SYMBOL, NATIVE_CURRENCY_DECIMALS } from '../../config/contract';
 import { formatContractError } from '../../utils/contractErrors';
-import { detectLocation } from '../../utils/locationResolver';
+import { autoDetectLocation, detectLocation } from '../../utils/locationResolver';
 
 function createProductIdentifier() {
     if (window.crypto.randomUUID) return `SS-${window.crypto.randomUUID()}`;
@@ -124,30 +124,51 @@ const AddProduct = () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    const handleDetectLocation = async () => {
+    const isLocationManuallyEditedRef = useRef(false);
+
+    const resolveLocationProgressive = useCallback(async (isManualTrigger = false) => {
+        if (isManualTrigger) {
+            isLocationManuallyEditedRef.current = false;
+        }
         setManuDate(dayjs().unix());
         setIsDetectingLocation(true);
-        setChainNotice('Detecting location (device GPS / network)...');
+        if (isManualTrigger) {
+            setChainNotice('Resolving location (device & network)...');
+        }
         try {
             const apiKey = process.env.REACT_APP_GEOCODING_API_KEY;
-            const res = await detectLocation(apiKey);
-            if (res.latitude) setManuLatitude(res.latitude);
-            if (res.longitude) setManuLongtitude(res.longitude);
-            if (res.location) {
-                setManuLocation(res.location.replace(/,/g, ';'));
-            }
-            setChainNotice(res.notice || 'Location resolved successfully.');
+            await autoDetectLocation({
+                googleApiKey: apiKey,
+                onUpdate: (res) => {
+                    if (isLocationManuallyEditedRef.current) return;
+                    if (res.latitude) setManuLatitude(res.latitude);
+                    if (res.longitude) setManuLongtitude(res.longitude);
+                    if (res.location) {
+                        setManuLocation(res.location.replace(/,/g, ';'));
+                    }
+                    if (res.notice) {
+                        setChainNotice(res.notice);
+                    }
+                },
+            });
         } catch (err) {
-            console.error('Location detection failed:', err);
-            setChainNotice(err.message || 'Unable to detect location. Please type your location manually.');
+            console.warn('Location detection failed:', err);
+            if (!manuLocation) {
+                setChainNotice(err.message || 'Unable to detect location automatically. Please enter your location manually.');
+            }
         } finally {
             setIsDetectingLocation(false);
         }
+    }, [manuLocation]);
+
+    const handleDetectLocation = () => {
+        resolveLocationProgressive(true);
     };
 
+    // Automatically resolve location on mount if empty
     useEffect(() => {
         if (!manuLocation) {
-            handleDetectLocation();
+            resolveLocationProgressive(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -555,9 +576,12 @@ const persistTransactionHash = async () => {
                         <TextField
                             fullWidth
                             label="Business / Factory Location"
-                            value={manuLocation}
-                            onChange={(event) => setManuLocation(event.target.value.replace(/,/g, ';'))}
-                            helperText="Optional. Browser location is unverified; you can edit or enter it manually."
+                            value={manuLocation.replace(/;/g, ',')}
+                            onChange={(event) => {
+                                isLocationManuallyEditedRef.current = true;
+                                setManuLocation(event.target.value.replace(/,/g, ';'));
+                            }}
+                            helperText={chainNotice && chainNotice.includes('Location') ? chainNotice : "Automatically detected. Recorded with this on-chain registration."}
                         />
 
                         <Button
@@ -571,10 +595,10 @@ const persistTransactionHash = async () => {
                             {isDetectingLocation ? (
                                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                     <CircularProgress size={14} color="inherit" />
-                                    Detecting Location (Device & Network)...
+                                    Resolving Location (Device & Network)...
                                 </span>
                             ) : (
-                                '📍 Detect Browser / Network Location'
+                                '📍 Refresh Location'
                             )}
                         </Button>
 
