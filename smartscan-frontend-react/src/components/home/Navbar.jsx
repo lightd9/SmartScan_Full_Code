@@ -23,6 +23,7 @@ import { useScanner } from "../../context/ScannerContext";
 const navLinks = [
   { text: "Home", to: "/", icon: <HomeIcon /> },
   { text: "Verify Product", to: "/scanner", icon: <QrCodeScannerIcon /> },
+  { text: "POS Register", to: "/pos", icon: <QrCodeScannerIcon /> },
   { text: "Login", to: "/login", icon: <LoginIcon /> },
 ];
 

@@ -56,6 +56,11 @@ export default function Sidebar() {
           icon: <AddCircleOutlineOutlinedIcon className="nav-icon" />,
         },
         {
+          to: '/pos',
+          label: 'POS Register',
+          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
+        },
+        {
           onClick: () => openScanner(),
           label: 'Verify Scanner',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
@@ -95,8 +100,13 @@ export default function Sidebar() {
     } else if (role === 'retailer') {
       baseItems.push(
         {
+          to: '/pos',
+          label: 'POS Register',
+          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
+        },
+        {
           onClick: () => openScanner(),
-          label: 'POS Scanner',
+          label: 'Inbound Scan',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
         },
         {

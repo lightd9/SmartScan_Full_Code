@@ -175,13 +175,23 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   const chainProvider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : null;
   app.locals.chainProvider = chainProvider;
   const scanProvider = chainProvider;
+  const scanContract = scanProvider && expectedContractAddress
+    ? new ethers.Contract(expectedContractAddress, PRODUCT_SCAN_ABI, scanProvider)
+    : null;
+
+  const fetchOnChainProduct = async (serialNumber) => {
+    if (!scanProvider || !expectedContractAddress || !scanContract) {
+      throw new Error('Product scan verification is not configured');
+    }
+    return await scanContract.getProduct(serialNumber);
+  };
+
   const verifyScanProduct = scanVerifier || (async (serialNumber) => {
     if (!scanProvider || !expectedContractAddress) throw new Error('Product scan verification is not configured');
     const network = await scanProvider.getNetwork();
     if (Number(network.chainId) !== Number(configuredChainId)) throw new Error('Product scan RPC chain mismatch');
     if ((await scanProvider.getCode(expectedContractAddress)) === '0x') throw new Error('Product scan contract has no code');
-    const scanContract = new ethers.Contract(expectedContractAddress, PRODUCT_SCAN_ABI, scanProvider);
-    const product = await scanContract.getProduct(serialNumber);
+    const product = await fetchOnChainProduct(serialNumber);
     return { exists: product[0] === serialNumber, conflictingState: product[0] === serialNumber && hasConflictingProductState(product) };
   });
   app.disable('x-powered-by');
@@ -1248,6 +1258,174 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       return res.json(rows);
     } catch (err) { return next(err); }
   });
+
+  // In-memory receipt cache for immediate POS receipt lookups
+  const posReceiptsCache = new Map();
+
+  // Phase 3: Retail Point-of-Sale (POS) & Barcode Checkout API
+  const posCheckoutHandler = async (req, res, next) => {
+    try {
+      const {
+        serialNumber: rawSerial,
+        storeId = 'STORE-MAIN-01',
+        registerId = 'REG-01',
+        cashierName = 'Retail Cashier',
+        location = 'Retail Store Checkout',
+      } = req.body || {};
+
+      let serial = (rawSerial || '').trim();
+      // Handle full smartphone verification URLs (e.g., https://.../verify/SS-...)
+      if (serial.includes('/verify/')) {
+        const parts = serial.split('/verify/');
+        serial = parts[parts.length - 1].split(/[?#]/)[0].trim();
+      } else if (serial.includes(',')) {
+        // Handle legacy format contract,serial
+        const parts = serial.split(',');
+        serial = parts[parts.length - 1].trim();
+      }
+
+      if (!validProductIdentifier(serial)) {
+        return res.status(400).json({
+          success: false,
+          status: 'INVALID_IDENTIFIER_FORMAT',
+          canSell: false,
+          serialNumber: serial,
+          error: 'Invalid product identifier format. Expected canonical SS-UUID.',
+        });
+      }
+
+      let product;
+      try {
+        product = await fetchOnChainProduct(serial);
+      } catch (err) {
+        return res.status(503).json({
+          success: false,
+          status: 'BLOCKCHAIN_RPC_UNAVAILABLE',
+          canSell: false,
+          serialNumber: serial,
+          error: 'Authoritative blockchain verification is temporarily unavailable.',
+        });
+      }
+
+      const exists = product && product[0] === serial;
+      if (!exists) {
+        return res.status(404).json({
+          success: false,
+          status: 'UNREGISTERED_COUNTERFEIT',
+          canSell: false,
+          serialNumber: serial,
+          error: 'Product identifier is not registered on the blockchain passport registry. Suspected counterfeit item.',
+        });
+      }
+
+      const name = product[1];
+      const brand = product[2];
+      const stage = Number(product[6]);
+      const currentCustodian = product[7];
+      const isSold = Boolean(product[9]);
+      const isRecalled = Boolean(product[10]);
+      const stageNames = ['None', 'Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'];
+      const stageName = stageNames[stage] || 'Unknown';
+
+      let status = 'AUTHENTIC_READY_FOR_SALE';
+      let canSell = true;
+      let alertMessage = 'Product verified authentic on Ethereum Sepolia. Safe to finalize sale.';
+
+      if (isRecalled) {
+        status = 'RECALLED';
+        canSell = false;
+        alertMessage = 'DO NOT SELL: This product has been recalled by the manufacturer.';
+      } else if (isSold) {
+        status = 'ALREADY_SOLD';
+        canSell = false;
+        alertMessage = 'CRITICAL FRAUD WARNING: This product was already marked sold on-chain. Resale or counterfeit duplicate detected.';
+      } else if (stage === 1) {
+        status = 'MANUFACTURED_NOT_DISPATCHED';
+        canSell = false;
+        alertMessage = 'Item is at manufacturer stage and was never dispatched into the authorized supply chain.';
+      } else if (stage === 2) {
+        status = 'IN_TRANSIT_NOT_DELIVERED';
+        canSell = false;
+        alertMessage = 'Item is currently in transit. The retail receiving delivery confirmation must be signed on-chain before selling.';
+      }
+
+      const receiptId = `REC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
+      const receiptTimestamp = new Date().toISOString();
+      const verificationUrl = `https://smart-scan-ten.vercel.app/verify/${serial}`;
+
+      const receiptData = {
+        receiptId,
+        timestamp: receiptTimestamp,
+        storeId,
+        registerId,
+        cashierName,
+        location,
+        verificationSeal: 'SMARTSCAN-DECENTRALIZED-ORIGIN-VERIFIED',
+        verificationUrl,
+      };
+
+      // Cache receipt for retrieval
+      posReceiptsCache.set(receiptId, {
+        receiptId,
+        serialNumber: serial,
+        name,
+        brand,
+        status,
+        canSell,
+        alertMessage,
+        receipt: receiptData,
+      });
+
+      // Record scan in database for fraud and analytics tracking
+      try {
+        const visitorHash = crypto.createHmac('sha256', jwtSecret).update(String(req.ip || 'pos')).digest('hex');
+        await pool.query(
+          'INSERT INTO product_scans (serial_number, contract_address, visitor_hash, outcome, location_source, flags) VALUES ($1, $2, $3, $4, $5, $6)',
+          [serial, expectedContractAddress, visitorHash, canSell ? 'valid' : 'invalid', 'pos_checkout', canSell ? [] : [status.toLowerCase()]]
+        );
+      } catch (_logErr) {
+        // Non-blocking for checkout
+      }
+
+      return res.json({
+        success: true,
+        receiptId,
+        status,
+        canSell,
+        alertMessage,
+        product: {
+          serialNumber: serial,
+          name,
+          brand,
+          stage: stageName,
+          stageId: stage,
+          currentCustodian,
+          isSold,
+          isRecalled,
+          contractAddress: expectedContractAddress,
+          chainId: configuredChainId,
+          verificationUrl,
+        },
+        receipt: receiptData,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.post('/api/pos/checkout', scanRateLimit, posCheckoutHandler);
+  app.post('/pos/checkout', scanRateLimit, posCheckoutHandler);
+
+  const posReceiptHandler = (req, res) => {
+    const receipt = posReceiptsCache.get(req.params.receiptId);
+    if (!receipt) {
+      return res.status(404).json({ error: 'Receipt not found' });
+    }
+    return res.json(receipt);
+  };
+
+  app.get('/api/pos/receipt/:receiptId', posReceiptHandler);
+  app.get('/pos/receipt/:receiptId', posReceiptHandler);
 
   app.post('/addproduct', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {

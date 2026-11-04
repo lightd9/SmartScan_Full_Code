@@ -20,6 +20,7 @@ const Product = lazy(() => import('./components/pages/Product'));
 const AuthenticProduct = lazy(() => import('./components/pages/AuthenticProduct'));
 const FakeProduct = lazy(() => import('./components/pages/FakeProduct'));
 const UpdateProductDetails = lazy(() => import('./components/pages/UpdateProductDetails'));
+const POSCheckoutPage = lazy(() => import('./components/pages/POSCheckoutPage'));
 const Missing = lazy(() => import('./components/pages/Missing'));
 
 function App() {
@@ -35,6 +36,7 @@ function App() {
         <Route exact path='/scanner' element={< ScannerPage />}></Route>
         <Route exact path='/verify/:serialNumber' element={< Product />}></Route>
         <Route exact path='/verify' element={< ScannerPage />}></Route>
+        <Route exact path='/pos' element={< POSCheckoutPage />}></Route>
         <Route exact path='/product' element={< Product />}></Route>
         <Route exact path='/authentic-product' element={< AuthenticProduct />}></Route>
         <Route exact path='/fake-product' element={< FakeProduct />}></Route>
