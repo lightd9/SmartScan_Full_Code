@@ -133,8 +133,12 @@ const Product = () => {
     }
 
     const handleBack = () => {
-        navigate(-2)
-    }
+        if (window.history.length > 2) {
+            navigate(-1);
+        } else {
+            navigate('/scanner');
+        }
+    };
 
 
     const getHistory = () => {
