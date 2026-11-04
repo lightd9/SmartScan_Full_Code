@@ -49,3 +49,5 @@ export function parseHistoryTimestamp(value) {
     const parsed = Date.parse(String(value || ''));
     return Number.isNaN(parsed) ? null : Math.floor(parsed / 1000);
 }
+
+export const parseProductIdentifier = parseProductQr;

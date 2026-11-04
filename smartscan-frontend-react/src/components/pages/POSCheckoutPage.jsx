@@ -36,7 +36,7 @@ import QrScanner from '../QrScanner';
 import POSCustomerReceiptModal from './POSCustomerReceiptModal';
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, CHAIN_ID_HEX } from '../../config/contract';
 import api from '../../api/axios';
-import { parseProductIdentifier } from '../../api/productQr';
+import { parseProductQr } from '../../api/productQr';
 import { autoDetectLocation } from '../../utils/locationResolver';
 
 const STAGE_LABELS = {
@@ -150,8 +150,13 @@ export default function POSCheckoutPage() {
         setVerifying(true);
         setPosNotice(null);
 
-        const parsed = parseProductIdentifier(trimmed, CONTRACT_ADDRESS);
-        const serial = parsed.serialNumber || trimmed;
+        let serial = trimmed;
+        try {
+            const parsed = parseProductQr(trimmed, CONTRACT_ADDRESS);
+            if (parsed?.serialNumber) serial = parsed.serialNumber;
+        } catch (_parseErr) {
+            // raw input is treated directly as serial if parser throws
+        }
 
         try {
             // 1. First attempt authoritative blockchain check
