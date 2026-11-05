@@ -7,6 +7,9 @@ const validProduction = {
   PORT: '5000',
   DATABASE_URL: 'postgresql://app:secret@db.example.com:5432/smartscan',
   JWT_SECRET: 'a-long-random-production-secret-value-123456',
+  OPERATIONAL_VAULT_SECRET: 'another-separate-production-vault-secret-value-789012',
+  TREASURY_FAUCET_PRIVATE_KEY: '0x1111111111111111111111111111111111111111111111111111111111111111',
+  CONTRACT_OWNER_PRIVATE_KEY: '0x2222222222222222222222222222222222222222222222222222222222222222',
   ALLOWED_ORIGINS: 'https://app.example.com',
   WALLET_LINK_ORIGIN: 'https://app.example.com',
   CHAIN_RPC_URL: 'https://rpc.example.com/sepolia',
@@ -32,6 +35,11 @@ test('production runtime accepts explicit secure configuration', () => {
 
 test('production runtime rejects missing or weak security and chain settings', () => {
   assert.throws(() => loadRuntimeConfig({ ...validProduction, JWT_SECRET: 'dev-insecure-secret-change-me' }), /JWT_SECRET/);
+  assert.throws(() => loadRuntimeConfig({ ...validProduction, OPERATIONAL_VAULT_SECRET: '' }), /OPERATIONAL_VAULT_SECRET/);
+  assert.throws(() => loadRuntimeConfig({ ...validProduction, OPERATIONAL_VAULT_SECRET: validProduction.JWT_SECRET }), /must differ from JWT_SECRET/);
+  assert.throws(() => loadRuntimeConfig({ ...validProduction, TREASURY_FAUCET_PRIVATE_KEY: 'invalid-key' }), /TREASURY_FAUCET_PRIVATE_KEY/);
+  assert.throws(() => loadRuntimeConfig({ ...validProduction, CONTRACT_OWNER_PRIVATE_KEY: 'invalid-key' }), /CONTRACT_OWNER_PRIVATE_KEY/);
+  assert.throws(() => loadRuntimeConfig({ ...validProduction, CONTRACT_OWNER_PRIVATE_KEY: validProduction.TREASURY_FAUCET_PRIVATE_KEY }), /must be different/);
   assert.throws(() => loadRuntimeConfig({ ...validProduction, JWT_EXPIRES_IN: 'invalid' }), /JWT_EXPIRES_IN/);
   assert.throws(() => loadRuntimeConfig({ ...validProduction, JWT_EXPIRES_IN: '0s' }), /JWT_EXPIRES_IN/);
   assert.throws(() => loadRuntimeConfig({ ...validProduction, JWT_EXPIRES_IN: '91d' }), /JWT_EXPIRES_IN/);

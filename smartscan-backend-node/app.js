@@ -1942,19 +1942,22 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           let onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
           if (onchainRole !== expectedRoleId) {
             const roleContract = await getOwnerRoleContract();
-            if (roleContract) {
-              if (onchainRole !== 0) {
-                const revokeTx = await roleContract.revokeRole(subaccount.wallet_address);
-                await revokeTx.wait(1);
-              }
-              const grantTx = await roleContract.grantRole(
-                subaccount.wallet_address,
-                expectedRoleId,
-                subaccount.subaccount_name || subaccount.parent_username
-              );
-              await grantTx.wait(1);
-              onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
+            if (!roleContract) {
+              return res.status(403).json({
+                error: `Facility wallet (${subaccount.wallet_address}) is not authorized on-chain as ${subaccount.role} (contract role: ${onchainRole}, expected: ${expectedRoleId}), and contract owner key is not available to auto-grant. Please contact the administrator.`
+              });
             }
+            if (onchainRole !== 0) {
+              const revokeTx = await roleContract.revokeRole(subaccount.wallet_address);
+              await revokeTx.wait(1);
+            }
+            const grantTx = await roleContract.grantRole(
+              subaccount.wallet_address,
+              expectedRoleId,
+              subaccount.subaccount_name || subaccount.parent_username
+            );
+            await grantTx.wait(1);
+            onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
           }
           if (onchainRole === expectedRoleId) {
             if (subaccount.status !== 'active') {
@@ -1968,7 +1971,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
             });
           }
         } catch (roleErr) {
-          console.warn('Role verification/grant on custody execution notice:', roleErr.message);
+          console.error('Role verification/grant on custody execution error:', roleErr);
+          return res.status(403).json({
+            error: `Facility wallet (${subaccount.wallet_address}) could not be confirmed on-chain as ${subaccount.role}: ${roleErr.message}`
+          });
         }
       }
 
