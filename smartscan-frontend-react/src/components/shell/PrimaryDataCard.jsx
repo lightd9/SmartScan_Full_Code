@@ -4,8 +4,6 @@ import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownR
 import ModeEditOutlineOutlinedIcon from '@mui/icons-material/ModeEditOutlineOutlined';
 import PeopleOutlineOutlinedIcon from '@mui/icons-material/PeopleOutlineOutlined';
 import AutoAwesomeOutlinedIcon from '@mui/icons-material/AutoAwesomeOutlined';
-import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
-import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import './shell.css';
@@ -14,7 +12,7 @@ export default function PrimaryDataCard({
   title = 'My Projects',
   titleIcon = <FormatListBulletedRoundedIcon className="card-title-icon" />,
   filterLabel: defaultFilterLabel = 'All Items',
-  filterOptions = ['All Items', 'Confirmed', 'Pending', 'In Custody'],
+  filterOptions = [],
   onFilterSelect,
   onSeeAllClick,
   columns = [
@@ -41,14 +39,9 @@ export default function PrimaryDataCard({
   };
 
   // Internal filtering if onFilterSelect is not overriding
-  const displayedRows = rows.filter((r) => {
-    if (!currentFilter || currentFilter === 'All Items' || currentFilter === 'All Partners' || currentFilter === 'This Week' || currentFilter === 'Recent Batches' || currentFilter === 'In Transit' || currentFilter === 'Available Stock') {
-      return true;
-    }
-    const label = (r.statusLabel || '').toLowerCase();
-    const filter = currentFilter.toLowerCase();
-    return label.includes(filter) || filter.includes(label);
-  });
+  const displayedRows = filterOptions.length && currentFilter
+    ? rows.filter((row) => row.statusLabel === currentFilter)
+    : rows;
 
   return (
     <div className="dashboard-card" style={{ width: '100%' }}>
@@ -57,7 +50,7 @@ export default function PrimaryDataCard({
         <div className="card-title-group">
           {titleIcon}
           <h2 className="card-title-text">{title}</h2>
-          {defaultFilterLabel && (
+          {filterOptions.length > 0 && (
             <>
               <button
                 type="button"
@@ -108,7 +101,7 @@ export default function PrimaryDataCard({
       </div>
 
       {/* Table Content */}
-      <div style={{ overflowX: 'auto' }}>
+      <div style={{ maxHeight: 520, overflow: 'auto' }}>
         <table className="template-table">
           <thead>
             <tr>
@@ -131,42 +124,17 @@ export default function PrimaryDataCard({
               </tr>
             ) : (
               displayedRows.map((row, index) => (
-                <tr
-                  key={row.id || index}
-                  onClick={row.onClick}
-                  style={{
-                    cursor: row.onClick ? 'pointer' : 'default',
-                    transition: 'background-color 0.15s ease',
-                  }}
-                  tabIndex={row.onClick ? 0 : undefined}
-                  onKeyDown={(e) => {
-                    if (row.onClick && (e.key === 'Enter' || e.key === ' ')) {
-                      row.onClick();
-                    }
-                  }}
-                >
+                <tr key={row.id || index}>
                   {/* Item / Task Name Column */}
                   <td>
                     <div className="row-item-cell">
                       {row.icon}
-                      <span className="row-item-title">{row.title}</span>
-
-                      {/* Meta counters (Comments, Links) */}
-                      {(row.commentCount !== undefined || row.linkCount !== undefined) && (
-                        <div className="row-meta-indicators">
-                          {row.commentCount !== undefined && (
-                            <span className="meta-count-item" title="Scans / Interactions">
-                              <ChatBubbleOutlineRoundedIcon sx={{ fontSize: 13 }} />
-                              {row.commentCount}
-                            </span>
-                          )}
-                          {row.linkCount !== undefined && (
-                            <span className="meta-count-item" title="Chain Hops">
-                              <LinkRoundedIcon sx={{ fontSize: 14 }} />
-                              {row.linkCount}
-                            </span>
-                          )}
-                        </div>
+                      {row.onClick ? (
+                        <button type="button" className="row-title-action" onClick={row.onClick}>
+                          {row.title}
+                        </button>
+                      ) : (
+                        <span className="row-item-title">{row.title}</span>
                       )}
                     </div>
                   </td>

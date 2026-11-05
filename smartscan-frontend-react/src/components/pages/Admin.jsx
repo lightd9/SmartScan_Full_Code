@@ -5,12 +5,9 @@ import useAuth from '../../hooks/useAuth';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import PrimaryDataCard from '../shell/PrimaryDataCard';
-import ScheduleTimelineCard from '../shell/ScheduleTimelineCard';
-import NotesActionCard from '../shell/NotesActionCard';
 
 // Material Icons
 import GroupOutlinedIcon from '@mui/icons-material/GroupOutlined';
-import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
@@ -23,6 +20,7 @@ export default function Admin() {
   const [alertsCount, setAlertsCount] = useState(0);
   const [productsCount, setProductsCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     async function loadAdminData() {
@@ -35,15 +33,22 @@ export default function Admin() {
 
         if (profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value.data)) {
           setAccounts(profilesRes.value.data);
+        } else {
+          setLoadError(true);
         }
         if (alertsRes.status === 'fulfilled' && Array.isArray(alertsRes.value.data)) {
           setAlertsCount(alertsRes.value.data.length);
+        } else {
+          setLoadError(true);
         }
         if (productsRes.status === 'fulfilled' && Array.isArray(productsRes.value.data)) {
-          setProductsCount(productsRes.value.data.length);
+          setProductsCount(productsRes.value.data.filter((product) => product.chain_status === 'confirmed').length);
+        } else {
+          setLoadError(true);
         }
       } catch (err) {
         console.error('Failed to load admin dashboard metrics:', err);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -52,17 +57,24 @@ export default function Admin() {
     loadAdminData();
   }, []);
 
-  // Format table rows matching reference "My Projects" table
+  // Display the real account and wallet state returned by the admin directory.
   const tableRows = accounts.slice(0, 6).map((acc) => {
+    const walletStatuses = {
+      active: ['Wallet active', 'green'],
+      pending_onchain: ['On-chain approval pending', 'amber'],
+      suspended: ['Wallet suspended', 'red'],
+      revoked: ['Wallet revoked', 'gray'],
+      unlinked: ['No wallet linked', 'gray'],
+    };
+    const [statusLabel, statusColor] = walletStatuses[acc.wallet_status] || ['Wallet status unavailable', 'gray'];
     return {
       id: acc.id || acc.username,
       icon: <BusinessRoundedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
       title: acc.name || acc.username,
-      commentCount: acc.account_role,
       assigneeName: acc.username,
       assigneeAvatar: null,
-      statusLabel: acc.wallet_status === 'linked' ? 'Wallet Linked' : 'Pending Wallet',
-      statusColor: acc.wallet_status === 'linked' ? 'green' : 'amber',
+      statusLabel,
+      statusColor,
       onClick: () => navigate('/manage-account'),
     };
   });
@@ -70,20 +82,20 @@ export default function Admin() {
   const adminMetrics = [
     {
       icon: <GroupOutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
-      value: `${accounts.length || 12}`,
-      label: 'Verified Partners',
+      value: loading ? '—' : `${accounts.length}`,
+      label: 'Business Accounts',
       onClick: () => navigate('/manage-account'),
     },
     {
       icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
-      value: `${productsCount || 148}`,
-      label: 'Chains Reconciled',
+      value: loading ? '—' : `${productsCount}`,
+      label: 'Confirmed Products',
       onClick: () => navigate('/admin/operations'),
     },
     {
       icon: <SecurityRoundedIcon sx={{ fontSize: 17, color: '#F59E0B' }} />,
-      value: `${alertsCount || 0}`,
-      label: 'Threat Alerts',
+      value: loading ? '—' : `${alertsCount}`,
+      label: 'Recent Scan Alerts',
       onClick: () => navigate('/admin/operations'),
     },
   ];
@@ -96,71 +108,25 @@ export default function Admin() {
         metrics={adminMetrics}
       />
 
-      {/* Primary Data Card (Matching "My Projects" Layout) */}
+      {loadError && (
+        <p className="dashboard-error" role="alert">
+          Some dashboard data could not be loaded. Open Operations or Accounts to retry the affected view.
+        </p>
+      )}
+
+      {/* Latest business accounts and their wallet states */}
       <PrimaryDataCard
-        title="Verified Business Accounts & Wallets"
+        title="Business accounts and wallets"
         titleIcon={<BusinessRoundedIcon className="card-title-icon" />}
-        filterLabel="All Partners"
         onSeeAllClick={() => navigate('/manage-account')}
         columns={[
           { label: 'Organization / Company', icon: <BusinessRoundedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Authorized Signer', icon: <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Custody State', icon: <SecurityRoundedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Account username', icon: <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Wallet status', icon: <SecurityRoundedIcon sx={{ fontSize: 16 }} /> },
         ]}
         rows={tableRows}
-        emptyMessage={loading ? 'Loading business directory...' : 'No accounts provisioned yet.'}
+        emptyMessage={loading ? 'Loading business directory...' : loadError ? 'Account data is temporarily unavailable.' : 'No business accounts yet.'}
       />
-
-      {/* Bottom Dual Grid (Schedule / Timeline & Notes / Tasks) */}
-      <div className="dashboard-grid-dual">
-        <ScheduleTimelineCard
-          title="Platform Security & Milestones"
-          events={[
-            {
-              title: 'Smart Contract Reconciler Cycle',
-              time: 'Running Every 60s',
-              color: 'green',
-              avatars: ['AD', 'OP'],
-            },
-            {
-              title: 'Scan Anomaly Geofence Audit',
-              time: 'Telemetry Engine Active',
-              color: 'blue',
-              avatars: ['SEC'],
-            },
-            {
-              title: 'Scheduled Key Rotation & Token Audit',
-              time: 'Automated Revocation Guard',
-              color: 'orange',
-              avatars: ['KEY'],
-            },
-          ]}
-        />
-
-        <NotesActionCard
-          title="Governance Checklist"
-          items={[
-            {
-              id: 1,
-              title: 'EIP-191 Wallet Cryptographic Verification',
-              description: 'All manufacturers must verify key ownership before registering physical inventory.',
-              completed: true,
-            },
-            {
-              id: 2,
-              title: 'Review Non-Canonical Serial Records',
-              description: 'Examine legacy products and trigger serial rekeys to the SS-UUID format.',
-              completed: false,
-            },
-            {
-              id: 3,
-              title: 'Monitor Public Verification Telemetry',
-              description: 'Audit consumer scan events for unusual scan frequency and counterfeit warnings.',
-              completed: false,
-            },
-          ]}
-        />
-      </div>
     </DashboardShell>
   );
 }

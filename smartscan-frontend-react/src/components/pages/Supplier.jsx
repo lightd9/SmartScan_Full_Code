@@ -1,153 +1,46 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import axios from '../../api/axios';
+import React from 'react';
 import useAuth from '../../hooks/useAuth';
 import { useScanner } from '../../context/ScannerContext';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
-import PrimaryDataCard from '../shell/PrimaryDataCard';
-import ScheduleTimelineCard from '../shell/ScheduleTimelineCard';
-import NotesActionCard from '../shell/NotesActionCard';
+import DashboardWorkflowCard from '../shell/DashboardWorkflowCard';
 
-// Material Icons
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
 import WarehouseOutlinedIcon from '@mui/icons-material/WarehouseOutlined';
-import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import QrCodeScannerOutlinedIcon from '@mui/icons-material/QrCodeScannerOutlined';
-import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
 
 export default function Supplier() {
   const { auth } = useAuth();
   const { openScanner } = useScanner();
-  const navigate = useNavigate();
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    async function loadSupplierData() {
-      try {
-        const res = await axios.get('/product/chain-status');
-        if (Array.isArray(res.data)) {
-          setProducts(res.data);
-        }
-      } catch (err) {
-        console.error('Failed to load supplier products:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadSupplierData();
-  }, []);
-
-  const tableRows = products.slice(0, 6).map((item) => ({
-    id: item.serialnumber,
-    icon: <QrCode2OutlinedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
-    title: `${item.name || 'Shipment Batch'} (${item.serialnumber.slice(0, 14)}...)`,
-    commentCount: 2,
-    linkCount: 1,
-    assigneeName: item.chain_actor || 'Logistics Fleet 4',
-    assigneeAvatar: null,
-    statusLabel: item.chain_status === 'confirmed' ? 'In Custody' : 'In Transit',
-    statusColor: item.chain_status === 'confirmed' ? 'green' : 'purple',
-    onClick: () => navigate('/update-product', { state: { qrData: item.serialnumber } }),
-  }));
-
-  const supplierMetrics = [
-    {
-      icon: <WarehouseOutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
-      value: `${products.length || 0}`,
-      label: 'Warehoused Cargo',
-    },
-    {
-      icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
-      value: `${products.filter(p => p.chain_status === 'confirmed').length || 0}`,
-      label: 'Deliveries Confirmed',
-    },
-    {
-      icon: <LocalShippingOutlinedIcon sx={{ fontSize: 17, color: '#9333EA' }} />,
-      value: `${products.filter(p => p.chain_status !== 'confirmed').length || 0}`,
-      label: 'Active Dispatches',
-    },
-  ];
 
   return (
     <DashboardShell>
-      {/* Personalized Greeting & Metric Strip */}
       <GreetingBanner
-        title={`Logistics Terminal, ${auth?.name || auth?.username || 'Supplier'}`}
-        metrics={supplierMetrics}
+        title={`Supplier operations, ${auth?.name || auth?.username || ''}`}
         actions={
-          <button
-            type="button"
-            className="btn-primary-action"
-            onClick={() => openScanner()}
-            title="Auto-detects Inbound Receipt or Outbound Dispatch based on blockchain state"
-          >
+          <button type="button" className="btn-primary-action" onClick={() => openScanner()}>
             <QrCodeScannerOutlinedIcon sx={{ fontSize: 18 }} />
-            <span>Smart Scan</span>
+            <span>Scan shipment</span>
           </button>
         }
       />
 
-      {/* Primary Data Card (Matching "My Projects" Layout) */}
-      <PrimaryDataCard
-        title="Active Supply Chain Consignments"
-        titleIcon={<LocalShippingOutlinedIcon className="card-title-icon" />}
-        filterLabel="In Transit"
-        columns={[
-          { label: 'Consignment / Serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Carrier / Warehouse Dock', icon: <WarehouseOutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Custody Status', icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 16 }} /> },
-        ]}
-        rows={tableRows}
-        emptyMessage={loading ? 'Loading cargo records...' : 'No active shipments found.'}
-      />
-
-      {/* Bottom Dual Grid */}
-      <div className="dashboard-grid-dual">
-        <ScheduleTimelineCard
-          title="Distribution & Transit Milestones"
-          events={[
-            {
-              title: 'Cross-Dock Transfer · Bay 14',
-              time: '11:00 AM · Courier Team A',
-              color: 'green',
-              avatars: ['LOG', 'DC'],
-            },
-            {
-              title: 'Retail Dispatch Staging',
-              time: '03:30 PM · Outbound Terminal',
-              color: 'blue',
-              avatars: ['STG'],
-            },
-          ]}
+      <section className="workflow-card-grid" aria-label="Supplier workflows">
+        <DashboardWorkflowCard
+          icon={<WarehouseOutlinedIcon />}
+          title="Receive a delivery"
+          description="Scan the product QR after physical receipt to review its provenance and record an eligible custody confirmation."
+          actionLabel="Scan delivery"
+          onAction={() => openScanner()}
         />
-
-        <NotesActionCard
-          title="Warehouse Receiving Checklist"
-          items={[
-            {
-              id: 1,
-              title: 'Barcode & QR Scanner Calibration',
-              description: 'Verify optical camera resolution for high-speed pallet processing.',
-              completed: true,
-            },
-            {
-              id: 2,
-              title: 'Blockchain Custody Sign-Off',
-              description: 'Always confirm delivery on-chain immediately upon physical offloading.',
-              completed: false,
-            },
-            {
-              id: 3,
-              title: 'Dispatch Into Registered Supply Chain',
-              description: 'No recipient wallet is needed at dispatch. The next registered supplier or retailer confirms receipt with its linked wallet.',
-              completed: false,
-            },
-          ]}
+        <DashboardWorkflowCard
+          icon={<LocalShippingOutlinedIcon />}
+          title="Dispatch a shipment"
+          description="Scan a product in your custody to review its current chain stage and available dispatch action."
+          actionLabel="Scan product"
+          onAction={() => openScanner()}
         />
-      </div>
+      </section>
     </DashboardShell>
   );
 }

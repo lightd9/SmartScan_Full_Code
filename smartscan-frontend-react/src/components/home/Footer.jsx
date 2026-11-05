@@ -3,6 +3,7 @@ import { Box, Container } from "@mui/system";
 import React from "react";
 import { Link } from "react-router-dom";
 import { useScanner } from "../../context/ScannerContext";
+import { BLOCK_EXPLORER_URL, CHAIN_NAME, CONTRACT_ADDRESS } from "../../config/contract";
 
 const footerLinkSx = {
   fontSize: "15px",
@@ -83,14 +84,16 @@ const Footer = () => {
           >
             <Typography sx={footerLinkSx}>GitHub Repository</Typography>
           </a>
-          <a
-            href="https://sepolia.etherscan.io/address/0xC4Dc9a66A669F88ac80eA6555796Fb576a388D96"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ textDecoration: 'none' }}
-          >
-            <Typography sx={footerLinkSx}>Sepolia Smart Contract</Typography>
-          </a>
+          {CONTRACT_ADDRESS && CONTRACT_ADDRESS !== '0x0000000000000000000000000000000000000000' && (
+            <a
+              href={`${BLOCK_EXPLORER_URL}/address/${CONTRACT_ADDRESS}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ textDecoration: 'none' }}
+            >
+              <Typography sx={footerLinkSx}>{CHAIN_NAME} smart contract</Typography>
+            </a>
+          )}
         </Box>
       </Container>
     </Box>

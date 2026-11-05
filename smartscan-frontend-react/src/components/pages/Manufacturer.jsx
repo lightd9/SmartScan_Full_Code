@@ -5,10 +5,7 @@ import useAuth from '../../hooks/useAuth';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import PrimaryDataCard from '../shell/PrimaryDataCard';
-import ScheduleTimelineCard from '../shell/ScheduleTimelineCard';
-import NotesActionCard from '../shell/NotesActionCard';
 
-// Material Icons
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
@@ -21,26 +18,25 @@ export default function Manufacturer() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    async function loadManufacturerData() {
-      try {
-        const res = await axios.get('/product/chain-status');
-        if (Array.isArray(res.data)) {
-          setProducts(res.data);
-        }
-      } catch (err) {
+    let active = true;
+    axios.get('/product/chain-status')
+      .then((res) => {
+        if (active && Array.isArray(res.data)) setProducts(res.data);
+      })
+      .catch((err) => {
         console.error('Failed to load manufacturer products:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadManufacturerData();
+        if (active) setLoadError(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
   }, []);
 
-  // Format table rows matching reference "My Projects" table
-  const tableRows = products.slice(0, 6).map((item) => {
+  const tableRows = products.map((item) => {
     const isConfirmed = item.chain_status === 'confirmed';
     const isNeedsRetry = item.chain_status === 'needs_retry';
     const isFailed = item.chain_status === 'failed';
@@ -49,139 +45,77 @@ export default function Manufacturer() {
     const statusLabel = isConfirmed
       ? 'Confirmed'
       : isFailed
-      ? 'Failed'
-      : isNeedsRetry
-      ? 'Needs Retry'
-      : isDraft
-      ? 'Draft'
-      : 'Submitted';
+        ? 'Failed'
+        : isNeedsRetry
+          ? 'Needs Retry'
+          : isDraft
+            ? 'Draft'
+            : 'Submitted';
 
     return {
       id: item.serialnumber,
       icon: <QrCode2OutlinedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
-      title: `${item.name || 'Product'} (${item.serialnumber.slice(0, 14)}...)`,
-      commentCount: item.chain_attempt || 1,
-      linkCount: 1,
-      assigneeName: item.chain_actor || auth?.name || 'Factory Line A',
-      assigneeAvatar: null,
+      title: `${item.name || 'Product'} (${String(item.serialnumber || '').slice(0, 14)}…)`,
+      assigneeName: item.chain_actor || '—',
       statusLabel,
       statusColor,
-      onClick: () => {
-        if (isConfirmed) {
-          navigate('/update-product', { state: { qrData: item.serialnumber } });
-        } else {
-          navigate('/add-product', { state: { resumeProduct: item } });
-        }
-      },
+      onClick: () => isConfirmed
+        ? navigate('/update-product', { state: { qrData: item.serialnumber } })
+        : navigate('/add-product', { state: { resumeProduct: item } }),
     };
   });
 
-  const confirmedCount = products.filter((p) => p.chain_status === 'confirmed').length;
-  const retryCount = products.filter((p) => p.chain_status === 'needs_retry' || p.chain_status === 'failed' || p.chain_status === 'pending_wallet').length;
-
+  const confirmedCount = products.filter((product) => product.chain_status === 'confirmed').length;
+  const retryCount = products.filter((product) => ['needs_retry', 'failed', 'pending_wallet'].includes(product.chain_status)).length;
+  const metricValue = (value) => loading ? '—' : String(value);
   const manufacturerMetrics = [
     {
       icon: <Inventory2OutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
-      value: `${products.length || 0}`,
-      label: 'Units Registered',
-      onClick: () => navigate('/add-product'),
+      value: metricValue(products.length),
+      label: 'Products listed',
     },
     {
       icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
-      value: `${confirmedCount || 0}`,
-      label: 'Chains Confirmed',
+      value: metricValue(confirmedCount),
+      label: 'Chain confirmed',
     },
     {
       icon: <HourglassEmptyRoundedIcon sx={{ fontSize: 17, color: retryCount > 0 ? '#DC2626' : '#8A92A6' }} />,
-      value: `${retryCount || 0}`,
-      label: 'Needs Review',
-      onClick: () => navigate('/add-product'),
+      value: metricValue(retryCount),
+      label: 'Needs attention',
     },
   ];
 
   return (
     <DashboardShell>
-      {/* Personalized Greeting & Metric Strip */}
       <GreetingBanner
-        title={`Production Hub, ${auth?.name || auth?.username || 'Manufacturer'}`}
+        title={`Products, ${auth?.name || auth?.username || 'Manufacturer'}`}
         metrics={manufacturerMetrics}
         actions={
-          <button
-            type="button"
-            className="btn-primary-action"
-            onClick={() => navigate('/add-product')}
-          >
+          <button type="button" className="btn-primary-action" onClick={() => navigate('/add-product')}>
             <AddRoundedIcon sx={{ fontSize: 18 }} />
-            <span>Mint Product</span>
+            <span>Register product</span>
           </button>
         }
       />
 
-      {/* Primary Data Card (Matching "My Projects" Layout) */}
+      {loadError && (
+        <p className="dashboard-error" role="alert">
+          Product records could not be loaded. Refresh the page or contact your administrator if the problem continues.
+        </p>
+      )}
+
       <PrimaryDataCard
-        title="Manufactured Inventory & Blockchain Ledger"
+        title="Product registration queue"
         titleIcon={<Inventory2OutlinedIcon className="card-title-icon" />}
-        filterLabel="Recent Batches"
-        onSeeAllClick={() => navigate('/add-product')}
         columns={[
-          { label: 'Product & Canonical ID', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Authorized Signer / Line', icon: <LocalShippingOutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Ledger State', icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Product and serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Registered actor', icon: <LocalShippingOutlinedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Chain status', icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 16 }} /> },
         ]}
         rows={tableRows}
-        emptyMessage={loading ? 'Loading registered products...' : 'No products minted yet. Click "+ Mint Product" above to create your first authentic item.'}
+        emptyMessage={loading ? 'Loading product records…' : loadError ? 'Product data is temporarily unavailable.' : 'No products registered yet. Register a product to start its provenance record.'}
       />
-
-      {/* Bottom Dual Grid (Schedule / Timeline & Notes / Tasks) */}
-      <div className="dashboard-grid-dual">
-        <ScheduleTimelineCard
-          title="Dispatch & Logistics Milestones"
-          events={[
-            {
-              title: 'Batch Dispatched to Primary Distributor',
-              time: '09:30 AM · Verified Signer',
-              color: 'green',
-              avatars: ['MF', 'QC'],
-            },
-            {
-              title: 'Packaging Label High-Res QR Generation',
-              time: '02:00 PM · Factory Gate 2',
-              color: 'blue',
-              avatars: ['PKG'],
-            },
-            {
-              title: 'Scheduled Reconciler Sync Window',
-              time: 'Continuous EVM Watchdog',
-              color: 'orange',
-              avatars: ['EVM'],
-            },
-          ]}
-        />
-
-        <NotesActionCard
-          title="Manufacturing Quality Gates"
-          items={[
-            {
-              id: 1,
-              title: 'Cryptographic Seed & Canonical ID Check',
-              description: 'Ensure each unit is assigned an immutable SS-UUID identifier prior to applying physical tamper seals.',
-              completed: true,
-            },
-            {
-              id: 2,
-              title: 'Physical Packaging QR Print Test',
-              description: 'Scan sample test prints on handheld cameras to ensure 100% optical readability and contract alignment.',
-              completed: true,
-            },
-            {
-              id: 3,
-              title: 'Dispatch Into Registered Supply Chain',
-              description: 'Record the outbound dispatch on-chain. An eligible registered supplier confirms receipt using its linked wallet.',
-              completed: false,
-            },
-          ]}
-        />
-      </div>
     </DashboardShell>
   );
 }

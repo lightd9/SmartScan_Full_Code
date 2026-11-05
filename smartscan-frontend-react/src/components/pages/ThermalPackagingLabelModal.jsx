@@ -4,6 +4,7 @@ import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import QRCode from 'qrcode.react';
 import dayjs from 'dayjs';
+import { CHAIN_NAME } from '../../config/contract';
 
 /**
  * Standard 4x6 inch (100mm x 150mm) Thermal Shipping & Packaging Label Modal
@@ -142,7 +143,7 @@ const ThermalPackagingLabelModal = ({
                                     SMARTSCAN™ VERIFIED
                                 </span>
                                 <span style={{ fontSize: '9.5px', fontWeight: 700, letterSpacing: '0.05em' }}>
-                                    ETHEREUM SEPOLIA PRODUCT PASSPORT
+                                    {CHAIN_NAME.toUpperCase()} PRODUCT PASSPORT
                                 </span>
                             </div>
                             <div style={{

@@ -3,8 +3,9 @@ pragma solidity ^0.8.17;
 
 import "hardhat/console.sol";
 
+/// @dev Deprecated prototype. It lacks the role and custody protections in IdenteefiV2; do not deploy it.
 contract Identeefi {
-    address public owner; 
+    address public owner;
 
     struct Product {
         string name;
@@ -17,7 +18,7 @@ contract Identeefi {
     }
 
     mapping(string => Product) products;
-    mapping(uint => ProductHistory) history;    
+    mapping(uint => ProductHistory) history;
 
     struct ProductHistory {
         uint id;
@@ -54,7 +55,7 @@ contract Identeefi {
         ProductHistory[] memory pHistory = new ProductHistory[](products[_serialNumber].historySize);
 
         for (uint i = 0; i < products[_serialNumber].historySize ; i++) {
-            pHistory[i] = products[_serialNumber].history[i+1];            
+            pHistory[i] = products[_serialNumber].history[i+1];
 
         }
 
@@ -62,4 +63,4 @@ contract Identeefi {
     }
 
 }
-    
+

@@ -10,7 +10,7 @@ import axios from '../../api/axios';
 import Geocode from "react-geocode";
 import dayjs from 'dayjs';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { CONTRACT_ADDRESS, CONTRACT_ABI, BLOCK_EXPLORER_URL, CHAIN_RPC_URL, ensureConfiguredNetwork } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, BLOCK_EXPLORER_URL, CHAIN_NAME, CHAIN_RPC_URL, ensureConfiguredNetwork } from '../../config/contract';
 import { formatScanWarning } from '../../api/scanEvents';
 import { formatContractError } from '../../utils/contractErrors';
 import { parseProductQr } from '../../api/productQr';
@@ -222,7 +222,7 @@ const UpdateProductDetails = () => {
                     desiredAction = 'mark_sold';
                 }
 
-                setStatusText(`⚡ Fast-signing ${desiredAction} on Sepolia via Facility Keystore...`);
+                setStatusText(`Fast-signing ${desiredAction} on ${CHAIN_NAME} via facility wallet...`);
                 try {
                     const execRes = await axios.post('/api/custody/auto-execute', {
                         serialNumber,
@@ -276,7 +276,7 @@ const UpdateProductDetails = () => {
                     throw new Error("No active wallet account found in MetaMask. Please connect an account.");
                 }
 
-                setStatusText("Verifying network (Sepolia)...");
+                setStatusText(`Verifying network (${CHAIN_NAME})...`);
                 await ensureConfiguredNetwork(ethereum);
 
                 const provider = new ethers.BrowserProvider(ethereum);
@@ -387,7 +387,7 @@ const UpdateProductDetails = () => {
             const { ethereum } = window;
             if (!ethereum) throw new Error("Install or enable a wallet to submit a recall.");
             await ethereum.request({ method: "eth_requestAccounts" });
-            setStatusText("Verifying network (Sepolia)...");
+            setStatusText(`Verifying network (${CHAIN_NAME})...`);
             await ensureConfiguredNetwork(ethereum);
             const signer = await new ethers.BrowserProvider(ethereum).getSigner();
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);

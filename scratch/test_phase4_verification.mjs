@@ -112,9 +112,9 @@ await test("012_facility_subaccounts.sql defines subaccounts and treasury tables
     assert(sql.includes("key_auth_tag"), "Missing key_auth_tag column");
 });
 
-await test("schema-readiness recognizes 012 as the latest migration", () => {
+await test("schema-readiness recognizes latest migration", () => {
     const readiness = require(path.resolve('smartscan-backend-node/schema-readiness.js'));
-    assert.strictEqual(readiness.latestMigrationName(), "012_facility_subaccounts.sql");
+    assert.strictEqual(readiness.latestMigrationName(), "013_pos_checkout_location_source.sql");
 });
 
 console.log("\n--- 4. Testing Backend Subaccount & Headless Execution APIs ---");
@@ -162,10 +162,10 @@ await test("App.js mounts /subaccounts route with lazy loading and RBAC", () => 
     assert(content.includes("path='/subaccounts'"), "Missing /subaccounts route");
 });
 
-await test("Sidebar.jsx exposes Facility Wallets navigation link", () => {
+await test("Sidebar.jsx exposes Facility Wallets navigation link for admin", () => {
     const content = fs.readFileSync(sidebarPath, 'utf8');
     assert(content.includes("to: '/subaccounts'"), "Missing /subaccounts link in sidebar");
-    assert(content.includes("Facility Wallets"), "Missing Facility Wallets label");
+    assert(content.toLowerCase().includes("facility wallets"), "Missing Facility wallets label");
 });
 
 await test("POSCheckoutPage.jsx integrates autonomous facility auto-signing", () => {

@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
 import QrScanner from '../QrScanner';
 import useAuth from '../../hooks/useAuth';
-import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_NAME, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
 import api from '../../api/axios';
 import { submitScanEvent } from '../../api/scanEvents';
 import { parseProductQr } from '../../api/productQr';
@@ -107,7 +107,7 @@ export default function ScannerModal({ open, onClose, initialCode = '' }) {
     }
 
     try {
-      setVerifyingStatus('Connecting to Ethereum Sepolia blockchain...');
+      setVerifyingStatus(`Connecting to ${CHAIN_NAME}...`);
       const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
       await assertConfiguredChain(provider);
 
@@ -174,7 +174,7 @@ export default function ScannerModal({ open, onClose, initialCode = '' }) {
     } catch (err) {
       console.error('Scan verification error:', err);
       setVerifying(false);
-      setScanError('Unable to reach Ethereum Sepolia. Please verify your connection and try again.');
+      setScanError(`Unable to reach ${CHAIN_NAME}. Check your connection and try again.`);
     }
   }, [verifying, recordScanTelemetry, onClose, navigate, auth?.role]);
 
@@ -231,7 +231,7 @@ export default function ScannerModal({ open, onClose, initialCode = '' }) {
           </div>
           <div className="scanner-title-text">
             <h3>Smart Custody & Verification Scanner</h3>
-            <p>Auto-detects Inbound Receipt, Outbound Dispatch, or POS Sale on Sepolia</p>
+            <p>Auto-detects inbound receipt, outbound dispatch, or POS sale on {CHAIN_NAME}</p>
           </div>
         </div>
         <IconButton

@@ -1,270 +1,73 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
-import { useScanner } from '../../context/ScannerContext';
 import './shell.css';
 
-// Material Icons
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
-import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
-import QrCodeScannerOutlinedIcon from '@mui/icons-material/QrCodeScannerOutlined';
 import SecurityOutlinedIcon from '@mui/icons-material/SecurityOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
-import HelpOutlineOutlinedIcon from '@mui/icons-material/HelpOutlineOutlined';
-import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
-import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
-import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
-import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import PointOfSaleOutlinedIcon from '@mui/icons-material/PointOfSaleOutlined';
+import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen = false, onClose = () => {}, navigationRef }) {
   const { auth, logout } = useAuth();
-  const { openScanner } = useScanner();
   const navigate = useNavigate();
-  const role = auth?.role || 'admin';
+  const role = auth?.role || '';
+  const dashboardPath = role ? '/' + role : '/login';
+  const items = [
+    { to: dashboardPath, label: 'Dashboard', icon: <DashboardOutlinedIcon className="nav-icon" />, end: true },
+  ];
 
-  const handleLogout = () => {
+  if (role === 'admin') {
+    items.push(
+      { to: '/manage-account', label: 'Accounts', icon: <ManageAccountsOutlinedIcon className="nav-icon" /> },
+      { to: '/admin/operations', label: 'Operations', icon: <SecurityOutlinedIcon className="nav-icon" /> },
+      { to: '/subaccounts', label: 'Facility wallets', icon: <AccountTreeOutlinedIcon className="nav-icon" /> },
+      { to: '/add-account', label: 'New account', icon: <AddCircleOutlineOutlinedIcon className="nav-icon" /> },
+      { to: '/pos', label: 'POS register', icon: <PointOfSaleOutlinedIcon className="nav-icon" /> },
+    );
+  } else if (role === 'manufacturer') {
+    items.push({ to: '/add-product', label: 'Register product', icon: <AddCircleOutlineOutlinedIcon className="nav-icon" /> });
+  } else if (role === 'retailer') {
+    items.push({ to: '/pos', label: 'POS register', icon: <PointOfSaleOutlinedIcon className="nav-icon" /> });
+  }
+
+  items.push({ to: '/profile', label: 'Profile and security', icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" /> });
+
+  const signOut = () => {
+    onClose();
     logout();
     navigate('/login', { replace: true });
   };
 
-  // Build role-specific navigation items
-  const getNavItems = () => {
-    const baseItems = [
-      {
-        to: `/${role}`,
-        label: 'Dashboard',
-        icon: <DashboardOutlinedIcon className="nav-icon" />,
-      },
-    ];
-
-    if (role === 'admin') {
-      baseItems.push(
-        {
-          to: '/manage-account',
-          label: 'Accounts',
-          icon: <ManageAccountsOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/admin/operations',
-          label: 'Operations',
-          icon: <SecurityOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/subaccounts',
-          label: 'Facility Wallets',
-          icon: <AccountTreeOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/add-account',
-          label: 'New Account',
-          icon: <AddCircleOutlineOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/pos',
-          label: 'POS Register',
-          icon: <PointOfSaleOutlinedIcon className="nav-icon" />,
-        },
-        {
-          onClick: () => openScanner(),
-          label: 'Smart Scanner',
-          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        }
-      );
-    } else if (role === 'manufacturer') {
-      baseItems.push(
-        {
-          to: '/add-product',
-          label: 'Mint Product',
-          icon: <AddCircleOutlineOutlinedIcon className="nav-icon" />,
-        },
-        {
-          onClick: () => openScanner(),
-          label: 'Smart Scanner',
-          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        }
-      );
-    } else if (role === 'supplier') {
-      baseItems.push(
-        {
-          onClick: () => openScanner(),
-          label: 'Smart Scanner',
-          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        }
-      );
-    } else if (role === 'retailer') {
-      baseItems.push(
-        {
-          to: '/pos',
-          label: 'POS Register',
-          icon: <PointOfSaleOutlinedIcon className="nav-icon" />,
-        },
-        {
-          onClick: () => openScanner(),
-          label: 'Smart Scanner',
-          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        }
-      );
-    }
-
-    baseItems.push(
-      {
-        to: '/profile',
-        label: 'Profile & Security',
-        icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" />,
-      }
-    );
-
-    return baseItems;
-  };
-
-  // Sub-group items based on role
-  const getSubCollections = () => {
-    if (role === 'admin') {
-      return [
-        { label: 'Scan Telemetry', color: 'pink', to: '/admin/operations' },
-        { label: 'Chain Reconciler', color: 'green', to: '/admin/operations' },
-        { label: 'Wallet Registry', color: 'blue', to: '/manage-account' },
-      ];
-    }
-    if (role === 'manufacturer') {
-      return [
-        { label: 'Batch Staging', color: 'pink', to: '/add-product' },
-        { label: 'Confirmed Chains', color: 'green', to: `/${role}` },
-        { label: 'Recoverable Queue', color: 'purple', to: '/add-product' },
-      ];
-    }
-    if (role === 'supplier') {
-      return [
-        { label: 'Warehouse Docks', color: 'pink', to: `/${role}` },
-        { label: 'Cargo Ledger', color: 'green', to: `/${role}` },
-      ];
-    }
-    return [
-      { label: 'Store Inventory', color: 'pink', to: `/${role}` },
-      { label: 'Sold Ledger', color: 'green', to: `/${role}` },
-      { label: 'Facility Logs', color: 'purple', to: '/subaccounts' },
-    ];
-  };
-
-  const navItems = getNavItems();
-  const subCollections = getSubCollections();
-
   return (
-    <aside className="app-sidebar" aria-label="Main Navigation">
+    <aside ref={navigationRef} id="primary-navigation" className={'app-sidebar' + (isOpen ? ' is-open' : '')} aria-label="Main navigation">
       <div>
-        {/* Brand Logo in refined serif typography */}
         <div className="sidebar-header">
-          <NavLink to={`/${role}`} className="sidebar-logo">
-            SmartScan
-          </NavLink>
+          <NavLink to={dashboardPath} className="sidebar-logo" onClick={onClose}>SmartScan</NavLink>
         </div>
-
-        {/* Primary Navigation Group with Active Electric Blue Pill */}
         <nav className="sidebar-nav-group">
-          {navItems.map((item, index) => {
-            if (item.onClick) {
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={item.onClick}
-                  className="sidebar-nav-item"
-                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', font: 'inherit' }}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              );
-            }
-            return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === `/${role}`}
-                className={({ isActive }) =>
-                  `sidebar-nav-item ${isActive ? 'active' : ''}`
-                }
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </NavLink>
-            );
-          })}
+          {items.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              onClick={onClose}
+              className={({ isActive }) => 'sidebar-nav-item' + (isActive ? ' active' : '')}
+            >
+              {item.icon}<span>{item.label}</span>
+            </NavLink>
+          ))}
         </nav>
-
-        {/* Sub-groups (Projects / Channels with Colored Dots) */}
-        <div className="sidebar-section-title">
-          <span>Channels</span>
-          <button
-            type="button"
-            className="sidebar-add-btn"
-            title="Quick Action"
-            onClick={() => role === 'manufacturer' ? navigate('/add-product') : role === 'admin' ? navigate('/add-account') : openScanner()}
-          >
-            <AddOutlinedIcon sx={{ fontSize: 16 }} />
-          </button>
-        </div>
-
-        <div className="sidebar-nav-group">
-          {subCollections.map((sub, index) => {
-            if (sub.onClick) {
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  onClick={sub.onClick}
-                  className="sidebar-sub-item"
-                  style={{ width: '100%', border: 'none', background: 'transparent', textAlign: 'left', cursor: 'pointer', font: 'inherit' }}
-                >
-                  <span className={`color-dot ${sub.color}`}></span>
-                  <span>{sub.label}</span>
-                </button>
-              );
-            }
-            return (
-              <NavLink key={index} to={sub.to} className="sidebar-sub-item">
-                <span className={`color-dot ${sub.color}`}></span>
-                <span>{sub.label}</span>
-              </NavLink>
-            );
-          })}
-        </div>
       </div>
 
-      {/* Pinned Bottom Utilities */}
       <div className="sidebar-footer">
-        <NavLink
-          to="/profile"
-          className={({ isActive }) =>
-            `sidebar-nav-item ${isActive ? 'active' : ''}`
-          }
-        >
-          <SettingsOutlinedIcon className="nav-icon" />
-          <span>Settings</span>
-        </NavLink>
-
-        <a
-          href="https://github.com/lightd9/SmartScan_Full_Code"
-          target="_blank"
-          rel="noreferrer"
-          className="sidebar-nav-item"
-        >
-          <HelpOutlineOutlinedIcon className="nav-icon" />
-          <span>Support & Docs</span>
-          <span className="badge-counter">Live</span>
-        </a>
-
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="sidebar-nav-item"
-          style={{ background: 'none', border: 'none', width: '100%', cursor: 'pointer', textAlign: 'left' }}
-        >
+        <button type="button" onClick={signOut} className="sidebar-nav-item sidebar-logout">
           <LogoutOutlinedIcon className="nav-icon" />
-          <span>Sign Out</span>
+          <span>Sign out</span>
         </button>
       </div>
     </aside>

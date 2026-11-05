@@ -42,7 +42,7 @@ import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import useAuth from '../../hooks/useAuth';
 import api from '../../api/axios';
-import { CONTRACT_ADDRESS } from '../../config/contract';
+import { BLOCK_EXPLORER_URL, CHAIN_ID, CHAIN_NAME, CONTRACT_ADDRESS } from '../../config/contract';
 
 const ROLE_COLORS = {
   manufacturer: { bg: 'rgba(59, 130, 246, 0.12)', border: '#3b82f6', text: '#2563eb' },
@@ -277,7 +277,7 @@ export default function SubaccountsPage() {
                   />
                 </Box>
                 <Typography variant="caption" sx={{ color: '#94a3b8' }}>
-                  Automated on-chain gas faucet replenishes approved subaccounts on Sepolia (Chain ID: 11155111)
+                  Automated on-chain gas funding for approved subaccounts on {CHAIN_NAME} (Chain ID: {CHAIN_ID})
                 </Typography>
               </Box>
             </Box>
@@ -525,7 +525,7 @@ export default function SubaccountsPage() {
                               <IconButton
                                 size="small"
                                 component="a"
-                                href={`https://sepolia.etherscan.io/address/${sub.wallet_address}`}
+                                href={`${BLOCK_EXPLORER_URL}/address/${sub.wallet_address}`}
                                 target="_blank"
                                 rel="noreferrer"
                               >
@@ -554,7 +554,7 @@ export default function SubaccountsPage() {
                         <Grid item xs={6}>
                           <Box sx={{ p: 1.2, borderRadius: 2, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                             <Typography variant="caption" sx={{ color: '#64748b', display: 'block' }}>
-                              Sepolia Gas
+                              {CHAIN_NAME} gas
                             </Typography>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
                               <LocalGasStationRoundedIcon

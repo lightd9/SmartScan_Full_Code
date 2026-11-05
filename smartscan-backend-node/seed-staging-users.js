@@ -53,7 +53,7 @@ const SEED_USERS = [
     profile: {
       name: 'System Administrator',
       description: 'Default administrator account for SmartScan Anti-Counterfeit Platform',
-      website: 'https://smart-scan-ten.vercel.app',
+      website: 'https://example.com',
       location: 'Kuala Lumpur, Malaysia',
       image: null
     }

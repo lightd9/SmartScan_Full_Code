@@ -16,6 +16,7 @@ import KeyOutlinedIcon from '@mui/icons-material/KeyOutlined';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
+import { BLOCK_EXPLORER_URL, CHAIN_NAME } from '../../config/contract';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
 
 export default function Profile() {
@@ -237,14 +238,14 @@ export default function Profile() {
                   </button>
 
                   <a
-                    href={`https://sepolia.etherscan.io/address/${walletAddress}`}
+                    href={`${BLOCK_EXPLORER_URL}/address/${walletAddress}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="btn-secondary-action"
                     style={{ padding: '4px 10px', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: 4, textDecoration: 'none' }}
                   >
                     <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />
-                    <span>View on Etherscan</span>
+                    <span>View on {CHAIN_NAME} explorer</span>
                   </a>
                 </div>
               )}

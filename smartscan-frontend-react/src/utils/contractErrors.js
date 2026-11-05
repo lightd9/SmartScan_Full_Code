@@ -49,7 +49,7 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
     errorCode === 'INSUFFICIENT_FUNDS' ||
     combinedMessage.toLowerCase().includes('insufficient funds')
   ) {
-    return 'Insufficient Sepolia ETH in your wallet to cover network gas fees.';
+    return `Insufficient ${NATIVE_CURRENCY_SYMBOL} in your wallet to cover network gas fees.`;
   }
 
   // 5. Network, chain switch error or BAD_DATA (contract returns 0x because wallet is on wrong chain)
@@ -60,7 +60,7 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
     combinedMessage.toLowerCase().includes('could not decode result data') ||
     combinedMessage.toLowerCase().includes('value="0x"')
   ) {
-    return 'Please switch your wallet to Sepolia Test Network (Chain ID 11155111).';
+    return `Please switch your wallet to ${CHAIN_NAME} (Chain ID ${CHAIN_ID}).`;
   }
 
   // 6. Extract raw revert reason from ethers error properties
@@ -188,3 +188,4 @@ export function formatContractError(error, defaultFallback = 'Blockchain transac
 
   return defaultFallback;
 }
+import { CHAIN_ID, CHAIN_NAME, NATIVE_CURRENCY_SYMBOL } from '../config/contract';

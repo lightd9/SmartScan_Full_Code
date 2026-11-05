@@ -5,7 +5,7 @@ import useAuth from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
 import dayjs from 'dayjs';
-import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_NAME, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
 import api from '../../api/axios';
 import { submitScanEvent } from '../../api/scanEvents';
 import { parseProductQr } from '../../api/productQr';
@@ -58,7 +58,7 @@ const ScannerPage = () => {
         if (!trimmed || verifying) return;
 
         setVerifying(true);
-        setStatus('Verifying product on Ethereum Sepolia...');
+        setStatus(`Verifying product on ${CHAIN_NAME}...`);
 
         let formattedQr = trimmed;
         if (/^SS-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
@@ -173,7 +173,7 @@ const ScannerPage = () => {
             return;
         }
 
-        // Verify and fetch product details from Sepolia RPC
+        // Verify and fetch product details from the configured chain RPC.
         try {
             const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
             const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
@@ -274,7 +274,7 @@ const ScannerPage = () => {
     const handleBatchAutoExecute = async () => {
         if (!batchQueue.length || batchExecuting) return;
         setBatchExecuting(true);
-        setBatchNotice({ type: 'info', message: '⚡ Fast-signing batch on Ethereum Sepolia via Facility Keystore...' });
+        setBatchNotice({ type: 'info', message: `Fast-signing batch on ${CHAIN_NAME} via facility wallet...` });
 
         let completed = 0;
         let failed = 0;
@@ -372,7 +372,7 @@ const ScannerPage = () => {
                                 Smart Custody & Verification Scanner
                             </Typography>
                             <Typography variant="caption" sx={{ color: '#6B7280', fontWeight: 500 }}>
-                                Auto-detects Inbound Receipt, Outbound Dispatch, or Retail Sale on Sepolia
+                                Auto-detects inbound receipt, outbound dispatch, or retail sale on {CHAIN_NAME}
                             </Typography>
                         </Box>
                     </Box>
@@ -492,7 +492,7 @@ const ScannerPage = () => {
                         {verifying && (
                             <div className="scanner-verifying-overlay">
                                 <CircularProgress size={44} sx={{ color: '#38BDF8' }} thickness={4} />
-                                <span className="scanner-verifying-text">Verifying with Ethereum Sepolia...</span>
+                                <span className="scanner-verifying-text">Verifying with {CHAIN_NAME}...</span>
                                 <span className="scanner-verifying-subtext">Validating anti-counterfeit cryptographic proof</span>
                             </div>
                         )}

@@ -16,7 +16,7 @@ import dayjs from 'dayjs';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, assertConfiguredChain } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, CHAIN_ID, CHAIN_NAME, assertConfiguredChain } from '../../config/contract';
 import { getApiUrl } from '../../api/axios';
 import { formatScanWarning } from '../../api/scanEvents';
 import { getRegisteredProduct, parseHistoryTimestamp, parseProductQr } from '../../api/productQr';
@@ -218,8 +218,8 @@ const Product = () => {
 
                     <Typography variant="body2" sx={{ color: '#64748B', mb: 3, lineHeight: 1.6 }}>
                         {loadError
-                            ? 'The scanned product identity could not be verified on the official Ethereum Sepolia contract.'
-                            : 'Authenticating digital passport on Ethereum Sepolia (Chain ID: 11155111)...'}
+                            ? 'The scanned product identity could not be verified on the configured product contract.'
+                            : `Authenticating digital passport on ${CHAIN_NAME} (Chain ID: ${CHAIN_ID})…`}
                     </Typography>
 
                     {scanWarnings.map((warning) => (

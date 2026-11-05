@@ -6,6 +6,7 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import QRCode from 'qrcode.react';
 import dayjs from 'dayjs';
 import { useState } from 'react';
+import { CHAIN_NAME } from '../../config/contract';
 
 /**
  * 80mm (3-Inch) Thermal POS Customer Warranty Receipt Modal
@@ -29,7 +30,7 @@ const POSCustomerReceiptModal = ({
     const registerId = receiptData?.registerId || 'REG-01';
     const cashierName = receiptData?.cashierName || 'Cashier';
     const formattedDate = dayjs(receiptData?.timestamp || undefined).format('MMM D, YYYY · h:mm:ss A');
-    const verificationUrl = receiptData?.verificationUrl || `https://smart-scan-ten.vercel.app/verify/${serialNumber}`;
+    const verificationUrl = receiptData?.verificationUrl || `${window.location.origin}/verify/${encodeURIComponent(serialNumber)}`;
 
     const handlePrint = () => {
         window.print();
@@ -213,9 +214,9 @@ const POSCustomerReceiptModal = ({
                         lineHeight: 1.3,
                     }}>
                         <div><strong>OFFICIAL WARRANTY CERTIFICATE</strong></div>
-                        <div>Non-repudiable origin recorded on Ethereum Sepolia. This receipt proves genuine manufacturer authenticity.</div>
+                        <div>Origin recorded on ${CHAIN_NAME}. Check the product passport before relying on this receipt.</div>
                         <div style={{ marginTop: '4px', fontSize: '8px', color: '#64748B' }}>
-                            smart-scan-ten.vercel.app
+                            {window.location.host}
                         </div>
                     </div>
                 </div>

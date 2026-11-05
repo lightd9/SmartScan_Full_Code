@@ -34,7 +34,7 @@ import DashboardShell from '../shell/DashboardShell';
 import useAuth from '../../hooks/useAuth';
 import QrScanner from '../QrScanner';
 import POSCustomerReceiptModal from './POSCustomerReceiptModal';
-import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, CHAIN_ID_HEX } from '../../config/contract';
+import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_RPC_URL, CHAIN_ID, CHAIN_NAME, ensureConfiguredNetwork } from '../../config/contract';
 import api from '../../api/axios';
 import { parseProductQr } from '../../api/productQr';
 import { autoDetectLocation } from '../../utils/locationResolver';
@@ -211,7 +211,7 @@ export default function POSCheckoutPage() {
             let status = 'AUTHENTIC_READY_FOR_SALE';
             let canSell = true;
             let alertTitle = 'AUTHENTIC PRODUCT — READY FOR SALE';
-            let alertMessage = 'Authentic digital passport verified on Ethereum Sepolia. Physical custody confirmed.';
+            let alertMessage = `Authentic digital passport verified on ${CHAIN_NAME}. Physical custody confirmed.`;
 
             if (isRecalled) {
                 status = 'RECALLED';
@@ -334,18 +334,7 @@ export default function POSCheckoutPage() {
                 const browserProvider = new ethers.BrowserProvider(window.ethereum);
                 const signer = await browserProvider.getSigner();
 
-                // Switch chain if necessary
-                const network = await browserProvider.getNetwork();
-                if (network.chainId !== 11155111n) {
-                    try {
-                        await window.ethereum.request({
-                            method: 'wallet_switchEthereumChain',
-                            params: [{ chainId: CHAIN_ID_HEX }],
-                        });
-                    } catch (_switchErr) {
-                        // ignore if user rejects switch
-                    }
-                }
+                await ensureConfiguredNetwork(window.ethereum);
 
                 const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
                 const timestampSec = Math.floor(Date.now() / 1000).toString();
@@ -360,6 +349,8 @@ export default function POSCheckoutPage() {
 
                 setPosNotice({ type: 'info', message: `Transaction submitted (${tx.hash.slice(0, 10)}...). Finalizing passport...` });
                 await tx.wait();
+            } else {
+                throw new Error('Connect a wallet or use an approved facility wallet to record this sale.');
             }
 
             // Update local state to SOLD
@@ -376,13 +367,11 @@ export default function POSCheckoutPage() {
             setActiveReceipt(updated);
             setReceiptModalOpen(true);
             playPOSChime('success');
-            setPosNotice({ type: 'success', message: 'Sale finalized! Product passport permanently sealed on Ethereum Sepolia.' });
+            setPosNotice({ type: 'success', message: `Sale finalized! Product passport permanently recorded on ${CHAIN_NAME}.` });
         } catch (err) {
             console.error('Sale finalization error:', err);
-            // Fallback: If wallet not connected or user is in demo POS mode, still issue receipt
-            setActiveReceipt(currentResult);
-            setReceiptModalOpen(true);
-            setPosNotice({ type: 'warning', message: 'Blockchain write bypassed: Generated offline customer warranty receipt.' });
+            playPOSChime('error');
+            setPosNotice({ type: 'error', message: err.message || 'Sale was not recorded. No receipt was issued.' });
         } finally {
             setFinalizingSale(false);
         }
@@ -424,7 +413,7 @@ export default function POSCheckoutPage() {
                                 <span>•</span>
                                 <span>Cashier: <strong>{auth?.username || 'Store Staff'}</strong></span>
                                 <span>•</span>
-                                <span style={{ color: '#059669', fontWeight: 700 }}>● Sepolia Blockchain Active (11155111)</span>
+                                <span style={{ color: '#059669', fontWeight: 700 }}>● {CHAIN_NAME} active ({CHAIN_ID})</span>
                             </Typography>
                         </div>
                     </Box>
@@ -679,18 +668,20 @@ export default function POSCheckoutPage() {
                             )}
 
                             <Box sx={{ display: 'flex', gap: 1 }}>
-                                <Button
-                                    size="small"
-                                    variant="outlined"
-                                    startIcon={<ReceiptLongRoundedIcon />}
-                                    onClick={() => {
-                                        setActiveReceipt(currentResult);
-                                        setReceiptModalOpen(true);
-                                    }}
-                                    sx={{ textTransform: 'none', borderRadius: '8px', fontSize: '11.5px', fontWeight: 600 }}
-                                >
-                                    View Receipt
-                                </Button>
+                                {currentResult.status === 'SOLD_FINALIZED' && (
+                                    <Button
+                                        size="small"
+                                        variant="outlined"
+                                        startIcon={<ReceiptLongRoundedIcon />}
+                                        onClick={() => {
+                                            setActiveReceipt(currentResult);
+                                            setReceiptModalOpen(true);
+                                        }}
+                                        sx={{ textTransform: 'none', borderRadius: '8px', fontSize: '11.5px', fontWeight: 600 }}
+                                    >
+                                        View Receipt
+                                    </Button>
+                                )}
                                 <Button
                                     size="small"
                                     variant="text"
@@ -718,7 +709,7 @@ export default function POSCheckoutPage() {
             >
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0F172A' }}>
-                        Register Shift Activity Log ({shiftLog.length} Scans)
+                        Current Session Scans ({shiftLog.length})
                     </Typography>
                     {shiftLog.length > 0 && (
                         <Button

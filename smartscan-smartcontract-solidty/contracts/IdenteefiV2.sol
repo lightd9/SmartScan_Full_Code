@@ -128,12 +128,8 @@ contract IdenteefiV2 {
     }
 
     function _callerWallet() internal view returns (address) {
-        if (roles[msg.sender] != Role.None) {
-            return msg.sender;
-        }
-        if (tx.origin != address(0) && roles[tx.origin] != Role.None) {
-            return tx.origin;
-        }
+        // Authorization must use the immediate caller. tx.origin would let an
+        // intermediary contract inherit the role of the wallet that called it.
         return msg.sender;
     }
 

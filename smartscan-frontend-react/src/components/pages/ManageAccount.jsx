@@ -7,6 +7,7 @@ import axios from '../../api/axios';
 import { DataGrid } from '@mui/x-data-grid';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
+import { BLOCK_EXPLORER_URL, CHAIN_NAME, NATIVE_CURRENCY_SYMBOL } from '../../config/contract';
 
 // Material Icons
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
@@ -83,20 +84,29 @@ const columns = [
     {
         field: 'wallet_status',
         headerName: 'Wallet Status',
-        width: 140,
+        width: 170,
         renderCell: (params) => {
             const status = (params.value || 'unlinked').toLowerCase();
             const isActive = status === 'active' || status === 'linked';
+            const isProblem = ['suspended', 'revoked'].includes(status);
+            const statusLabels = {
+                active: 'Active',
+                linked: 'Linked',
+                pending_onchain: 'Approval pending',
+                suspended: 'Suspended',
+                revoked: 'Revoked',
+                unlinked: 'Not linked',
+            };
             return (
                 <Chip
-                    label={isActive ? 'ACTIVE' : status.toUpperCase()}
+                    label={statusLabels[status] || 'Unavailable'}
                     size="small"
                     sx={{
                         fontWeight: 700,
                         fontSize: '0.7rem',
-                        backgroundColor: isActive ? '#ECFDF5' : '#FFFBEB',
-                        color: isActive ? '#059669' : '#D97706',
-                        border: isActive ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                        backgroundColor: isActive ? '#ECFDF5' : isProblem ? '#FEF2F2' : status === 'pending_onchain' ? '#FFFBEB' : '#F3F4F6',
+                        color: isActive ? '#059669' : isProblem ? '#B91C1C' : status === 'pending_onchain' ? '#B45309' : '#4B5563',
+                        border: isActive ? '1px solid #A7F3D0' : isProblem ? '1px solid #FECACA' : status === 'pending_onchain' ? '1px solid #FDE68A' : '1px solid #E5E7EB',
                         borderRadius: '6px',
                     }}
                 />
@@ -105,7 +115,7 @@ const columns = [
     },
     {
         field: 'wallet_address',
-        headerName: 'Assigned Facility Wallet',
+        headerName: 'Linked Wallet Address',
         flex: 1.5,
         minWidth: 260,
         renderCell: (params) => {
@@ -131,11 +141,11 @@ const columns = [
                             <ContentCopyRoundedIcon sx={{ fontSize: 14, color: '#64748B' }} />
                         </IconButton>
                     </Tooltip>
-                    <Tooltip title="View on Etherscan">
+                        <Tooltip title={`View on ${CHAIN_NAME} explorer`}>
                         <IconButton
                             size="small"
                             component="a"
-                            href={`https://sepolia.etherscan.io/address/${addr}`}
+                            href={`${BLOCK_EXPLORER_URL}/address/${addr}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
@@ -154,9 +164,9 @@ const columns = [
 
 const ManageAccount = () => {
     const [rows, setRows] = useState([]);
-    const [selected, setSelected] = useState(null);
     const [loading, setLoading] = useState(true);
     const [treasuryStatus, setTreasuryStatus] = useState(null);
+    const [loadError, setLoadError] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -165,21 +175,33 @@ const ManageAccount = () => {
 
     const loadData = async () => {
         setLoading(true);
+        setLoadError(false);
         try {
             const [profilesRes, treasuryRes] = await Promise.all([
                 axios.get('/profileAll'),
-                axios.get('/subaccounts/treasury-status').catch(() => ({ data: null })),
+                axios.get('/api/subaccounts/treasury-status').catch(() => ({ data: null })),
             ]);
             setRows(profilesRes.data || []);
             setTreasuryStatus(treasuryRes?.data || null);
         } catch (err) {
             console.error('Failed to load accounts directory:', err);
+            setLoadError(true);
         } finally {
             setLoading(false);
         }
     };
 
     const activeWalletsCount = rows.filter(r => r.wallet_address && (r.wallet_status === 'active' || r.wallet_status === 'linked')).length;
+    const treasuryBalance = Number(treasuryStatus?.balanceEth);
+    const treasuryValue = loading
+        ? 'Loading…'
+        : !treasuryStatus
+            ? 'Unavailable'
+            : !treasuryStatus.configured
+                ? 'Not configured'
+                : treasuryStatus.error || !Number.isFinite(treasuryBalance)
+                    ? 'Unavailable'
+                    : `${treasuryBalance.toFixed(3)} ${NATIVE_CURRENCY_SYMBOL}`;
 
     return (
         <DashboardShell>
@@ -189,21 +211,27 @@ const ManageAccount = () => {
                 metrics={[
                     {
                         icon: <BusinessRoundedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
-                        value: `${rows.length}`,
+                        value: loading ? 'Loading…' : `${rows.length}`,
                         label: 'Partner Accounts',
                     },
                     {
                         icon: <CheckCircleRoundedIcon sx={{ fontSize: 18, color: '#10B981' }} />,
-                        value: `${activeWalletsCount}`,
+                        value: loading ? 'Loading…' : `${activeWalletsCount}`,
                         label: 'Active Wallets',
                     },
                     {
                         icon: <LocalGasStationRoundedIcon sx={{ fontSize: 18, color: '#9333EA' }} />,
-                        value: treasuryStatus?.balanceEth ? `${parseFloat(treasuryStatus.balanceEth).toFixed(3)} ETH` : '0.378 ETH',
+                        value: treasuryValue,
                         label: 'Gas Treasury Pool',
                     },
                 ]}
             />
+
+            {loadError && (
+                <p className="dashboard-error" role="alert">
+                    Account data could not be refreshed. <button type="button" className="inline-retry-button" onClick={loadData}>Try again</button>
+                </p>
+            )}
 
             {/* Master Account Directory Table Card */}
             <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -213,7 +241,7 @@ const ManageAccount = () => {
                             Registered Business Directory
                         </h2>
                         <span style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
-                            All accounts are provisioned with automated enterprise subaccount wallets, AES-256-GCM keystores, and on-chain roles.
+                            Review account roles, wallet links, and on-chain approval status.
                         </span>
                     </div>
 
@@ -240,15 +268,15 @@ const ManageAccount = () => {
                     </div>
                 </div>
 
-                <div style={{ height: 440, width: '100%', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                <div style={{ height: 440, width: '100%', borderRadius: 12, overflow: 'auto', border: '1px solid var(--color-border)' }}>
                     <DataGrid
                         rows={rows}
                         columns={columns}
                         rowHeight={56}
+                        disableRowSelectionOnClick
                         pageSize={5}
                         rowsPerPageOptions={[5, 10, 25]}
                         loading={loading}
-                        onRowClick={(params) => setSelected(params.row)}
                         sx={{
                             border: 'none',
                             '& .MuiDataGrid-columnHeaders': {
@@ -285,7 +313,7 @@ const ManageAccount = () => {
                         </h3>
                     </div>
                     <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                        Users never need to install third-party wallet extensions or manage private keys. Each enterprise partner operates through dedicated encrypted facility subaccounts with automated Sepolia gas disbursement and headless on-chain execution.
+                        Users never need to install third-party wallet extensions or manage private keys. Each enterprise partner operates through dedicated encrypted facility subaccounts with automated {CHAIN_NAME} gas disbursement and on-chain execution.
                     </p>
                 </div>
 

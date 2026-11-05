@@ -14,6 +14,12 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: OPERATIONAL_VAULT_SECRET
+        sync: false
+      - key: TREASURY_FAUCET_PRIVATE_KEY
+        sync: false
+      - key: CONTRACT_OWNER_PRIVATE_KEY
+        sync: false
       - key: JWT_EXPIRES_IN
         value: 12h
       - key: CHAIN_RPC_URL

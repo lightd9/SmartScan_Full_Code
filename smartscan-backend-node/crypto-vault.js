@@ -3,13 +3,41 @@ const { ethers } = require('ethers');
 
 const ALGORITHM = 'aes-256-gcm';
 
-/**
- * Derives a 32-byte binary key from environment variables.
- * Uses OPERATIONAL_VAULT_SECRET if provided; otherwise derives deterministically from JWT_SECRET.
- */
-function getMasterKey() {
-  const secret = process.env.OPERATIONAL_VAULT_SECRET || process.env.JWT_SECRET || 'smartscan-default-secure-vault-key-32bytes!';
+function deriveMasterKey(secret) {
   return crypto.createHash('sha256').update(String(secret)).digest();
+}
+
+function getMasterKeyForVersion(keyVersion) {
+  if (keyVersion === 2) {
+    const secret = process.env.OPERATIONAL_VAULT_SECRET;
+    if (!secret) throw new Error('OPERATIONAL_VAULT_SECRET is required to decrypt version 2 facility wallets.');
+    return [deriveMasterKey(secret)];
+  }
+  if (keyVersion === 1) {
+    // Version 1 was written before key_version distinguished vault-key rotations.
+    // Try each legacy source used by prior releases without weakening new writes.
+    const secrets = [
+      process.env.LEGACY_VAULT_SECRET,
+      process.env.OPERATIONAL_VAULT_SECRET,
+      process.env.JWT_SECRET,
+      'smartscan-default-secure-vault-key-32bytes!',
+      'smartscan-local-vault-only',
+    ].filter(Boolean);
+    return [...new Set(secrets)].map(deriveMasterKey);
+  }
+  throw new Error(`Unsupported facility wallet key version: ${keyVersion}`);
+}
+
+function getNewMasterKey() {
+  const secret = process.env.OPERATIONAL_VAULT_SECRET;
+  if (secret) return { masterKey: deriveMasterKey(secret), keyVersion: 2 };
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('OPERATIONAL_VAULT_SECRET must be configured in production.');
+  }
+  return {
+    masterKey: deriveMasterKey(process.env.JWT_SECRET || 'smartscan-default-secure-vault-key-32bytes!'),
+    keyVersion: 1,
+  };
 }
 
 /**
@@ -19,7 +47,7 @@ function getMasterKey() {
 function generateEncapsulatedSubaccount() {
   const wallet = ethers.Wallet.createRandom();
   const iv = crypto.randomBytes(16);
-  const masterKey = getMasterKey();
+  const { masterKey, keyVersion } = getNewMasterKey();
 
   const cipher = crypto.createCipheriv(ALGORITHM, masterKey, iv);
   let encrypted = cipher.update(wallet.privateKey, 'utf8', 'hex');
@@ -31,7 +59,7 @@ function generateEncapsulatedSubaccount() {
     encryptedPrivateKey: encrypted,
     keyIv: iv.toString('hex'),
     keyAuthTag: authTag.toString('hex'),
-    keyVersion: 1,
+    keyVersion,
   };
 }
 
@@ -41,22 +69,25 @@ function generateEncapsulatedSubaccount() {
  * @param {object} params { encryptedPrivateKey, keyIv, keyAuthTag }
  * @returns {string} Plaintext private key
  */
-function decryptSubaccountPrivateKey({ encryptedPrivateKey, keyIv, keyAuthTag }) {
+function decryptSubaccountPrivateKey({ encryptedPrivateKey, keyIv, keyAuthTag, keyVersion, key_version }) {
   if (!encryptedPrivateKey || !keyIv || !keyAuthTag) {
     throw new Error('Incomplete keystore parameters for subaccount decryption');
   }
 
   const iv = Buffer.from(keyIv, 'hex');
   const authTag = Buffer.from(keyAuthTag, 'hex');
-  const masterKey = getMasterKey();
-
-  const decipher = crypto.createDecipheriv(ALGORITHM, masterKey, iv);
-  decipher.setAuthTag(authTag);
-
-  let decrypted = decipher.update(encryptedPrivateKey, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-
-  return decrypted;
+  const parsedVersion = Number(keyVersion ?? key_version ?? 1);
+  const masterKeys = getMasterKeyForVersion(parsedVersion);
+  for (const masterKey of masterKeys) {
+    try {
+      const decipher = crypto.createDecipheriv(ALGORITHM, masterKey, iv);
+      decipher.setAuthTag(authTag);
+      return decipher.update(encryptedPrivateKey, 'hex', 'utf8') + decipher.final('utf8');
+    } catch (_error) {
+      // Keep trying legacy version 1 sources; GCM rejects a key that does not match.
+    }
+  }
+  throw new Error(`Unable to decrypt facility wallet key version ${parsedVersion}.`);
 }
 
 /**

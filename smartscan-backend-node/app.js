@@ -10,7 +10,7 @@ const { createLocalUploadStore, hasValidImageSignature, MAX_UPLOAD_BYTES } = req
 const { createRateLimiters } = require('./rate-limiters');
 const { expectedCall, hasExpectedWalletOperationEvent, isDirectOwnerWalletOperation } = require('./wallet-operation-verification');
 const { generateEncapsulatedSubaccount, decryptSubaccountPrivateKey, getSubaccountSigner } = require('./crypto-vault');
-const { getTreasuryWallet, getTreasuryStatus, fundSubaccount } = require('./gas-treasury');
+const { getContractOwnerWallet, getTreasuryStatus, fundSubaccount } = require('./gas-treasury');
 
 const CUSTODY_EXECUTION_ABI = [
   'function registerProduct(string name_, string brand_, string serialNumber_, string description_, string image_, string actor_, string location_, string timestamp_)',
@@ -181,9 +181,23 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   const configuredChainId = String(chainId);
   const expectedContractAddress = normalizedAddress(contractAddress);
   if (!/^\d+$/.test(configuredChainId)) throw new Error('CHAIN_ID must be a numeric chain identifier');
+  const configuredAppOrigin = /^https?:\/\//i.test(walletLinkOrigin)
+    ? new URL(walletLinkOrigin).origin
+    : 'http://localhost:3000';
   const chainProvider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : null;
   app.locals.chainProvider = chainProvider;
   const scanProvider = chainProvider;
+  const getOwnerRoleContract = async () => {
+    if (!expectedContractAddress) throw new Error('Contract address is not configured.');
+    const ownerWallet = getContractOwnerWallet(rpcUrl, configuredChainId);
+    if (!ownerWallet) return null;
+    const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, ownerWallet);
+    const configuredOwner = normalizedAddress(await roleContract.owner());
+    if (configuredOwner !== normalizedAddress(ownerWallet.address)) {
+      throw new Error('CONTRACT_OWNER_PRIVATE_KEY does not match the configured contract owner.');
+    }
+    return roleContract;
+  };
   const scanContract = scanProvider && expectedContractAddress
     ? new ethers.Contract(expectedContractAddress, PRODUCT_SCAN_ABI, scanProvider)
     : null;
@@ -549,6 +563,26 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     }
   });
 
+  // Backward-compatible admin API retained for existing profile integrations.
+  app.post('/addprofile', authenticate, authorize('admin'), writeRateLimit, async (req, res, next) => {
+    try {
+      const { username, name, description = '', website = '', location = '', image = '', role } = req.body || {};
+      if (!validText(username, 50) || !validText(name, 100) || Buffer.byteLength(name.trim(), 'utf8') > 100 || !ROLES.includes(role)) {
+        return res.status(400).json({ success: 0, error: 'A valid username, business name (up to 100 UTF-8 bytes), and role are required' });
+      }
+      const account = await pool.query('SELECT role FROM auth WHERE username = $1', [username]);
+      if (!account.rows.length) return res.status(404).json({ success: 0, error: 'Account not found' });
+      if (account.rows[0].role !== role) return res.status(409).json({ success: 0, error: 'Profile role must match the account role' });
+      await pool.query(
+        'INSERT INTO profile (username, name, description, website, location, image, role) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+        [username, name, description, website, location, image, role],
+      );
+      return res.json({ success: 1 });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
   app.post('/addaccount', authenticate, authorize('admin'), writeRateLimit, async (req, res, next) => {
     let client;
     try {
@@ -583,11 +617,9 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           return res.status(400).json({ success: 0, error: `Image file reference must not exceed ${MAX_TEXT_LENGTH} characters` });
         }
       }
-      await ensureSubaccountTables();
-
       // Automatically generate encapsulated EVM operational wallet for this enterprise partner
       let autoWallet = null;
-      if (['manufacturer', 'supplier', 'retailer'].includes(role) || createsProfile) {
+      if (['manufacturer', 'supplier', 'retailer'].includes(role)) {
         autoWallet = generateEncapsulatedSubaccount();
       }
 
@@ -602,7 +634,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (autoWallet) {
         await client.query(
           'INSERT INTO auth (username, password, role, wallet_address, wallet_status) VALUES ($1, $2, $3, $4, $5)',
-          [username, hashPassword(password), role, autoWallet.walletAddress, 'active']
+          [username, hashPassword(password), role, autoWallet.walletAddress, 'pending_onchain']
         );
       } else {
         await client.query(
@@ -626,7 +658,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           const subRes = await client.query(
             `INSERT INTO facility_subaccounts
              (parent_username, subaccount_name, facility_code, role, wallet_address, encrypted_private_key, key_iv, key_auth_tag, key_version, status, gas_balance_wei)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', 0)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending_approval', 0)
              RETURNING id`,
             [username, subName, facilityCode, role, autoWallet.walletAddress, autoWallet.encryptedPrivateKey, autoWallet.keyIv, autoWallet.keyAuthTag, autoWallet.keyVersion]
           );
@@ -638,7 +670,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         try {
           await client.query(
             'INSERT INTO wallet_account_events (username, wallet_address, event_type, details) VALUES ($1, $2, $3, $4)',
-            [username, autoWallet.walletAddress, 'created_and_linked', JSON.stringify({ provisionedBy: req.user.username, automated: true })]
+            [username, autoWallet.walletAddress, 'created_pending_onchain', JSON.stringify({ provisionedBy: req.user.username, automated: true })]
           );
         } catch (_auditErr) {
           // best-effort event audit
@@ -647,22 +679,34 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       await client.query('COMMIT');
 
-      // Asynchronously trigger initial on-chain role grant and gas funding
+      // Provision the account as pending until the contract confirms its role.
       if (autoWallet && ['manufacturer', 'supplier', 'retailer'].includes(role) && process.env.NODE_ENV !== 'test' && !rpcUrl?.includes('.test')) {
         const roleId = CHAIN_ROLE_IDS[role];
         (async () => {
           try {
-            const treasuryWallet = getTreasuryWallet(rpcUrl);
-            if (treasuryWallet && expectedContractAddress && roleId) {
-              const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, treasuryWallet);
-              const currentRole = Number(await roleContract.roles(autoWallet.walletAddress));
-              if (currentRole !== roleId) {
-                const tx = await roleContract.grantRole(autoWallet.walletAddress, roleId, (name ? name.trim() : username));
-                await tx.wait(1);
-              }
+            const roleContract = await getOwnerRoleContract();
+            if (!roleContract || !roleId) {
+              throw new Error('Contract owner wallet and business role are required for on-chain activation.');
+            }
+            const currentRole = Number(await roleContract.roles(autoWallet.walletAddress));
+            if (currentRole !== roleId) {
+              const tx = await roleContract.grantRole(autoWallet.walletAddress, roleId, (name ? name.trim() : username));
+              await tx.wait(1);
+            }
+            const activated = await pool.query(
+              "UPDATE auth SET wallet_status = 'active' WHERE username = $1 AND wallet_address = $2 AND wallet_status = 'pending_onchain'",
+              [username, autoWallet.walletAddress],
+            );
+            if (!activated.rowCount) throw new Error('Account wallet changed before on-chain activation completed.');
+            if (subaccountId) {
+              await pool.query(
+                "UPDATE facility_subaccounts SET status = 'active', updated_at = NOW() WHERE id = $1 AND status = 'pending_approval'",
+                [subaccountId],
+              );
             }
           } catch (grantErr) {
             console.warn('Auto-grant role on onboarding notice:', grantErr.message);
+            return;
           }
           try {
             await fundSubaccount({
@@ -672,6 +716,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
               triggerReason: 'onboarding_creation_grant',
               pool,
               rpcUrl,
+              chainId: configuredChainId,
             });
           } catch (fundErr) {
             console.warn('Auto-fund gas on onboarding notice:', fundErr.message);
@@ -684,9 +729,9 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         username,
         role,
         walletAddress: autoWallet?.walletAddress || null,
-        walletStatus: autoWallet ? 'active' : 'unlinked',
+        walletStatus: autoWallet ? 'pending_onchain' : 'unlinked',
         message: autoWallet
-          ? `Account @${username} created with automated operational wallet (${autoWallet.walletAddress}).`
+          ? `Account @${username} created. Its wallet will become active after the on-chain role grant is confirmed.`
           : `Account @${username} created successfully.`
       });
     } catch (err) {
@@ -1242,6 +1287,17 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'Account wallet changed while this operation was pending' });
       }
+      if (oldWallet && ['replace', 'suspend', 'restore', 'revoke'].includes(operation.action)) {
+        const facilityStatus = operation.action === 'revoke'
+          ? 'revoked'
+          : operation.action === 'restore'
+            ? 'active'
+            : 'suspended';
+        await client.query(
+          'UPDATE facility_subaccounts SET status = $1, updated_at = now() WHERE parent_username = $2 AND lower(wallet_address) = lower($3) AND status <> \'revoked\'',
+          [facilityStatus, operation.username, oldWallet],
+        );
+      }
       await client.query("UPDATE wallet_operations SET status = 'completed', tx_hash = $1, completed_at = now() WHERE id = $2", [txHash, operation.id]);
       await client.query(
         'INSERT INTO wallet_operation_events (operation_id, actor_username, event_type, details) VALUES ($1,$2,$3,$4)',
@@ -1266,25 +1322,6 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (err.code === '23505') return res.status(409).json({ error: 'Wallet is already linked to another account' });
       return next(err);
     } finally { client.release(); }
-  });
-
-  app.post('/addprofile', authenticate, authorize('admin'), writeRateLimit, async (req, res, next) => {
-    try {
-      const { username, name, description, website, location, image, role } = req.body || {};
-      if (!validText(username, 50) || !validText(name, 100) || Buffer.byteLength(name.trim(), 'utf8') > 100 || !ROLES.includes(role)) {
-        return res.status(400).json({ success: 0, error: 'A valid username, business name (up to 100 UTF-8 bytes), and role are required' });
-      }
-      const account = await pool.query('SELECT role FROM auth WHERE username = $1', [username]);
-      if (!account.rows.length) return res.status(404).json({ success: 0, error: 'Account not found' });
-      if (account.rows[0].role !== role) return res.status(409).json({ success: 0, error: 'Profile role must match the account role' });
-      await pool.query(
-        'INSERT INTO profile (username, name, description, website, location, image, role) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [username, name, description, website, location, image, role],
-      );
-      return res.json({ success: 1 });
-    } catch (err) {
-      return next(err);
-    }
   });
 
   // --- uploads ---
@@ -1378,8 +1415,6 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   });
 
   // In-memory receipt cache for immediate POS receipt lookups
-  const posReceiptsCache = new Map();
-
   // Phase 3: Retail Point-of-Sale (POS) & Barcode Checkout API
   const posCheckoutHandler = async (req, res, next) => {
     try {
@@ -1447,7 +1482,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       let status = 'AUTHENTIC_READY_FOR_SALE';
       let canSell = true;
-      let alertMessage = 'Product verified authentic on Ethereum Sepolia. Safe to finalize sale.';
+      let alertMessage = 'Product verified authentic on the configured chain. Safe to finalize sale.';
 
       if (isRecalled) {
         status = 'RECALLED';
@@ -1469,7 +1504,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       const receiptId = `REC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
       const receiptTimestamp = new Date().toISOString();
-      const verificationUrl = `https://smart-scan-ten.vercel.app/verify/${serial}`;
+      const verificationUrl = new URL(`/verify/${encodeURIComponent(serial)}`, configuredAppOrigin).toString();
 
       const receiptData = {
         receiptId,
@@ -1482,18 +1517,6 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         verificationUrl,
       };
 
-      // Cache receipt for retrieval
-      posReceiptsCache.set(receiptId, {
-        receiptId,
-        serialNumber: serial,
-        name,
-        brand,
-        status,
-        canSell,
-        alertMessage,
-        receipt: receiptData,
-      });
-
       // Record scan in database for fraud and analytics tracking
       try {
         const visitorHash = crypto.createHmac('sha256', jwtSecret).update(String(req.ip || 'pos')).digest('hex');
@@ -1501,8 +1524,11 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           'INSERT INTO product_scans (serial_number, contract_address, visitor_hash, outcome, location_source, flags) VALUES ($1, $2, $3, $4, $5, $6)',
           [serial, expectedContractAddress, visitorHash, canSell ? 'valid' : 'invalid', 'pos_checkout', canSell ? [] : [status.toLowerCase()]]
         );
-      } catch (_logErr) {
-        // Non-blocking for checkout
+      } catch (logErr) {
+        logger.error?.('POS checkout scan audit write failed', {
+          serialNumber: serial,
+          message: logErr.message,
+        });
       }
 
       return res.json({
@@ -1532,62 +1558,15 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.post('/api/pos/checkout', scanRateLimit, posCheckoutHandler);
-  app.post('/pos/checkout', scanRateLimit, posCheckoutHandler);
-
-  const posReceiptHandler = (req, res) => {
-    const receipt = posReceiptsCache.get(req.params.receiptId);
-    if (!receipt) {
-      return res.status(404).json({ error: 'Receipt not found' });
-    }
-    return res.json(receipt);
-  };
-
-  app.get('/api/pos/receipt/:receiptId', posReceiptHandler);
-  app.get('/pos/receipt/:receiptId', posReceiptHandler);
 
   // =========================================================================
   // Phase 4: Encapsulated Subaccounts & Headless Operational Signing APIs
   // =========================================================================
 
-  const ensureSubaccountTables = async () => {
-    try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS facility_subaccounts (
-          id SERIAL PRIMARY KEY,
-          parent_username VARCHAR(50) NOT NULL REFERENCES auth(username) ON UPDATE CASCADE ON DELETE CASCADE,
-          subaccount_name VARCHAR(120) NOT NULL,
-          facility_code VARCHAR(50) NOT NULL UNIQUE,
-          role VARCHAR(32) NOT NULL CHECK (role IN ('manufacturer', 'supplier', 'retailer')),
-          wallet_address VARCHAR(42) NOT NULL UNIQUE,
-          encrypted_private_key TEXT NOT NULL,
-          key_iv VARCHAR(32) NOT NULL,
-          key_auth_tag VARCHAR(32) NOT NULL,
-          key_version INTEGER NOT NULL DEFAULT 1,
-          status VARCHAR(32) NOT NULL DEFAULT 'pending_approval',
-          gas_balance_wei NUMERIC(78, 0) NOT NULL DEFAULT 0,
-          last_funded_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-        CREATE TABLE IF NOT EXISTS gas_treasury_disbursements (
-          id SERIAL PRIMARY KEY,
-          subaccount_id INTEGER REFERENCES facility_subaccounts(id) ON DELETE CASCADE,
-          recipient_wallet VARCHAR(42) NOT NULL,
-          amount_wei NUMERIC(78, 0) NOT NULL,
-          tx_hash VARCHAR(100) NOT NULL UNIQUE,
-          trigger_reason VARCHAR(64) NOT NULL,
-          disbursed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
-      `);
-    } catch (_tblErr) {
-      // Table already initialized or managed by migrations
-    }
-  };
-
   // 1. Treasury Health Status
   const treasuryStatusHandler = async (_req, res, next) => {
     try {
-      const status = await getTreasuryStatus(rpcUrl);
+      const status = await getTreasuryStatus(rpcUrl, configuredChainId);
       return res.json(status);
     } catch (err) {
       return next(err);
@@ -1595,12 +1574,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.get('/api/subaccounts/treasury-status', authenticate, authorize('admin'), treasuryStatusHandler);
-  app.get('/subaccounts/treasury-status', authenticate, authorize('admin'), treasuryStatusHandler);
 
   // 2. Create Encapsulated Subaccount
   const createSubaccountHandler = async (req, res, next) => {
     try {
-      await ensureSubaccountTables();
       const { subaccountName, facilityCode, role: requestedRole, parentUsername } = req.body || {};
 
       if (!validText(subaccountName, 120)) {
@@ -1662,12 +1639,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.post('/api/subaccounts/create', authenticate, authorize('admin'), writeRateLimit, createSubaccountHandler);
-  app.post('/subaccounts/create', authenticate, authorize('admin'), writeRateLimit, createSubaccountHandler);
 
   // 3. List Subaccounts
   const listSubaccountsHandler = async (req, res, next) => {
     try {
-      await ensureSubaccountTables();
       const isAdmin = req.user.role === 'admin';
       const query = isAdmin
         ? 'SELECT id, parent_username, subaccount_name, facility_code, role, wallet_address, status, gas_balance_wei, last_funded_at, created_at FROM facility_subaccounts ORDER BY created_at DESC'
@@ -1702,12 +1677,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.get('/api/subaccounts', authenticate, authorize('admin'), listSubaccountsHandler);
-  app.get('/subaccounts', authenticate, authorize('admin'), listSubaccountsHandler);
 
   // 4. Approve Subaccount & Auto-Fund Gas (Admin Only)
   const approveSubaccountHandler = async (req, res, next) => {
     try {
-      await ensureSubaccountTables();
       const subaccountId = parseInt(req.params.id, 10);
       if (isNaN(subaccountId)) return res.status(400).json({ error: 'Invalid subaccount ID' });
 
@@ -1723,12 +1696,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!roleId) return res.status(400).json({ error: 'Unrecognized subaccount role' });
 
       // Grant on-chain role via Admin/Owner wallet
-      const treasuryWallet = getTreasuryWallet(rpcUrl);
-      if (!treasuryWallet) {
-        return res.status(503).json({ error: 'Contract owner / treasury wallet is not configured in backend' });
+      const roleContract = await getOwnerRoleContract();
+      if (!roleContract) {
+        return res.status(503).json({ error: 'CONTRACT_OWNER_PRIVATE_KEY is not configured for on-chain role approval.' });
       }
-
-      const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, treasuryWallet);
       const onchainRole = Number(await roleContract.roles(subaccount.wallet_address));
 
       let grantTxHash = null;
@@ -1748,6 +1719,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           triggerReason: 'onboarding_approval_grant',
           pool,
           rpcUrl,
+          chainId: configuredChainId,
         });
       } catch (fundErr) {
         console.warn('Initial gas funding warning:', fundErr.message);
@@ -1757,6 +1729,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       await pool.query(
         'UPDATE facility_subaccounts SET status = $1, updated_at = NOW() WHERE id = $2',
         ['active', subaccount.id]
+      );
+      await pool.query(
+        "UPDATE auth SET wallet_status = 'active' WHERE username = $1 AND wallet_address = $2 AND wallet_status = 'pending_onchain'",
+        [subaccount.parent_username, subaccount.wallet_address],
       );
 
       return res.json({
@@ -1776,7 +1752,6 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.post('/api/subaccounts/:id/approve', authenticate, authorize('admin'), writeRateLimit, approveSubaccountHandler);
-  app.post('/subaccounts/:id/approve', authenticate, authorize('admin'), writeRateLimit, approveSubaccountHandler);
 
   // 5. Fund Operational Gas to Subaccount (Admin Only)
   const fundSubaccountHandler = async (req, res, next) => {
@@ -1794,6 +1769,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         triggerReason: 'admin_manual_grant',
         pool,
         rpcUrl,
+        chainId: configuredChainId,
       });
 
       return res.json({ success: true, message: `Disbursed ${amountEth} ETH gas to subaccount`, ...result });
@@ -1804,7 +1780,6 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.post('/api/subaccounts/:id/fund', authenticate, authorize('admin'), writeRateLimit, fundSubaccountHandler);
-  app.post('/subaccounts/:id/fund', authenticate, authorize('admin'), writeRateLimit, fundSubaccountHandler);
 
   // 6. Revoke Subaccount
   const revokeSubaccountHandler = async (req, res, next) => {
@@ -1815,15 +1790,11 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
 
       // On-chain role revocation
-      const treasuryWallet = getTreasuryWallet(rpcUrl);
-      if (treasuryWallet) {
-        const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, treasuryWallet);
-        try {
-          const revTx = await roleContract.revokeRole(subaccount.wallet_address);
-          await revTx.wait(1);
-        } catch (_revErr) {
-          // ignore if already revoked on chain
-        }
+      const roleContract = await getOwnerRoleContract();
+      if (!roleContract) return res.status(503).json({ error: 'CONTRACT_OWNER_PRIVATE_KEY is not configured for on-chain role revocation.' });
+      if (Number(await roleContract.roles(subaccount.wallet_address)) !== 0) {
+        const revTx = await roleContract.revokeRole(subaccount.wallet_address);
+        await revTx.wait(1);
       }
 
       await pool.query('UPDATE facility_subaccounts SET status = $1, updated_at = NOW() WHERE id = $2', ['revoked', subaccount.id]);
@@ -1835,12 +1806,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.post('/api/subaccounts/:id/revoke', authenticate, authorize('admin'), writeRateLimit, revokeSubaccountHandler);
-  app.post('/subaccounts/:id/revoke', authenticate, authorize('admin'), writeRateLimit, revokeSubaccountHandler);
 
   // 7. Headless Custody Auto-Execution API (Zero-Friction Transaction Execution)
   const autoExecuteCustodyHandler = async (req, res, next) => {
     try {
-      await ensureSubaccountTables();
       const {
         serialNumber: rawSerial,
         action,
@@ -1908,6 +1877,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         encryptedPrivateKey: subaccount.encrypted_private_key,
         keyIv: subaccount.key_iv,
         keyAuthTag: subaccount.key_auth_tag,
+        keyVersion: subaccount.key_version,
         walletAddress: subaccount.wallet_address,
       }, scanProvider);
 
@@ -1923,6 +1893,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
             triggerReason: 'auto_execute_replenishment',
             pool,
             rpcUrl,
+            chainId: configuredChainId,
           });
         } catch (_fundErr) {
           return res.status(503).json({
@@ -1934,11 +1905,60 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const custodyContract = new ethers.Contract(expectedContractAddress, CUSTODY_EXECUTION_ABI, signer);
       const timestampSec = Math.floor(Date.now() / 1000).toString();
       const actorName = subaccount.subaccount_name;
+      let registration = null;
+
+      if (action === 'register_product') {
+        if (req.user.role !== 'manufacturer' || subRole !== 'manufacturer') {
+          return res.status(403).json({ error: 'Only the owning manufacturer account can register a product.' });
+        }
+        const registrationResult = await pool.query(
+          `SELECT name, brand, chain_description, chain_image, chain_actor, chain_location, chain_timestamp, chain_status, chain_attempt
+             FROM product
+            WHERE serialnumber = $1 AND manufacturer_username = $2`,
+          [serial, req.user.username],
+        );
+        registration = registrationResult.rows[0];
+        if (!registration) return res.status(404).json({ error: 'Create the product record before registering it on-chain.' });
+        if (registration.chain_status !== 'pending_wallet') {
+          return res.status(409).json({ error: 'Product is not awaiting its first on-chain registration.' });
+        }
+        const signerAddress = normalizedAddress(signer.address);
+        const senderUpdate = await pool.query(
+          `WITH changed AS (
+             UPDATE product
+                SET chain_sender = $1, chain_contract_address = $2, chain_expected_id = $3, chain_updated_at = now()
+              WHERE serialnumber = $4 AND manufacturer_username = $5 AND chain_status = 'pending_wallet'
+                AND EXISTS (
+                  SELECT 1 FROM product_chain_attempts AS current_attempt
+                   WHERE current_attempt.serial_number = product.serialnumber
+                     AND current_attempt.attempt_number = product.chain_attempt
+                )
+              RETURNING serialnumber, chain_attempt
+           )
+           UPDATE product_chain_attempts AS attempt
+              SET sender_address = $1, contract_address = $2, expected_chain_id = $3
+             FROM changed
+            WHERE attempt.serial_number = changed.serialnumber AND attempt.attempt_number = changed.chain_attempt
+           RETURNING attempt.serial_number`,
+          [signerAddress, expectedContractAddress, configuredChainId, serial, req.user.username],
+        );
+        if (!senderUpdate.rowCount) {
+          return res.status(409).json({ error: 'The registration changed while its facility signer was being prepared. Refresh and retry.' });
+        }
+      }
 
       let tx;
       if (action === 'register_product') {
-        const { name = '', brand = '', description = '', image = '', manuDate = '' } = req.body || {};
-        tx = await custodyContract.registerProduct(name, brand, serial, description, image, actorName, location, manuDate || timestampSec);
+        tx = await custodyContract.registerProduct(
+          registration.name,
+          registration.brand,
+          serial,
+          registration.chain_description || '',
+          registration.chain_image || '',
+          actorName,
+          registration.chain_location || location,
+          registration.chain_timestamp || timestampSec,
+        );
       } else if (action === 'dispatch') {
         const recipient = (recipientWallet && ethers.isAddress(recipientWallet)) ? ethers.getAddress(recipientWallet) : ethers.ZeroAddress;
         tx = await custodyContract.dispatchProduct(serial, recipient, actorName, location, timestampSec);
@@ -1952,7 +1972,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       return res.json({
         success: true,
-        message: `Custody action (${action}) signed and confirmed on Ethereum Sepolia!`,
+        message: `Custody action (${action}) signed and confirmed on the configured chain.`,
         action,
         serialNumber: serial,
         txHash: receipt.hash,
@@ -1972,7 +1992,6 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   };
 
   app.post('/api/custody/auto-execute', authenticate, writeRateLimit, autoExecuteCustodyHandler);
-  app.post('/custody/auto-execute', authenticate, writeRateLimit, autoExecuteCustodyHandler);
 
   app.post('/addproduct', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {
@@ -2026,8 +2045,19 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       );
       if (!productResult.rows.length) return res.status(404).json({ error: 'Product not found' });
       const product = productResult.rows[0];
-      if (!product.chain_sender || product.chain_sender.toLowerCase() !== linkedWallet.wallet_address.toLowerCase()) {
-        return res.status(403).json({ error: 'The linked wallet changed after this product registration was prepared; retry through the recovery flow' });
+      if (!product.chain_sender) {
+        return res.status(403).json({ error: 'This registration has no expected signer. Retry it to prepare a wallet and signer.' });
+      }
+      const expectedSender = normalizedAddress(product.chain_sender);
+      const linkedSender = normalizedAddress(linkedWallet.wallet_address);
+      if (expectedSender !== linkedSender) {
+        const facilitySigner = await pool.query(
+          "SELECT 1 FROM facility_subaccounts WHERE parent_username = $1 AND lower(wallet_address) = lower($2) AND role = 'manufacturer' AND status = 'active'",
+          [req.user.username, expectedSender],
+        );
+        if (!facilitySigner.rowCount) {
+          return res.status(403).json({ error: 'The expected registration signer is no longer active for this manufacturer account. Retry with an active wallet.' });
+        }
       }
       if (product.chain_status === 'submitted' && product.chain_tx_hash?.toLowerCase() === txHash.toLowerCase()) {
         return res.json({ success: 1, status: 'submitted', txHash, idempotent: true });
@@ -2040,13 +2070,18 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
              chain_updated_at = now(), failure_reason = NULL
            WHERE serialnumber = $5 AND manufacturer_username = $6 AND chain_status = 'pending_wallet'
              AND chain_attempt = $7
+             AND EXISTS (
+               SELECT 1 FROM product_chain_attempts AS current_attempt
+                WHERE current_attempt.serial_number = product.serialnumber
+                  AND current_attempt.attempt_number = product.chain_attempt
+             )
            RETURNING serialnumber, chain_attempt
          )
          UPDATE product_chain_attempts AS attempt SET status = 'submitted', transaction_hash = $1,
            expected_chain_id = $2, sender_address = $3, contract_address = $4, submitted_at = now()
          FROM changed WHERE attempt.serial_number = changed.serialnumber AND attempt.attempt_number = changed.chain_attempt
          RETURNING attempt.serial_number`,
-        [txHash, configuredChainId, normalizedAddress(linkedWallet.wallet_address), address, req.params.serialNumber, req.user.username, product.chain_attempt || 1],
+        [txHash, configuredChainId, expectedSender, address, req.params.serialNumber, req.user.username, product.chain_attempt || 1],
       );
       if (result.rowCount === 0) return res.status(409).json({ error: 'Product changed while recording transaction; refresh its status' });
       return res.status(202).json({ success: 1, status: 'submitted', txHash });

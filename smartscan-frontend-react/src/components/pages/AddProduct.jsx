@@ -184,7 +184,7 @@ const AddProduct = () => {
     const generateQRCode = (serialNum) => {
         const baseUrl = typeof window !== 'undefined' && window.location?.origin
             ? window.location.origin
-            : 'https://smart-scan-ten.vercel.app';
+            : '';
         const verifyUrl = `${baseUrl}/verify/${serialNum}`;
         setQrData(verifyUrl);
     };
@@ -329,7 +329,7 @@ const registerProduct = async (retry = false) => {
             generateQRCode(serialNumber);
             setProductCreated(true);
             setRetryAvailable(false);
-            setChainNotice("Product registered and confirmed on Sepolia blockchain via enterprise vault! Packaging QR code generated.");
+            setChainNotice(`Product registered and confirmed on ${CHAIN_NAME} via the facility wallet. Packaging QR code generated.`);
 
             if (autoDispatchOnCreate) {
                 setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");
@@ -424,7 +424,7 @@ const registerProduct = async (retry = false) => {
     generateQRCode(serialNumber);
     setProductCreated(true);
     setRetryAvailable(false);
-    setChainNotice("Product registered and confirmed on Sepolia blockchain! Packaging QR code generated.");
+    setChainNotice(`Product registered and confirmed on ${CHAIN_NAME}. Packaging QR code generated.`);
 
     if (autoDispatchOnCreate) {
         setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");

@@ -23,6 +23,14 @@ function validOrigin(value, protocols) {
   } catch (_error) { return false; }
 }
 
+function validPrivateKey(value) {
+  try {
+    return ethers.isHexString(value, 32) && new ethers.Wallet(value).privateKey.toLowerCase() === value.toLowerCase();
+  } catch (_error) {
+    return false;
+  }
+}
+
 function hasDatabaseSslOverride(databaseUrl) {
   try {
     const url = new URL(databaseUrl);
@@ -67,6 +75,11 @@ function loadRuntimeConfig(env = process.env) {
     if (!databaseUrl || !validUrl(databaseUrl, ['postgres:', 'postgresql:'])) errors.push('DATABASE_URL must be a PostgreSQL URL in production');
     if (databaseUrl && hasDatabaseSslOverride(databaseUrl)) errors.push('DATABASE_URL must not contain SSL query parameters; the backend enforces TLS with certificate verification');
     if (!jwtSecret || jwtSecret.length < 32 || /replace|change-me|dev-insecure/i.test(jwtSecret)) errors.push('JWT_SECRET must be a non-placeholder secret of at least 32 characters in production');
+    if (!env.OPERATIONAL_VAULT_SECRET || env.OPERATIONAL_VAULT_SECRET.length < 32 || /replace|change-me|dev-insecure/i.test(env.OPERATIONAL_VAULT_SECRET)) errors.push('OPERATIONAL_VAULT_SECRET must be a separate non-placeholder secret of at least 32 characters in production');
+    if (env.OPERATIONAL_VAULT_SECRET && jwtSecret && env.OPERATIONAL_VAULT_SECRET === jwtSecret) errors.push('OPERATIONAL_VAULT_SECRET must differ from JWT_SECRET');
+    if (!validPrivateKey(env.TREASURY_FAUCET_PRIVATE_KEY)) errors.push('TREASURY_FAUCET_PRIVATE_KEY must be a valid secp256k1 private key in production');
+    if (!validPrivateKey(env.CONTRACT_OWNER_PRIVATE_KEY)) errors.push('CONTRACT_OWNER_PRIVATE_KEY must be a valid secp256k1 private key in production');
+    if (env.TREASURY_FAUCET_PRIVATE_KEY && env.CONTRACT_OWNER_PRIVATE_KEY && env.TREASURY_FAUCET_PRIVATE_KEY.toLowerCase() === env.CONTRACT_OWNER_PRIVATE_KEY.toLowerCase()) errors.push('Treasury and contract-owner private keys must be different');
     if (!jwtExpiryMatch || Number(jwtExpiryMatch[1]) * ({ s: 1, m: 60, h: 3600, d: 86400 }[jwtExpiryMatch[2]]) > 90 * 86400) errors.push('JWT_EXPIRES_IN must use a positive s/m/h/d duration no longer than 90d in production');
     if (!rpcUrl || !validUrl(rpcUrl, ['https:'])) errors.push('A valid HTTPS CHAIN_RPC_URL is required in production');
     if (!Number.isSafeInteger(chainId) || chainId <= 0) errors.push('CHAIN_ID must be a positive integer in production');
@@ -102,6 +115,7 @@ function loadRuntimeConfig(env = process.env) {
     port,
     databaseUrl,
     jwtSecret: jwtSecret || 'dev-insecure-secret-change-me',
+    operationalVaultSecret: env.OPERATIONAL_VAULT_SECRET || '',
     jwtExpiresIn,
     allowedOrigins: origins,
     walletLinkOrigin,

@@ -5,19 +5,40 @@ const { ethers } = require('ethers');
  * Disburses operational gas funds to newly approved subaccounts and manages auto-replenishment.
  */
 
-const DEFAULT_TREASURY_PRIVATE_KEY = 'a33d94ce2df8a0837e27bcf9cada5f15f0e978e08dc184bd0d87a74d8bf945c9';
-
-function getTreasuryWallet(rpcUrl = null) {
-  const privateKey = process.env.TREASURY_FAUCET_PRIVATE_KEY || process.env.PRIVATE_KEY || DEFAULT_TREASURY_PRIVATE_KEY;
+function createConfiguredWallet(privateKey, rpcUrl, configuredChainId, secretName) {
   if (!privateKey) return null;
-  const url = rpcUrl || process.env.CHAIN_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
-  const network = new ethers.Network('sepolia', 11155111);
-  const provider = new ethers.JsonRpcProvider(url, network, { staticNetwork: network });
+  const chainId = Number(configuredChainId);
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+    throw new Error(`CHAIN_ID must be a positive integer to use ${secretName}.`);
+  }
+  const url = rpcUrl || process.env.CHAIN_RPC_URL;
+  if (!url) throw new Error(`CHAIN_RPC_URL is required to use ${secretName}.`);
+  const provider = new ethers.JsonRpcProvider(url, chainId, { staticNetwork: true });
   return new ethers.Wallet(privateKey, provider);
 }
 
-async function getTreasuryStatus(rpcUrl = null) {
-  const wallet = getTreasuryWallet(rpcUrl);
+function getTreasuryWallet(rpcUrl = null, configuredChainId = process.env.CHAIN_ID || '11155111') {
+  const privateKey = process.env.TREASURY_FAUCET_PRIVATE_KEY || (process.env.NODE_ENV !== 'production' ? process.env.PRIVATE_KEY : null);
+  return createConfiguredWallet(
+    privateKey,
+    rpcUrl,
+    configuredChainId,
+    'TREASURY_FAUCET_PRIVATE_KEY',
+  );
+}
+
+function getContractOwnerWallet(rpcUrl = null, configuredChainId = process.env.CHAIN_ID || '11155111') {
+  const privateKey = process.env.CONTRACT_OWNER_PRIVATE_KEY || (process.env.NODE_ENV !== 'production' ? process.env.PRIVATE_KEY : null);
+  return createConfiguredWallet(
+    privateKey,
+    rpcUrl,
+    configuredChainId,
+    'CONTRACT_OWNER_PRIVATE_KEY',
+  );
+}
+
+async function getTreasuryStatus(rpcUrl = null, configuredChainId = process.env.CHAIN_ID || '11155111') {
+  const wallet = getTreasuryWallet(rpcUrl, configuredChainId);
   if (!wallet) {
     return { configured: false, address: null, balanceEth: '0', canFund: false };
   }
@@ -45,8 +66,9 @@ async function fundSubaccount({
   triggerReason = 'onboarding_grant',
   pool = null,
   rpcUrl = null,
+  chainId = process.env.CHAIN_ID || '11155111',
 }) {
-  const wallet = getTreasuryWallet(rpcUrl);
+  const wallet = getTreasuryWallet(rpcUrl, chainId);
   if (!wallet) {
     throw new Error('Automated Gas Treasury is not configured. Missing TREASURY_FAUCET_PRIVATE_KEY.');
   }
@@ -96,6 +118,7 @@ async function fundSubaccount({
 
 module.exports = {
   getTreasuryWallet,
+  getContractOwnerWallet,
   getTreasuryStatus,
   fundSubaccount,
 };
