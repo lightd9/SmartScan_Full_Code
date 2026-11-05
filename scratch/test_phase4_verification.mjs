@@ -147,14 +147,13 @@ const posPagePath = path.resolve('smartscan-frontend-react/src/components/pages/
 const updateDetailsPath = path.resolve('smartscan-frontend-react/src/components/pages/UpdateProductDetails.jsx');
 const scannerPagePath = path.resolve('smartscan-frontend-react/src/components/pages/ScannerPage.jsx');
 
-await test("SubaccountsPage.jsx implements management view, treasury widget, and fast-sign playground", () => {
+await test("SubaccountsPage.jsx implements management view and treasury widget (playground decommissioned)", () => {
     assert(fs.existsSync(subaccountsPagePath), "SubaccountsPage.jsx does not exist");
     const content = fs.readFileSync(subaccountsPagePath, 'utf8');
     assert(content.includes("SmartScan Gas Treasury Engine"), "Missing Gas Treasury status widget");
     assert(content.includes("/api/subaccounts/create"), "Missing create subaccount API call");
     assert(content.includes("/api/subaccounts/${id}/approve"), "Missing approve subaccount API call");
     assert(content.includes("/api/subaccounts/${id}/fund"), "Missing fund subaccount API call");
-    assert(content.includes("/api/custody/auto-execute"), "Missing auto-execute playground API call");
 });
 
 await test("App.js mounts /subaccounts route with lazy loading and RBAC", () => {

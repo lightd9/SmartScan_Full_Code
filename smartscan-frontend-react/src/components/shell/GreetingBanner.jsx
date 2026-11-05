@@ -3,7 +3,6 @@ import useAuth from '../../hooks/useAuth';
 import './shell.css';
 
 // Material Icons & Components
-import ShareOutlinedIcon from '@mui/icons-material/ShareOutlined';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
@@ -47,19 +46,6 @@ export default function GreetingBanner({
 
   const displayName = auth?.name || auth?.username || 'Partner';
 
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: 'SmartScan Portal', url: window.location.href });
-      } catch (_err) {
-        // User cancelled or unsupported
-      }
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(window.location.href);
-      setToastMessage('Portal URL copied to clipboard!');
-    }
-  };
-
   return (
     <section className="greeting-section" aria-label="Overview Banner">
       <div className="greeting-header-row">
@@ -75,27 +61,15 @@ export default function GreetingBanner({
           {actions ? (
             actions
           ) : (
-            <>
-              <button
-                type="button"
-                className="btn-secondary-action"
-                onClick={handleShare}
-                aria-label="Share current view"
-              >
-                <ShareOutlinedIcon sx={{ fontSize: 16 }} />
-                <span>Share</span>
-              </button>
-
-              <button
-                type="button"
-                className="btn-secondary-action"
-                onClick={() => window.location.reload()}
-                aria-label="Refresh and sync data"
-              >
-                <SyncRoundedIcon sx={{ fontSize: 16 }} />
-                <span>Refresh Sync</span>
-              </button>
-            </>
+            <button
+              type="button"
+              className="btn-secondary-action"
+              onClick={() => window.location.reload()}
+              aria-label="Refresh and sync data"
+            >
+              <SyncRoundedIcon sx={{ fontSize: 16 }} />
+              <span>Refresh Sync</span>
+            </button>
           )}
         </div>
       </div>

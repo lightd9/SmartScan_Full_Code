@@ -1594,8 +1594,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     }
   };
 
-  app.get('/api/subaccounts/treasury-status', authenticate, treasuryStatusHandler);
-  app.get('/subaccounts/treasury-status', authenticate, treasuryStatusHandler);
+  app.get('/api/subaccounts/treasury-status', authenticate, authorize('admin'), treasuryStatusHandler);
+  app.get('/subaccounts/treasury-status', authenticate, authorize('admin'), treasuryStatusHandler);
 
   // 2. Create Encapsulated Subaccount
   const createSubaccountHandler = async (req, res, next) => {
@@ -1661,8 +1661,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     }
   };
 
-  app.post('/api/subaccounts/create', authenticate, writeRateLimit, createSubaccountHandler);
-  app.post('/subaccounts/create', authenticate, writeRateLimit, createSubaccountHandler);
+  app.post('/api/subaccounts/create', authenticate, authorize('admin'), writeRateLimit, createSubaccountHandler);
+  app.post('/subaccounts/create', authenticate, authorize('admin'), writeRateLimit, createSubaccountHandler);
 
   // 3. List Subaccounts
   const listSubaccountsHandler = async (req, res, next) => {

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
 import axios from '../../api/axios';
+import { ethers } from 'ethers';
+import { CHAIN_RPC_URL } from '../../config/contract';
 import './shell.css';
 
 // Material Components & Icons
@@ -36,6 +38,7 @@ export default function TopHeader({ onSearch }) {
   const { openScanner } = useScanner();
   const navigate = useNavigate();
   const [walletAddress, setWalletAddress] = useState(auth?.walletAddress || '');
+  const [walletBalance, setWalletBalance] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(true);
@@ -47,6 +50,27 @@ export default function TopHeader({ onSearch }) {
 
   const searchInputRef = useRef(null);
   const role = auth?.role || 'admin';
+
+  useEffect(() => {
+    if (!walletAddress) {
+      setWalletBalance(null);
+      return;
+    }
+    let isMounted = true;
+    const rpc = CHAIN_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
+    const provider = new ethers.JsonRpcProvider(rpc, 11155111, { staticNetwork: true });
+    provider.getBalance(walletAddress)
+      .then((bal) => {
+        if (isMounted) {
+          const eth = ethers.formatEther(bal);
+          setWalletBalance(parseFloat(eth).toFixed(4));
+        }
+      })
+      .catch((_err) => {
+        if (isMounted) setWalletBalance(null);
+      });
+    return () => { isMounted = false; };
+  }, [walletAddress]);
 
   useEffect(() => {
     let isMounted = true;
@@ -269,12 +293,12 @@ export default function TopHeader({ onSearch }) {
           {unreadNotifications && <span className="unread-pip"></span>}
         </button>
 
-        {/* Combined profile and enterprise vault wallet control */}
+        {/* Combined profile and wallet control */}
         <button
           type="button"
           className="header-account-wallet"
           onClick={(event) => setAccountMenuAnchor(event.currentTarget)}
-          title={`Signed in as ${auth?.username} (${role}) · Enterprise Vault Active`}
+          title={`Signed in as ${auth?.username} (${role})`}
           aria-haspopup="true"
           aria-expanded={Boolean(accountMenuAnchor)}
         >
@@ -282,7 +306,6 @@ export default function TopHeader({ onSearch }) {
           <span className="header-account-address">
             <span className="wallet-dot"></span>
             <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{formatAddress(walletAddress)}</span>
-            <span className="vault-pill">Vault Active</span>
           </span>
         </button>
 
@@ -297,14 +320,11 @@ export default function TopHeader({ onSearch }) {
           }}
         >
           <Box sx={{ px: 2, py: 1.5 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#111827' }}>
-                {auth?.name || auth?.username}
-              </Typography>
-              <span className="vault-pill">Vault Active</span>
-            </div>
-            <Typography variant="caption" sx={{ color: '#6B7280', textTransform: 'capitalize', display: 'block' }}>
-              Role: {role} · Automated Key Management
+            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#111827' }}>
+              {auth?.name || auth?.username}
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#6B7280', textTransform: 'capitalize', display: 'block', mt: 0.25 }}>
+              Role: {role}
             </Typography>
           </Box>
           <Divider sx={{ my: 0.5 }} />
@@ -318,10 +338,25 @@ export default function TopHeader({ onSearch }) {
                 {copied ? <CheckRoundedIcon fontSize="small" /> : <ContentCopyRoundedIcon fontSize="small" />}
               </ListItemIcon>
               <ListItemText
-                primary={walletAddress}
-                secondary={copied ? 'Copied to clipboard!' : 'Click to copy enterprise vault address'}
-                primaryTypographyProps={{ fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 700, color: '#111827', sx: { overflowWrap: 'anywhere' } }}
-                secondaryTypographyProps={{ fontSize: '0.72rem', color: copied ? '#16A34A' : '#6B7280' }}
+                primary={
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 700, color: '#111827', overflowWrap: 'anywhere' }}>
+                      {walletAddress}
+                    </span>
+                  </Box>
+                }
+                secondary={
+                  <Box component="span" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.5 }}>
+                    <span style={{ fontSize: '0.72rem', color: copied ? '#16A34A' : '#6B7280' }}>
+                      {copied ? 'Copied to clipboard!' : 'Click to copy address'}
+                    </span>
+                    {walletBalance !== null && (
+                      <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#0F172A', fontFamily: 'monospace', background: '#F1F5F9', border: '1px solid #E2E8F0', padding: '1px 6px', borderRadius: '4px' }}>
+                        {walletBalance} ETH
+                      </span>
+                    )}
+                  </Box>
+                }
               />
             </MenuItem>
           ) : null}
