@@ -5,6 +5,7 @@ const { createPool } = require('./db');
 const { createApp } = require('./app');
 const { loadRuntimeConfig } = require('./runtime-config');
 const { latestMigrationName, assertLatestMigration } = require('./schema-readiness');
+const { runMigrations } = require('./migrate');
 const { Interface } = require('ethers');
 const { createUploadStore } = require('./upload-storage');
 const Redis = require('ioredis');
@@ -52,7 +53,15 @@ if (redisClient) {
 
 pool
   .query('SELECT 1')
-  .then(() => console.log('✅ Connected to database'))
+  .then(async () => {
+    console.log('✅ Connected to database');
+    try {
+      await runMigrations(pool);
+      console.log('✅ Database schema verified and migrations applied');
+    } catch (migErr) {
+      console.error('Database migration notice on startup:', migErr.message);
+    }
+  })
   .catch((err) => console.error('Database connection error', err.code ? { code: err.code } : undefined));
 
 const app = createApp({

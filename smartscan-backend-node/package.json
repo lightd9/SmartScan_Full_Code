@@ -7,7 +7,7 @@
   "main": "postgres.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node postgres.js",
+    "start": "node migrate.js && node postgres.js",
     "dev": "nodemon postgres.js",
     "test": "node --test",
     "migrate-passwords": "node migrate-passwords.js",
