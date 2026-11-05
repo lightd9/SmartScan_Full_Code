@@ -1701,8 +1701,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     }
   };
 
-  app.get('/api/subaccounts', authenticate, listSubaccountsHandler);
-  app.get('/subaccounts', authenticate, listSubaccountsHandler);
+  app.get('/api/subaccounts', authenticate, authorize('admin'), listSubaccountsHandler);
+  app.get('/subaccounts', authenticate, authorize('admin'), listSubaccountsHandler);
 
   // 4. Approve Subaccount & Auto-Fund Gas (Admin Only)
   const approveSubaccountHandler = async (req, res, next) => {

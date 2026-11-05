@@ -80,12 +80,12 @@ function App() {
           <Route exact path='/add-account' element={< AddAccount />}></Route>
           <Route exact path='/manage-account' element={< ManageAccount />}></Route> 
           <Route exact path='/admin/operations' element={< AdminOperations />}></Route>
-
+          <Route exact path='/subaccounts' element={< SubaccountsPage />}></Route>
+          
         </Route>
 
         <Route element={<RequireAuth allowedRoles={["admin", "manufacturer", "supplier", "retailer"]} />}>
           <Route exact path='/profile' element={< Profile />}></Route>
-          <Route exact path='/subaccounts' element={< SubaccountsPage />}></Route>
           <Route exact path='/update-product' element={< UpdateProduct />}></Route>
           <Route exact path='/update-product-details' element={< UpdateProductDetails />}></Route>
         </Route>

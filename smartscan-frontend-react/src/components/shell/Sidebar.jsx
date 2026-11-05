@@ -53,6 +53,11 @@ export default function Sidebar() {
           icon: <SecurityOutlinedIcon className="nav-icon" />,
         },
         {
+          to: '/subaccounts',
+          label: 'Facility Wallets',
+          icon: <AccountTreeOutlinedIcon className="nav-icon" />,
+        },
+        {
           to: '/add-account',
           label: 'New Account',
           icon: <AddCircleOutlineOutlinedIcon className="nav-icon" />,
@@ -106,11 +111,6 @@ export default function Sidebar() {
 
     baseItems.push(
       {
-        to: '/subaccounts',
-        label: 'Facility Wallets',
-        icon: <AccountTreeOutlinedIcon className="nav-icon" />,
-      },
-      {
         to: '/profile',
         label: 'Profile & Security',
         icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" />,
@@ -140,7 +140,6 @@ export default function Sidebar() {
       return [
         { label: 'Warehouse Docks', color: 'pink', to: `/${role}` },
         { label: 'Cargo Ledger', color: 'green', to: `/${role}` },
-        { label: 'Facility Logs', color: 'blue', to: '/subaccounts' },
       ];
     }
     return [

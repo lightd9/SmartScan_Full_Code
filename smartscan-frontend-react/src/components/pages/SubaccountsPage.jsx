@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Navigate } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -52,6 +53,10 @@ const ROLE_COLORS = {
 export default function SubaccountsPage() {
   const { auth } = useAuth();
   const isAdmin = auth?.role === 'admin';
+
+  if (!isAdmin) {
+    return <Navigate to={`/${auth?.role || ''}`} replace />;
+  }
 
   // State
   const [subaccounts, setSubaccounts] = useState([]);
