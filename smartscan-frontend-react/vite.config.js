@@ -37,7 +37,7 @@ export default defineConfig(({ mode }) => {
   ];
 
   return {
-    plugins: [react()],
+    plugins: [react({ include: /\.(jsx|js|tsx|ts)$/ })],
     define: Object.fromEntries(
       publicEnvNames.map((name) => [`process.env.${name}`, JSON.stringify(env[name] || '')])
     ),

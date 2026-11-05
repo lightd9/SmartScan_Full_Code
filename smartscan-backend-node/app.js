@@ -36,6 +36,7 @@ const CHAIN_ROLE_ABI = [
   'event RoleReplaced(address indexed previousWallet, address indexed newWallet, uint8 role)',
 ];
 const PRODUCT_SCAN_ABI = [
+  'function productExists(string serialNumber) view returns (bool)',
   'function getProduct(string serialNumber) view returns (string,string,string,string,string,tuple(uint256 id,string actor,address actorWallet,string location,string timestamp,uint8 action,address recipientWallet,uint8 actorRole)[] history,uint8 stage,address currentCustodian,address pendingRecipient,bool sold,bool recalled)',
 ];
 
@@ -217,6 +218,24 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     const product = await fetchOnChainProduct(serialNumber);
     return { exists: product[0] === serialNumber, conflictingState: product[0] === serialNumber && hasConflictingProductState(product) };
   });
+
+  const reconcileOnChainProduct = async (serialNumber) => {
+    if (!scanContract || !scanProvider || process.env.NODE_ENV === 'test' || rpcUrl?.includes('.test')) return false;
+    try {
+      const exists = await scanContract.productExists(serialNumber);
+      if (exists) {
+        await pool.query(
+          "UPDATE product SET chain_status = 'confirmed', failure_reason = NULL, chain_updated_at = NOW() WHERE serialnumber = $1 AND chain_status <> 'confirmed'",
+          [serialNumber]
+        );
+        return true;
+      }
+    } catch (_err) {
+      // Best-effort probe
+    }
+    return false;
+  };
+
   app.disable('x-powered-by');
   app.use((req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -2091,6 +2110,27 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       const receipt = await tx.wait(1);
 
+      if (action === 'register_product') {
+        try {
+          await pool.query(
+            `UPDATE product
+                SET chain_status = 'confirmed', chain_tx_hash = $1, chain_id = $2, chain_expected_id = $2,
+                    chain_contract_address = $3, chain_submitted_at = now(), chain_updated_at = now(), failure_reason = NULL
+              WHERE serialnumber = $4 AND LOWER(manufacturer_username) = LOWER($5)`,
+            [receipt.hash, configuredChainId, expectedContractAddress, serial, req.user.username]
+          );
+          await pool.query(
+            `UPDATE product_chain_attempts
+                SET status = 'confirmed', transaction_hash = $1, chain_id = $2, expected_chain_id = $2,
+                    contract_address = $3, failure_reason = NULL, finalized_at = now()
+              WHERE serial_number = $4 AND attempt_number = $5`,
+            [receipt.hash, configuredChainId, expectedContractAddress, serial, registration?.chain_attempt || 1]
+          );
+        } catch (_dbErr) {
+          console.warn('Auto-execute DB status update notice:', _dbErr.message);
+        }
+      }
+
       return res.json({
         success: true,
         message: `Custody action (${action}) signed and confirmed on the configured chain.`,
@@ -2243,6 +2283,13 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   app.post('/product/:serialNumber/retry', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {
+      if (scanContract && process.env.NODE_ENV !== 'test') {
+        const confirmedOnChain = await reconcileOnChainProduct(req.params.serialNumber);
+        if (confirmedOnChain) {
+          return res.json({ success: 1, status: 'confirmed', message: 'Product is already confirmed on blockchain' });
+        }
+      }
+
       const account = await pool.query(
         `SELECT 
            COALESCE(a.wallet_address, s.wallet_address) AS wallet_address,
@@ -2284,6 +2331,12 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   app.post('/product/:serialNumber/failed', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {
+      if (scanContract && process.env.NODE_ENV !== 'test') {
+        const confirmedOnChain = await reconcileOnChainProduct(req.params.serialNumber);
+        if (confirmedOnChain) {
+          return res.status(409).json({ error: 'Product is already confirmed on blockchain' });
+        }
+      }
       const reason = validText(req.body?.reason, 500) ? req.body.reason : 'Wallet transaction failed or was rejected';
       const productResult = await pool.query(
         'SELECT chain_status, chain_attempt FROM product WHERE serialnumber = $1 AND manufacturer_username = $2',
@@ -2338,6 +2391,15 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         [req.params.serialNumber, req.user.role, req.user.username],
       );
       if (!rows.length) return res.status(404).json({ error: 'Product not found' });
+
+      if (rows[0].chain_status !== 'confirmed' && scanContract && process.env.NODE_ENV !== 'test') {
+        const confirmedOnChain = await reconcileOnChainProduct(rows[0].serialnumber);
+        if (confirmedOnChain) {
+          rows[0].chain_status = 'confirmed';
+          rows[0].failure_reason = null;
+        }
+      }
+
       return res.json(rows[0]);
     } catch (err) { return next(err); }
   });
@@ -2375,6 +2437,19 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         ? `SELECT ${fields} FROM product WHERE chain_status = $1 AND ($2 = 'admin' OR manufacturer_username = $3) ORDER BY created_at DESC`
         : `SELECT ${fields} FROM product WHERE ($1 = 'admin' OR manufacturer_username = $2) ORDER BY created_at DESC`;
       const { rows } = await pool.query(query, params);
+
+      if (scanContract && process.env.NODE_ENV !== 'test') {
+        for (const row of rows) {
+          if (row.chain_status !== 'confirmed') {
+            const confirmedOnChain = await reconcileOnChainProduct(row.serialnumber);
+            if (confirmedOnChain) {
+              row.chain_status = 'confirmed';
+              row.failure_reason = null;
+            }
+          }
+        }
+      }
+
       return res.json(rows);
     } catch (err) { return next(err); }
   });

@@ -59,9 +59,7 @@ export default function Manufacturer() {
       assigneeName: item.chain_actor || '—',
       statusLabel,
       statusColor,
-      onClick: () => isConfirmed
-        ? navigate('/update-product', { state: { qrData: item.serialnumber } })
-        : navigate('/add-product', { state: { resumeProduct: item } }),
+      onClick: () => navigate(`/product-details/${encodeURIComponent(item.serialnumber)}`),
     };
   });
 

@@ -22,6 +22,7 @@ const FakeProduct = lazy(() => import('./components/pages/FakeProduct'));
 const UpdateProductDetails = lazy(() => import('./components/pages/UpdateProductDetails'));
 const POSCheckoutPage = lazy(() => import('./components/pages/POSCheckoutPage'));
 const SubaccountsPage = lazy(() => import('./components/pages/SubaccountsPage'));
+const ProductDetails = lazy(() => import('./components/pages/ProductDetails'));
 const Missing = lazy(() => import('./components/pages/Missing'));
 
 function App() {
@@ -86,6 +87,7 @@ function App() {
 
         <Route element={<RequireAuth allowedRoles={["admin", "manufacturer", "supplier", "retailer"]} />}>
           <Route exact path='/profile' element={< Profile />}></Route>
+          <Route exact path='/product-details/:serialNumber' element={< ProductDetails />}></Route>
           <Route exact path='/update-product' element={< UpdateProduct />}></Route>
           <Route exact path='/update-product-details' element={< UpdateProductDetails />}></Route>
         </Route>

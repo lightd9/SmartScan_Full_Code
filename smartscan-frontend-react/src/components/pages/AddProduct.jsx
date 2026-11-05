@@ -64,7 +64,12 @@ const AddProduct = () => {
         getUsername();
         loadRetryableProducts();
         if (location.state?.resumeProduct) {
-            resumeProductRetry(location.state.resumeProduct);
+            const resumeProd = location.state.resumeProduct;
+            if (resumeProd.chain_status === 'confirmed') {
+                navigate(`/product-details/${encodeURIComponent(resumeProd.serialnumber)}`, { replace: true });
+                return;
+            }
+            resumeProductRetry(resumeProd);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.state]);
@@ -407,7 +412,7 @@ const handleSubmit = async (e) => {
     } catch (err) {
         const friendlyMessage = formatContractError(err, "Registration did not complete. The transaction was either rejected or failed on the blockchain.");
         try {
-            if (productCreated) {
+            if (productCreated && !qrData) {
                 await axios.post(`/product/${encodeURIComponent(serialNumber)}/failed`, {
                     reason: friendlyMessage
                 }).catch(() => {});
@@ -503,172 +508,128 @@ const persistTransactionHash = async () => {
                 </div>
             )}
 
-            <form onSubmit={handleSubmit} style={{ width: '100%' }}>
-                <div className="dashboard-grid-dual">
-                    {/* Left Column: Product Metadata */}
+            {productCreated && qrData ? (
+                <div className="dashboard-grid-dual" style={{ width: '100%' }}>
+                    {/* Left Column: Product Confirmation Card */}
                     <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                        <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                            Product Specifications
-                        </h2>
-
-                        <TextField
-                            fullWidth
-                            error={!isUnique}
-                            helperText={!isUnique ? "Serial Number already exists" : ""}
-                            id="outlined-basic"
-                            label="Canonical Serial Number (Immutable)"
-                            variant="outlined"
-                            InputProps={{ readOnly: true }}
-                            value={serialNumber}
-                        />
-
-                        <TextField
-                            fullWidth
-                            id="outlined-name"
-                            label="Product Name"
-                            variant="outlined"
-                            required
-                            onChange={(e) => setName(e.target.value)}
-                            value={name}
-                        />
-
-                        <TextField
-                            fullWidth
-                            id="outlined-brand"
-                            label="Brand"
-                            variant="outlined"
-                            required
-                            onChange={(e) => setBrand(e.target.value)}
-                            value={brand}
-                        />
-
-                        <TextField
-                            fullWidth
-                            id="outlined-description"
-                            label="Description"
-                            variant="outlined"
-                            multiline
-                            minRows={3}
-                            onChange={(e) => setDescription(e.target.value)}
-                            value={description}
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <span className="status-pill pill-green" style={{ fontSize: '13px', padding: '6px 14px' }}>
+                                ✅ Cryptographic Passport Minted
+                            </span>
+                        </div>
 
                         <div>
-                            <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 8 }}>
-                                Product Image Asset
-                            </label>
-                            <Button variant="outlined" component="label" fullWidth sx={{ textTransform: 'none', borderRadius: '10px', padding: '10px' }}>
-                                Choose Image File
-                                <input type="file" hidden accept="image/*" onChange={handleImage} />
-                            </Button>
-                            {image.filepreview && (
-                                <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border)', maxHeight: 200, display: 'flex', justifyContent: 'center' }}>
-                                    <img src={image.filepreview} alt="Product preview" style={{ maxWidth: '100%', objectFit: 'contain' }} />
-                                </div>
-                            )}
+                            <h2 style={{ margin: '0 0 6px 0', fontSize: '22px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                                {name || 'Registered Product'}
+                            </h2>
+                            <p style={{ margin: 0, fontSize: '14px', color: 'var(--color-text-secondary)' }}>
+                                Brand: <strong style={{ color: 'var(--color-text-main)' }}>{brand || '—'}</strong>
+                            </p>
                         </div>
-                    </div>
 
-                    {/* Right Column: Location, Packaging QR & Minting */}
-                    <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                        <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                            Provenance & Ledger Signer
-                        </h2>
+                        <div style={{ background: 'var(--color-surface-subtle)', padding: '14px', borderRadius: 10, border: '1px solid var(--color-border)' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+                                Canonical Serial Number
+                            </span>
+                            <code style={{ fontSize: '13px', color: 'var(--color-text-main)', wordBreak: 'break-all' }}>
+                                {serialNumber}
+                            </code>
+                        </div>
 
-                        <TextField
-                            fullWidth
-                            label="Business / Factory Location"
-                            value={manuLocation.replace(/;/g, ',')}
-                            onChange={(event) => {
-                                isLocationManuallyEditedRef.current = true;
-                                setManuLocation(event.target.value.replace(/,/g, ';'));
-                            }}
-                            helperText={chainNotice && chainNotice.includes('Location') ? chainNotice : "Automatically detected. Recorded with this on-chain registration."}
-                        />
-
-                        <Button
-                            type="button"
-                            variant="text"
-                            fullWidth
-                            onClick={handleDetectLocation}
-                            sx={{ textTransform: 'none' }}
-                            disabled={isDetectingLocation}
-                        >
-                            {isDetectingLocation ? (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <CircularProgress size={14} color="inherit" />
-                                    Resolving Location (Device & Network)...
+                        {description && (
+                            <div>
+                                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+                                    Product Description
                                 </span>
-                            ) : (
-                                '📍 Refresh Location'
-                            )}
-                        </Button>
-
-                        {/* Optional Auto-Dispatch Card */}
-                        {!productCreated && (
-                            <div style={{
-                                padding: '12px 14px',
-                                borderRadius: '10px',
-                                backgroundColor: 'var(--color-surface-subtle, #F8FAFC)',
-                                border: '1px solid var(--color-border, #E2E8F0)',
-                                display: 'flex',
-                                alignItems: 'flex-start',
-                                gap: '10px',
-                            }}>
-                                <input
-                                    type="checkbox"
-                                    id="autoDispatchToggle"
-                                    checked={autoDispatchOnCreate}
-                                    onChange={(e) => setAutoDispatchOnCreate(e.target.checked)}
-                                    style={{ marginTop: '2px', width: '16px', height: '16px', cursor: 'pointer' }}
-                                    disabled={loading !== ""}
-                                />
-                                <label htmlFor="autoDispatchToggle" style={{ cursor: 'pointer', fontSize: '13px' }}>
-                                    <strong style={{ color: 'var(--color-text-main)', display: 'block', marginBottom: '2px' }}>
-                                        Auto-Dispatch for Distribution
-                                    </strong>
-                                    <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.35, display: 'block', fontSize: '12px' }}>
-                                        Immediately transitions item into transit (Open Dispatch) so downstream partners can accept custody without separate re-scanning.
-                                    </span>
-                                </label>
+                                <p style={{ margin: 0, fontSize: '13.5px', color: 'var(--color-text-main)', lineHeight: 1.4 }}>
+                                    {description}
+                                </p>
                             </div>
                         )}
 
-                        {/* QR Code Preview, Download & 1-Click Transit Dispatch */}
-                        {qrData && (
-                            <div style={{ background: 'var(--color-surface-subtle)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 18, textAlign: 'center' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                                        Packaging QR Tag
-                                    </Typography>
-                                    <span className={`status-pill ${isDispatched ? 'pill-orange' : 'pill-blue'}`} style={{ fontSize: '11px' }}>
-                                        {isDispatched ? 'Consignment In Transit' : 'Manufactured'}
-                                    </span>
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
-                                    <QRCode value={qrData} id="QRCode" size={160} />
-                                </div>
-                                <Button variant="outlined" fullWidth onClick={downloadQR} sx={{ textTransform: 'none', borderRadius: '10px', mb: 1 }}>
-                                    Download High-Res PNG Label
-                                </Button>
-                                <Button
-                                    variant="outlined"
-                                    fullWidth
-                                    onClick={() => setIsLabelModalOpen(true)}
-                                    sx={{
-                                        textTransform: 'none',
-                                        borderRadius: '10px',
-                                        mb: 1.5,
-                                        borderColor: '#3B82F6',
-                                        color: '#1D4ED8',
-                                        fontWeight: 600,
-                                        '&:hover': { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' }
-                                    }}
-                                >
-                                    🖨️ Print 4×6″ Packaging Label (Thermal / Sticker)
-                                </Button>
+                        <div style={{ background: 'var(--color-surface-subtle)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--color-border)' }}>
+                            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
+                                Origin Location
+                            </span>
+                            <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-main)' }}>
+                                {manuLocation.replace(/;/g, ', ') || 'Registered Facility'}
+                            </p>
+                        </div>
 
-                                {!isDispatched ? (
+                        {image.filepreview && (
+                            <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border)', maxHeight: 180, display: 'flex', justifyContent: 'center' }}>
+                                <img src={image.filepreview} alt="Product preview" style={{ maxWidth: '100%', objectFit: 'contain' }} />
+                            </div>
+                        )}
+
+                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingTop: 12 }}>
+                            <button
+                                type="button"
+                                className="btn-secondary-action"
+                                style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px' }}
+                                onClick={() => navigate(`/product-details/${encodeURIComponent(serialNumber)}`)}
+                            >
+                                🔍 View Complete Product Passport
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-primary-action"
+                                style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px', backgroundColor: '#059669' }}
+                                onClick={resetForm}
+                                disabled={loading !== "" || dispatchLoading}
+                            >
+                                + Register Another Product
+                            </button>
+                            <button
+                                type="button"
+                                className="btn-secondary-action"
+                                style={{ width: '100%', justifyContent: 'center' }}
+                                onClick={() => navigate('/manufacturer')}
+                            >
+                                Return to Dashboard
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Right Column: Packaging QR Tag & Dispatch Action */}
+                    <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        <div style={{ background: 'var(--color-surface-subtle)', border: '1px solid var(--color-border)', borderRadius: 12, padding: 20, textAlign: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                                    Official Packaging QR Tag
+                                </Typography>
+                                <span className={`status-pill ${isDispatched ? 'pill-orange' : 'pill-green'}`} style={{ fontSize: '11px' }}>
+                                    {isDispatched ? 'Consignment In Transit' : 'Manufactured'}
+                                </span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14, background: '#FFFFFF', padding: 14, borderRadius: 10, width: 'fit-content', margin: '0 auto 14px auto', border: '1px solid var(--color-border)' }}>
+                                <QRCode value={qrData} id="QRCode" size={160} />
+                            </div>
+                            <Button variant="outlined" fullWidth onClick={downloadQR} sx={{ textTransform: 'none', borderRadius: '10px', mb: 1 }}>
+                                Download High-Res PNG Label
+                            </Button>
+                            <Button
+                                variant="outlined"
+                                fullWidth
+                                onClick={() => setIsLabelModalOpen(true)}
+                                sx={{
+                                    textTransform: 'none',
+                                    borderRadius: '10px',
+                                    mb: 1.5,
+                                    borderColor: '#3B82F6',
+                                    color: '#1D4ED8',
+                                    fontWeight: 600,
+                                    '&:hover': { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' }
+                                }}
+                            >
+                                🖨️ Print 4×6″ Packaging Label (Thermal / Sticker)
+                            </Button>
+
+                            {!isDispatched ? (
+                                <div style={{ marginTop: 10 }}>
+                                    <div style={{ padding: '10px 12px', borderRadius: 8, backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', fontSize: '12.5px', marginBottom: 10, textAlign: 'left' }}>
+                                        📦 <strong>Ready for Logistics:</strong> Click below to dispatch this item into the distribution network. Downstream partners will be able to confirm receipt.
+                                    </div>
                                     <Button
                                         variant="contained"
                                         fullWidth
@@ -686,45 +647,167 @@ const persistTransactionHash = async () => {
                                         {dispatchLoading ? (
                                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                 <CircularProgress size={16} color="inherit" />
-                                                Dispatching to Supply Chain...
+                                                Signing Outbound Dispatch via Facility Wallet...
                                             </span>
                                         ) : (
                                             '🚀 1-Click Dispatch to Distribution Network'
                                         )}
                                     </Button>
-                                ) : (
-                                    <div style={{ padding: '8px 12px', borderRadius: 8, backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF', fontSize: '12.5px', fontWeight: 600 }}>
-                                        🚀 Consignment Dispatched & In Transit to Partners
+                                </div>
+                            ) : (
+                                <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10 }}>
+                                    <span>🚀 Consignment Dispatched & In Transit to Partners</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <form onSubmit={handleSubmit} style={{ width: '100%' }}>
+                    <div className="dashboard-grid-dual">
+                        {/* Left Column: Product Metadata */}
+                        <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                                Product Specifications
+                            </h2>
+
+                            <TextField
+                                fullWidth
+                                error={!isUnique}
+                                helperText={!isUnique ? "Serial Number already exists" : ""}
+                                id="outlined-basic"
+                                label="Canonical Serial Number (Immutable)"
+                                variant="outlined"
+                                InputProps={{ readOnly: true }}
+                                value={serialNumber}
+                            />
+
+                            <TextField
+                                fullWidth
+                                id="outlined-name"
+                                label="Product Name"
+                                variant="outlined"
+                                required
+                                onChange={(e) => setName(e.target.value)}
+                                value={name}
+                            />
+
+                            <TextField
+                                fullWidth
+                                id="outlined-brand"
+                                label="Brand"
+                                variant="outlined"
+                                required
+                                onChange={(e) => setBrand(e.target.value)}
+                                value={brand}
+                            />
+
+                            <TextField
+                                fullWidth
+                                id="outlined-description"
+                                label="Description"
+                                variant="outlined"
+                                multiline
+                                minRows={3}
+                                onChange={(e) => setDescription(e.target.value)}
+                                value={description}
+                            />
+
+                            <div>
+                                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 8 }}>
+                                    Product Image Asset
+                                </label>
+                                <Button variant="outlined" component="label" fullWidth sx={{ textTransform: 'none', borderRadius: '10px', padding: '10px' }}>
+                                    Choose Image File
+                                    <input type="file" hidden accept="image/*" onChange={handleImage} />
+                                </Button>
+                                {image.filepreview && (
+                                    <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border)', maxHeight: 200, display: 'flex', justifyContent: 'center' }}>
+                                        <img src={image.filepreview} alt="Product preview" style={{ maxWidth: '100%', objectFit: 'contain' }} />
                                     </div>
                                 )}
                             </div>
-                        )}
+                        </div>
 
-                        {submitError && (
-                            <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #EF4444', color: '#EF4444', fontSize: '13px', fontWeight: 600 }}>
-                                ⚠️ {submitError}
-                            </div>
-                        )}
+                        {/* Right Column: Location, Packaging QR & Minting */}
+                        <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
+                                Provenance & Ledger Signer
+                            </h2>
 
-                        {loading && (
-                            <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', fontSize: '13px', textAlign: 'center', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                                <CircularProgress size={16} sx={{ color: 'var(--color-primary)' }} />
-                                {loading}
-                            </div>
-                        )}
+                            <TextField
+                                fullWidth
+                                label="Business / Factory Location"
+                                value={manuLocation.replace(/;/g, ',')}
+                                onChange={(event) => {
+                                    isLocationManuallyEditedRef.current = true;
+                                    setManuLocation(event.target.value.replace(/,/g, ';'));
+                                }}
+                                helperText={chainNotice && chainNotice.includes('Location') ? chainNotice : "Automatically detected. Recorded with this on-chain registration."}
+                            />
 
-                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {productCreated && qrData ? (
-                                <button
-                                    type="button"
-                                    className="btn-primary-action"
-                                    style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px', backgroundColor: '#059669' }}
-                                    onClick={resetForm}
-                                    disabled={loading !== "" || dispatchLoading}
-                                >
-                                    + Register Another Product
-                                </button>
-                            ) : (
+                            <Button
+                                type="button"
+                                variant="text"
+                                fullWidth
+                                onClick={handleDetectLocation}
+                                sx={{ textTransform: 'none' }}
+                                disabled={isDetectingLocation}
+                            >
+                                {isDetectingLocation ? (
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <CircularProgress size={14} color="inherit" />
+                                        Resolving Location (Device & Network)...
+                                    </span>
+                                ) : (
+                                    '📍 Refresh Location'
+                                )}
+                            </Button>
+
+                            {/* Optional Auto-Dispatch Card */}
+                            {!productCreated && (
+                                <div style={{
+                                    padding: '12px 14px',
+                                    borderRadius: '10px',
+                                    backgroundColor: 'var(--color-surface-subtle, #F8FAFC)',
+                                    border: '1px solid var(--color-border, #E2E8F0)',
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '10px',
+                                }}>
+                                    <input
+                                        type="checkbox"
+                                        id="autoDispatchToggle"
+                                        checked={autoDispatchOnCreate}
+                                        onChange={(e) => setAutoDispatchOnCreate(e.target.checked)}
+                                        style={{ marginTop: '2px', width: '16px', height: '16px', cursor: 'pointer' }}
+                                        disabled={loading !== ""}
+                                    />
+                                    <label htmlFor="autoDispatchToggle" style={{ cursor: 'pointer', fontSize: '13px' }}>
+                                        <strong style={{ color: 'var(--color-text-main)', display: 'block', marginBottom: '2px' }}>
+                                            Auto-Dispatch for Distribution
+                                        </strong>
+                                        <span style={{ color: 'var(--color-text-secondary)', lineHeight: 1.35, display: 'block', fontSize: '12px' }}>
+                                            Immediately transitions item into transit (Open Dispatch) so downstream partners can accept custody without separate re-scanning.
+                                        </span>
+                                    </label>
+                                </div>
+                            )}
+
+                            {submitError && (
+                                <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid #EF4444', color: '#EF4444', fontSize: '13px', fontWeight: 600 }}>
+                                    ⚠️ {submitError}
+                                </div>
+                            )}
+
+                            {loading && (
+                                <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: 'var(--color-primary-subtle)', border: '1px solid var(--color-primary)', color: 'var(--color-primary)', fontSize: '13px', textAlign: 'center', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                                    <CircularProgress size={16} sx={{ color: 'var(--color-primary)' }} />
+                                    {loading}
+                                </div>
+                            )}
+
+                            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
                                 <button
                                     type="submit"
                                     className="btn-primary-action"
@@ -733,32 +816,32 @@ const persistTransactionHash = async () => {
                                 >
                                     {retryAvailable ? "Retry Blockchain Registration" : "Sign & Register on Blockchain"}
                                 </button>
-                            )}
 
-                            {productCreated && !qrData && (
+                                {productCreated && !qrData && (
+                                    <button
+                                        type="button"
+                                        className="btn-secondary-action"
+                                        style={{ width: '100%', justifyContent: 'center', borderColor: '#EF4444', color: '#EF4444' }}
+                                        onClick={handleDiscardDraft}
+                                        disabled={loading !== ""}
+                                    >
+                                        🗑️ Discard Draft Registration
+                                    </button>
+                                )}
+
                                 <button
                                     type="button"
                                     className="btn-secondary-action"
-                                    style={{ width: '100%', justifyContent: 'center', borderColor: '#EF4444', color: '#EF4444' }}
-                                    onClick={handleDiscardDraft}
-                                    disabled={loading !== ""}
+                                    style={{ width: '100%', justifyContent: 'center' }}
+                                    onClick={handleBack}
                                 >
-                                    🗑️ Discard Draft Registration
+                                    Cancel & Return to Dashboard
                                 </button>
-                            )}
-
-                            <button
-                                type="button"
-                                className="btn-secondary-action"
-                                style={{ width: '100%', justifyContent: 'center' }}
-                                onClick={handleBack}
-                            >
-                                Cancel & Return to Dashboard
-                            </button>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </form>
+                </form>
+            )}
 
             <ThermalPackagingLabelModal
                 open={isLabelModalOpen}
