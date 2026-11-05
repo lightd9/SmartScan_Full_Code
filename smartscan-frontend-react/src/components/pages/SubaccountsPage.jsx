@@ -20,6 +20,7 @@ import {
   CardContent,
   CardActions,
   Divider,
+  InputAdornment,
 } from '@mui/material';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded';
@@ -33,6 +34,8 @@ import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import FlashOnRoundedIcon from '@mui/icons-material/FlashOnRounded';
 import BlockRoundedIcon from '@mui/icons-material/BlockRounded';
 import VpnKeyRoundedIcon from '@mui/icons-material/VpnKeyRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
@@ -52,6 +55,7 @@ export default function SubaccountsPage() {
 
   // State
   const [subaccounts, setSubaccounts] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [treasury, setTreasury] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -97,6 +101,17 @@ export default function SubaccountsPage() {
     setRefreshing(true);
     loadData();
   };
+
+  const filteredSubaccounts = subaccounts.filter((sub) => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.trim().toLowerCase();
+    const nameMatch = (sub.subaccount_name || '').toLowerCase().includes(term);
+    const codeMatch = (sub.facility_code || '').toLowerCase().includes(term);
+    const parentMatch = (sub.parent_username || '').toLowerCase().includes(term);
+    const addressMatch = (sub.wallet_address || '').toLowerCase().includes(term);
+    const roleMatch = (sub.role || '').toLowerCase().includes(term);
+    return nameMatch || codeMatch || parentMatch || addressMatch || roleMatch;
+  });
 
   // Copy to clipboard helper
   const copyToClipboard = (text, label) => {
@@ -311,14 +326,59 @@ export default function SubaccountsPage() {
 
       {/* Subaccounts Cards Section */}
       <Box sx={{ mb: 4 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
-            Operational Subaccounts ({subaccounts.length})
-          </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b' }}>
+              Operational Subaccounts ({filteredSubaccounts.length}{filteredSubaccounts.length !== subaccounts.length ? ` of ${subaccounts.length}` : ''})
+            </Typography>
+            {searchTerm && (
+              <Chip
+                size="small"
+                label={`Filtering: "${searchTerm}"`}
+                onDelete={() => setSearchTerm('')}
+                sx={{ fontWeight: 600, fontSize: '0.75rem', background: '#e0f2fe', color: '#0369a1' }}
+              />
+            )}
+          </Box>
           <Typography variant="caption" sx={{ color: '#64748b' }}>
             Smart contract: <span style={{ fontFamily: 'monospace' }}>{CONTRACT_ADDRESS.slice(0, 10)}...{CONTRACT_ADDRESS.slice(-6)}</span>
           </Typography>
         </Box>
+
+        {/* Admin Search Bar */}
+        {isAdmin && subaccounts.length > 0 && (
+          <Box sx={{ mb: 3 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Search by facility name, code (e.g. DOCK-01), parent account (@username), or wallet address (0x...)"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon sx={{ color: '#64748b', fontSize: 20 }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchTerm ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setSearchTerm('')} title="Clear search">
+                      <CloseRoundedIcon sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+                sx: {
+                  borderRadius: 2.5,
+                  backgroundColor: '#fff',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  '& fieldset': { border: 'none' },
+                  fontSize: '0.88rem',
+                },
+              }}
+            />
+          </Box>
+        )}
 
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -333,18 +393,38 @@ export default function SubaccountsPage() {
             <Typography variant="body2" sx={{ color: '#64748b', maxWidth: 460, mx: 'auto', mb: 3 }}>
               Operational subaccounts give warehouse docks and checkout registers autonomous, zero-friction on-chain signing capabilities without requiring staff to install MetaMask.
             </Typography>
+            {isAdmin && (
+              <Button
+                variant="contained"
+                startIcon={<AddCircleOutlineRoundedIcon />}
+                onClick={() => setOpenCreateDialog(true)}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                Provision Your First Subaccount
+              </Button>
+            )}
+          </Paper>
+        ) : filteredSubaccounts.length === 0 ? (
+          <Paper sx={{ p: 6, textAlign: 'center', borderRadius: 3, border: '1px dashed #cbd5e1', background: '#fff' }}>
+            <SearchRoundedIcon sx={{ fontSize: 44, color: '#94a3b8', mb: 1.5 }} />
+            <Typography variant="h6" sx={{ fontWeight: 600, color: '#475569', mb: 0.5 }}>
+              No Subaccounts Match &quot;{searchTerm}&quot;
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#64748b', maxWidth: 460, mx: 'auto', mb: 2.5 }}>
+              No facility name, code, parent account username, or wallet address matched your search.
+            </Typography>
             <Button
-              variant="contained"
-              startIcon={<AddCircleOutlineRoundedIcon />}
-              onClick={() => setOpenCreateDialog(true)}
-              sx={{ textTransform: 'none', fontWeight: 600 }}
+              variant="outlined"
+              size="small"
+              onClick={() => setSearchTerm('')}
+              sx={{ textTransform: 'none', fontWeight: 600, borderRadius: 2 }}
             >
-              Provision Your First Subaccount
+              Clear Search
             </Button>
           </Paper>
         ) : (
           <Grid container spacing={3}>
-            {subaccounts.map((sub) => {
+            {filteredSubaccounts.map((sub) => {
               const roleTheme = ROLE_COLORS[sub.role] || ROLE_COLORS.retailer;
               const isPending = sub.status === 'pending_approval';
               const isActive = sub.status === 'active';
