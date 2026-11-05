@@ -552,16 +552,35 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     let client;
     try {
       const { username, password, role, name, description = '', website = '', location = '', image = '' } = req.body || {};
-      if (!validText(username, 50) || !validNewPassword(password) || !validText(role, 20)) {
-        return res.status(400).json({ success: 0, error: 'username, a password of at least 12 characters, and role are required' });
+      if (!validText(username, 50)) {
+        return res.status(400).json({ success: 0, error: 'Username is required and must not exceed 50 characters' });
       }
-      if (!ROLES.includes(role)) {
-        return res.status(400).json({ success: 0, error: `role must be one of: ${ROLES.join(', ')}` });
+      if (!validNewPassword(password)) {
+        return res.status(400).json({ success: 0, error: 'Password is required and must be between 12 and 200 characters' });
+      }
+      if (!validText(role, 20) || !ROLES.includes(role)) {
+        return res.status(400).json({ success: 0, error: `Role is required and must be one of: ${ROLES.join(', ')}` });
       }
       const createsProfile = Object.prototype.hasOwnProperty.call(req.body || {}, 'name');
-      if (createsProfile && (!validText(name, 100) || Buffer.byteLength(name.trim(), 'utf8') > 100
-        || ![description, website, location, image].every((value) => typeof value === 'string' && value.length <= MAX_TEXT_LENGTH))) {
-        return res.status(400).json({ success: 0, error: 'A profile requires a business name of at most 100 UTF-8 bytes and text fields of at most 500 characters' });
+      if (createsProfile) {
+        if (!validText(name, 100)) {
+          return res.status(400).json({ success: 0, error: 'Company / Business Name is required and must not exceed 100 characters' });
+        }
+        if (Buffer.byteLength(name.trim(), 'utf8') > 100) {
+          return res.status(400).json({ success: 0, error: 'Company / Business Name cannot exceed 100 UTF-8 bytes for on-chain identity' });
+        }
+        if (typeof description !== 'string' || description.length > MAX_TEXT_LENGTH) {
+          return res.status(400).json({ success: 0, error: `Business Description must not exceed ${MAX_TEXT_LENGTH} characters` });
+        }
+        if (typeof website !== 'string' || website.length > MAX_TEXT_LENGTH) {
+          return res.status(400).json({ success: 0, error: `Website URL must not exceed ${MAX_TEXT_LENGTH} characters` });
+        }
+        if (typeof location !== 'string' || location.length > MAX_TEXT_LENGTH) {
+          return res.status(400).json({ success: 0, error: `Physical Location must not exceed ${MAX_TEXT_LENGTH} characters` });
+        }
+        if (typeof image !== 'string' || image.length > MAX_TEXT_LENGTH) {
+          return res.status(400).json({ success: 0, error: `Image file reference must not exceed ${MAX_TEXT_LENGTH} characters` });
+        }
       }
       client = await pool.connect();
       await client.query('BEGIN');

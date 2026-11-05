@@ -40,22 +40,23 @@ const AddAccount = () => {
     }
 
     // to upload image
-const uploadImage = async (image) => {
-  if (!image?.file) {
-    return "";
-  }
-  const data = new FormData();
-  data.append("image", image.file);
+    const uploadImage = async (image) => {
+        const file = image?.file;
+        if (!file || (Array.isArray(file) && file.length === 0) || !(file instanceof File || file instanceof Blob)) {
+            return "";
+        }
+        const data = new FormData();
+        data.append("image", file);
 
-  const res = await axios.post("/upload/profile", data, {
-    headers: { "Content-Type": "multipart/form-data" }
-  });
+        const res = await axios.post("/upload/profile", data, {
+            headers: { "Content-Type": "multipart/form-data" }
+        });
 
-  if (res.data?.success !== 1) {
-    throw new Error("Image upload failed");
-  }
-  return res.data.fileName;
-};
+        if (res.data?.success !== 1) {
+            throw new Error(res.data?.error || "Image upload failed");
+        }
+        return res.data.fileName;
+    };
 
 
     const handleBack = () => {
@@ -65,18 +66,82 @@ const uploadImage = async (image) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        if (!user || !pwd || !name) {
-            setErrMsg('Please fill in the username, password and name.');
+        const cleanUser = user.trim();
+        const cleanName = name.trim();
+        const cleanDesc = description.trim();
+        const cleanWebsite = website.trim();
+        const cleanLoc = location.trim();
+
+        if (!cleanUser) {
+            setErrMsg('Please enter a username.');
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (cleanUser.length > 50) {
+            setErrMsg(`Username cannot exceed 50 characters (currently ${cleanUser.length} characters).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (!role || !options.includes(role)) {
+            setErrMsg(`Please select an assigned role (${options.join(', ')}).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (!pwd) {
+            setErrMsg('Please enter a password.');
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
             return;
         }
 
         if (pwd.length < 12) {
-            setErrMsg('Choose a password with at least 12 characters.');
+            setErrMsg(`Password must have at least 12 characters (currently ${pwd.length} characters).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (pwd.length > 200) {
+            setErrMsg('Password cannot exceed 200 characters.');
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
             return;
         }
 
         if (pwd !== pwd2) {
-            setErrMsg('Passwords do not match.');
+            setErrMsg('Passwords do not match. Please verify both password entries.');
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (!cleanName) {
+            setErrMsg('Company / Business Name is required.');
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        const nameBytes = new TextEncoder().encode(cleanName).length;
+        if (nameBytes > 100) {
+            setErrMsg(`Company / Business Name cannot exceed 100 UTF-8 bytes for on-chain identity (currently ${nameBytes} bytes).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (cleanDesc.length > 500) {
+            setErrMsg(`Business Description cannot exceed 500 characters (currently ${cleanDesc.length} characters).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (cleanWebsite.length > 500) {
+            setErrMsg(`Website URL cannot exceed 500 characters (currently ${cleanWebsite.length} characters).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        if (cleanLoc.length > 500) {
+            setErrMsg(`Physical Location cannot exceed 500 characters (currently ${cleanLoc.length} characters).`);
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
             return;
         }
 
@@ -84,12 +149,12 @@ const uploadImage = async (image) => {
             const fileName = await uploadImage(image);
 
             await axios.post('/addaccount', {
-                username: user,
+                username: cleanUser,
                 password: pwd,
-                name,
-                description,
-                website,
-                location,
+                name: cleanName,
+                description: cleanDesc,
+                website: cleanWebsite,
+                location: cleanLoc,
                 image: fileName,
                 role
             });
@@ -108,20 +173,22 @@ const uploadImage = async (image) => {
             });
 
             setErrMsg('');
-            setSuccessMsg(`Enterprise account for @${user} created successfully! Authorized on-chain roles may now be assigned.`);
+            setSuccessMsg(`Enterprise account for @${cleanUser} created successfully! Authorized on-chain roles may now be assigned.`);
         } catch (err) {
             setSuccessMsg('');
-            if (!err?.response) {
-                setErrMsg('Server is down. Please try again later.');
+            const serverError = err.response?.data?.error || err.response?.data?.message;
+            if (serverError) {
+                setErrMsg(serverError);
+            } else if (!err?.response) {
+                setErrMsg('Server is unreachable. Please check your network connection.');
             } else if (err.response?.status === 409) {
-                setErrMsg('That username is already taken.');
-            } else if (err.response?.status === 400) {
-                setErrMsg('Please check the details you entered.');
+                setErrMsg(`Username "${cleanUser}" is already taken. Please choose another username.`);
             } else if (err.response?.status === 401 || err.response?.status === 403) {
-                setErrMsg('You are not authorized to add accounts.');
+                setErrMsg('You are not authorized to provision accounts. Please ensure you are logged in as an Administrator.');
             } else {
-                setErrMsg('Failed to add the account. Please try again later.');
+                setErrMsg(err.message || 'Failed to add the account. Please review your entries.');
             }
+            errRef.current?.scrollIntoView({ behavior: 'smooth' });
             errRef.current?.focus();
         }
     };
@@ -177,6 +244,8 @@ const uploadImage = async (image) => {
                             label="Username"
                             variant="outlined"
                             required
+                            inputProps={{ maxLength: 50 }}
+                            helperText="Unique login identifier (1-50 characters)."
                             onChange={(e) => setUser(e.target.value)}
                             value={user}
                         />
@@ -191,7 +260,7 @@ const uploadImage = async (image) => {
                                 setRole(newRole);
                             }}
                             renderInput={(params) => (
-                                <TextField {...params} fullWidth label="Assigned Role" variant="outlined" />
+                                <TextField {...params} fullWidth label="Assigned Role" variant="outlined" helperText="Determines supply chain permissions & smart contract role." />
                             )}
                         />
 
@@ -203,7 +272,8 @@ const uploadImage = async (image) => {
                             variant="outlined"
                             required
                             inputProps={{ minLength: 12, maxLength: 200 }}
-                            helperText="Use at least 12 characters."
+                            error={Boolean(pwd && pwd.length < 12)}
+                            helperText={pwd && pwd.length < 12 ? `Need ${12 - pwd.length} more character${12 - pwd.length > 1 ? 's' : ''} (min 12).` : "Minimum 12 characters required."}
                             onChange={(e) => setPwd(e.target.value)}
                             value={pwd}
                         />
@@ -216,15 +286,11 @@ const uploadImage = async (image) => {
                             variant="outlined"
                             required
                             inputProps={{ minLength: 12, maxLength: 200 }}
+                            error={Boolean(pwd && pwd2 && pwd !== pwd2)}
+                            helperText={pwd && pwd2 && pwd !== pwd2 ? "Passwords do not match." : "Re-enter the same password."}
                             onChange={(e) => setPwd2(e.target.value)}
                             value={pwd2}
                         />
-
-                        {pwd && pwd2 && pwd !== pwd2 && (
-                            <div style={{ color: 'var(--status-red-text)', fontSize: '12.5px', fontWeight: 600 }}>
-                                Passwords do not match
-                            </div>
-                        )}
                     </div>
 
                     {/* Right Column: Business Profile */}
