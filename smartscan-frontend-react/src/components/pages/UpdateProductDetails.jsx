@@ -254,10 +254,8 @@ const UpdateProductDetails = () => {
                     });
                     return;
                 } catch (autoErr) {
-                    console.warn('Facility auto-execute attempt:', autoErr.response?.data?.error || autoErr.message);
-                    if (!window.ethereum) {
-                        throw new Error(autoErr.response?.data?.error || 'Autonomous signing failed and no browser wallet is connected.');
-                    }
+                    console.error('Facility auto-execute error:', autoErr);
+                    throw new Error(autoErr.response?.data?.error || autoErr.message || 'Facility wallet execution failed.');
                 }
             }
 

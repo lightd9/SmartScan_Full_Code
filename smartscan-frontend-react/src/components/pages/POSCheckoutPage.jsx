@@ -378,19 +378,19 @@ export default function POSCheckoutPage() {
     };
 
     const content = (
-        <Box sx={{ maxWidth: 1040, margin: '0 auto', p: { xs: 2, sm: 3 } }}>
-            {/* Header Ribbon */}
+        <Box sx={{ width: '100%', maxWidth: 1320, boxSizing: 'border-box', margin: '0 auto', p: { xs: 1.5, sm: 3, xl: 4 } }}>
+            {/* Register header */}
             <Box sx={{
                 display: 'flex',
-                alignItems: { xs: 'flex-start', sm: 'center' },
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                flexDirection: { xs: 'column', sm: 'row' },
-                gap: 2,
-                mb: 3,
-                pb: 2,
+                flexWrap: 'wrap',
+                gap: 2.5,
+                mb: 2.5,
+                pb: 2.5,
                 borderBottom: '1px solid #E2E8F0',
             }}>
-                <Box>
+                <Box sx={{ minWidth: 0, flex: '1 1 440px' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Box sx={{
                             width: 38,
@@ -405,14 +405,12 @@ export default function POSCheckoutPage() {
                             <PointOfSaleRoundedIcon sx={{ fontSize: 22 }} />
                         </Box>
                         <div>
-                            <Typography variant="h5" sx={{ fontWeight: 800, color: '#0F172A', letterSpacing: '-0.02em' }}>
-                                Retail Point-of-Sale Checkout
+                            <Typography component="h1" variant="h4" sx={{ fontSize: { xs: 24, sm: 28 }, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.035em', lineHeight: 1.2 }}>
+                                Retail checkout
                             </Typography>
-                            <Typography variant="caption" sx={{ color: '#64748B', display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="caption" sx={{ color: '#64748B', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, rowGap: 0.5 }}>
                                 <span>Store #01 · Register 02</span>
-                                <span>•</span>
                                 <span>Cashier: <strong>{auth?.username || 'Store Staff'}</strong></span>
-                                <span>•</span>
                                 <span style={{ color: '#059669', fontWeight: 700 }}>● {CHAIN_NAME} active ({CHAIN_ID})</span>
                             </Typography>
                         </div>
@@ -420,8 +418,9 @@ export default function POSCheckoutPage() {
                 </Box>
 
                 {/* POS Controls */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: { xs: 'flex-start', lg: 'flex-end' }, gap: 1, flexWrap: 'wrap', flex: '1 1 460px' }}>
                     <FormControlLabel
+                        sx={{ m: 0, px: 1, border: '1px solid #E2E8F0', borderRadius: '10px', backgroundColor: '#FFFFFF', minHeight: 40, '& .MuiFormControlLabel-label': { whiteSpace: 'nowrap' } }}
                         control={
                             <Switch
                                 size="small"
@@ -430,9 +429,10 @@ export default function POSCheckoutPage() {
                                 onChange={(e) => setAutoSignEnabled(e.target.checked)}
                             />
                         }
-                        label={<span style={{ fontSize: '12px', fontWeight: 700, color: autoSignEnabled ? '#059669' : '#64748b' }}>⚡ Facility Auto-Sign</span>}
+                        label={<span style={{ fontSize: '12px', fontWeight: 700, color: autoSignEnabled ? '#047857' : '#64748B' }}>Facility auto-sign</span>}
                     />
                     <FormControlLabel
+                        sx={{ m: 0, px: 1, border: '1px solid #E2E8F0', borderRadius: '10px', backgroundColor: '#FFFFFF', minHeight: 40, '& .MuiFormControlLabel-label': { whiteSpace: 'nowrap' } }}
                         control={
                             <Switch
                                 size="small"
@@ -440,36 +440,43 @@ export default function POSCheckoutPage() {
                                 onChange={(e) => setAutoPrintReceipt(e.target.checked)}
                             />
                         }
-                        label={<span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Auto-Popup Receipt</span>}
+                        label={<span style={{ fontSize: '12px', fontWeight: 600, color: '#475569' }}>Auto receipt</span>}
                     />
                     <IconButton
                         size="small"
                         onClick={() => setAudioEnabled(!audioEnabled)}
-                        title={audioEnabled ? 'Mute Chimes' : 'Enable Chimes'}
+                        title={audioEnabled ? 'Mute chimes' : 'Enable chimes'}
+                        aria-label={audioEnabled ? 'Mute chimes' : 'Enable chimes'}
                         sx={{
+                            width: 40,
+                            height: 40,
                             backgroundColor: audioEnabled ? '#EFF6FF' : '#F1F5F9',
-                            color: audioEnabled ? '#2563EB' : '#94A3B8',
-                            border: '1px solid #CBD5E1',
-                            borderRadius: '8px',
-                            p: 0.8,
+                            color: audioEnabled ? '#2563EB' : '#64748B',
+                            border: '1px solid #E2E8F0',
+                            borderRadius: '10px',
                         }}
                     >
                         {audioEnabled ? <VolumeUpRoundedIcon sx={{ fontSize: 18 }} /> : <VolumeOffRoundedIcon sx={{ fontSize: 18 }} />}
                     </IconButton>
                     <Button
-                        variant="outlined"
+                        variant={cameraOpen ? 'contained' : 'outlined'}
                         size="small"
                         startIcon={<QrCodeScannerRoundedIcon />}
                         onClick={() => setCameraOpen(!cameraOpen)}
                         sx={{
+                            minHeight: 40,
+                            px: 1.5,
                             textTransform: 'none',
-                            fontSize: '12px',
-                            borderRadius: '8px',
-                            borderColor: cameraOpen ? '#EF4444' : '#CBD5E1',
-                            color: cameraOpen ? '#EF4444' : '#334155',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            borderRadius: '10px',
+                            borderColor: cameraOpen ? '#2563EB' : '#CBD5E1',
+                            color: cameraOpen ? '#FFFFFF' : '#334155',
+                            backgroundColor: cameraOpen ? '#2563EB' : '#FFFFFF',
+                            whiteSpace: 'nowrap',
                         }}
                     >
-                        {cameraOpen ? 'Close Camera' : 'Camera Scanner'}
+                        {cameraOpen ? 'Close camera' : 'Use camera'}
                     </Button>
                 </Box>
             </Box>
@@ -508,21 +515,25 @@ export default function POSCheckoutPage() {
                 elevation={0}
                 sx={{
                     p: { xs: 2, sm: 2.5 },
-                    mb: 3,
-                    borderRadius: '16px',
-                    border: '2px solid #2563EB',
+                    mb: 2.5,
+                    borderRadius: '14px',
+                    border: '1px solid #C7D7FE',
                     backgroundColor: '#FFFFFF',
-                    boxShadow: '0 4px 20px -2px rgba(37, 99, 235, 0.08)',
+                    boxShadow: '0 2px 8px rgba(15, 23, 42, 0.035)',
                 }}
             >
-                <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0F172A', mb: 1 }}>
-                    ⚡ Hardware Barcode Scanner Ingestion (Auto-Focused)
+                <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 700, color: '#0F172A', mb: 0.4 }}>
+                    Scan to verify
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                <Typography variant="body2" sx={{ color: '#64748B', mb: 1.75 }}>
+                    Use the camera, a barcode scanner, or enter the serial number.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'stretch', flexDirection: { xs: 'column', sm: 'row' } }}>
                     <TextField
                         fullWidth
                         inputRef={inputRef}
-                        placeholder="Scan packaging barcode with handheld scanner or enter serial number (SS-...)..."
+                        inputProps={{ 'aria-label': 'Product serial number' }}
+                        placeholder="Scan or enter product serial number"
                         value={scannedInput}
                         onChange={(e) => setScannedInput(e.target.value)}
                         onKeyDown={handleKeyDown}
@@ -548,6 +559,9 @@ export default function POSCheckoutPage() {
                         sx={{
                             px: 3.5,
                             py: 1.5,
+                            minHeight: 52,
+                            minWidth: { sm: 155 },
+                            width: { xs: '100%', sm: 'auto' },
                             borderRadius: '12px',
                             textTransform: 'none',
                             fontWeight: 700,
@@ -556,11 +570,11 @@ export default function POSCheckoutPage() {
                             '&:hover': { backgroundColor: '#1D4ED8' }
                         }}
                     >
-                        {verifying ? <CircularProgress size={20} sx={{ color: '#FFFFFF' }} /> : 'Verify & Ring Up'}
+                        {verifying ? <CircularProgress size={20} sx={{ color: '#FFFFFF' }} /> : 'Verify product'}
                     </Button>
                 </Box>
                 <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 1 }}>
-                    Compatible with any standard USB or Bluetooth 1D/2D barcode wedge scanner. Scanner automatically sends [Enter] to authenticate immediately.
+                    Handheld barcode scanners submit automatically on Enter.
                 </Typography>
             </Paper>
 
@@ -701,32 +715,40 @@ export default function POSCheckoutPage() {
             <Paper
                 elevation={0}
                 sx={{
-                    p: 2.5,
-                    borderRadius: '16px',
+                    p: { xs: 2, sm: 2.5 },
+                    borderRadius: '14px',
                     border: '1px solid #E2E8F0',
                     backgroundColor: '#FFFFFF',
                 }}
             >
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#0F172A' }}>
-                        Current Session Scans ({shiftLog.length})
+                    <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#0F172A' }}>
+                        Session activity
                     </Typography>
                     {shiftLog.length > 0 && (
-                        <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => setShiftLog([])}
-                            sx={{ textTransform: 'none', fontSize: '11px', color: '#94A3B8' }}
-                        >
-                            Clear Log
-                        </Button>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Chip size="small" label={`${shiftLog.length} scanned`} sx={{ backgroundColor: '#F1F5F9', color: '#475569', fontWeight: 600 }} />
+                            <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => setShiftLog([])}
+                                sx={{ textTransform: 'none', fontSize: '12px', color: '#64748B' }}
+                            >
+                                Clear session
+                            </Button>
+                        </Box>
                     )}
                 </Box>
 
                 {shiftLog.length === 0 ? (
-                    <Box sx={{ py: 3, textAlign: 'center', color: '#94A3B8' }}>
-                        <ReceiptLongRoundedIcon sx={{ fontSize: 32, opacity: 0.5, mb: 0.5 }} />
-                        <Typography variant="body2">No products scanned on this register shift yet.</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 1.5, px: 1.75, border: '1px dashed #D7DFEB', borderRadius: '12px', backgroundColor: '#F8FAFC' }}>
+                        <Box sx={{ width: 40, height: 40, flex: '0 0 40px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '12px', backgroundColor: '#FFFFFF', color: '#64748B', border: '1px solid #E2E8F0' }}>
+                            <ReceiptLongRoundedIcon sx={{ fontSize: 20 }} />
+                        </Box>
+                        <Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600, color: '#334155' }}>No scans yet</Typography>
+                            <Typography variant="caption" sx={{ color: '#64748B' }}>Verified products will appear here during this session.</Typography>
+                        </Box>
                     </Box>
                 ) : (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>

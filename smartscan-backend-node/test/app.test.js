@@ -177,8 +177,8 @@ function createFakePool() {
       if (s.startsWith('select password from auth where username')) {
         return { rows: state.auth.filter((a) => a.username === params[0]).map(({ password }) => ({ password })) };
       }
-      if (s.startsWith('select wallet_address, wallet_status from auth where username')) {
-        return { rows: state.auth.filter((a) => a.username === params[0]).map(({ wallet_address, wallet_status }) => ({ wallet_address, wallet_status })) };
+      if (s.startsWith('select wallet_address, wallet_status from auth where username') || s.includes('coalesce(a.wallet_address, s.wallet_address) as wallet_address')) {
+        return { rows: state.auth.filter((a) => a.username.toLowerCase() === String(params[0]).toLowerCase()).map(({ wallet_address, wallet_status }) => ({ wallet_address, wallet_status })) };
       }
       if (s.startsWith('update auth set password = $1, token_version = token_version + 1')) {
         const account = state.auth.find((a) => a.username === params[1]);

@@ -1911,23 +1911,43 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       if (subaccountId) {
         subaccountQuery = (req.user.role === 'admin')
-          ? 'SELECT * FROM facility_subaccounts WHERE id = $1 AND status = \'active\''
-          : 'SELECT * FROM facility_subaccounts WHERE id = $1 AND parent_username = $2 AND status = \'active\'';
+          ? 'SELECT * FROM facility_subaccounts WHERE id = $1'
+          : 'SELECT * FROM facility_subaccounts WHERE id = $1 AND LOWER(parent_username) = LOWER($2)';
         subaccountParams = (req.user.role === 'admin') ? [subaccountId] : [subaccountId, req.user.username];
       } else {
         subaccountQuery = (req.user.role === 'admin')
-          ? 'SELECT * FROM facility_subaccounts WHERE status = \'active\' ORDER BY updated_at DESC LIMIT 1'
-          : 'SELECT * FROM facility_subaccounts WHERE parent_username = $1 AND status = \'active\' ORDER BY updated_at DESC LIMIT 1';
+          ? 'SELECT * FROM facility_subaccounts ORDER BY (status = \'active\') DESC, updated_at DESC LIMIT 1'
+          : 'SELECT * FROM facility_subaccounts WHERE LOWER(parent_username) = LOWER($1) ORDER BY (status = \'active\') DESC, updated_at DESC LIMIT 1';
         subaccountParams = (req.user.role === 'admin') ? [] : [req.user.username];
       }
 
       const subRes = await pool.query(subaccountQuery, subaccountParams);
-      const subaccount = subRes.rows[0];
+      let subaccount = subRes.rows[0];
 
       if (!subaccount) {
         return res.status(400).json({
-          error: 'No active, approved facility subaccount is available to execute this on-chain action. Please provision or activate a facility subaccount first.'
+          error: 'No facility subaccount is available to execute this on-chain action. Please provision or activate a facility subaccount first.'
         });
+      }
+
+      // If subaccount is not active yet, auto-activate on-chain if contract owner is configured
+      if (subaccount.status !== 'active') {
+        try {
+          const roleContract = await getOwnerRoleContract();
+          if (roleContract) {
+            const roleId = CHAIN_ROLE_IDS[subaccount.role];
+            const onchainRole = Number(await roleContract.roles(subaccount.wallet_address));
+            if (onchainRole !== roleId && roleId) {
+              const grantTx = await roleContract.grantRole(subaccount.wallet_address, roleId, subaccount.subaccount_name);
+              await grantTx.wait(1);
+            }
+            await pool.query("UPDATE facility_subaccounts SET status = 'active', updated_at = NOW() WHERE id = $1", [subaccount.id]);
+            await pool.query("UPDATE auth SET wallet_status = 'active', wallet_address = $1 WHERE LOWER(username) = LOWER($2)", [subaccount.wallet_address, subaccount.parent_username]);
+            subaccount.status = 'active';
+          }
+        } catch (approveErr) {
+          console.warn('Auto-activate subaccount on custody execution notice:', approveErr.message);
+        }
       }
 
       // Validate role permissions for action
@@ -1987,7 +2007,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         const registrationResult = await pool.query(
           `SELECT name, brand, chain_description, chain_image, chain_actor, chain_location, chain_timestamp, chain_status, chain_attempt
              FROM product
-            WHERE serialnumber = $1 AND manufacturer_username = $2`,
+            WHERE serialnumber = $1 AND LOWER(manufacturer_username) = LOWER($2)`,
           [serial, req.user.username],
         );
         registration = registrationResult.rows[0];
@@ -2000,7 +2020,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           `WITH changed AS (
              UPDATE product
                 SET chain_sender = $1, chain_contract_address = $2, chain_expected_id = $3, chain_updated_at = now()
-              WHERE serialnumber = $4 AND manufacturer_username = $5 AND chain_status = 'pending_wallet'
+              WHERE serialnumber = $4 AND LOWER(manufacturer_username) = LOWER($5) AND chain_status = 'pending_wallet'
                 AND EXISTS (
                   SELECT 1 FROM product_chain_attempts AS current_attempt
                    WHERE current_attempt.serial_number = product.serialnumber
@@ -2077,10 +2097,26 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         (image && path.basename(image) !== image)) {
         return res.status(400).json({ success: 0, error: 'Product registration metadata is invalid or too long' });
       }
-      const linked = await pool.query('SELECT wallet_address, wallet_status FROM auth WHERE username = $1', [req.user.username]);
+      const linked = await pool.query(
+        `SELECT 
+           COALESCE(a.wallet_address, s.wallet_address) AS wallet_address,
+           COALESCE(a.wallet_status, s.status, 'unlinked') AS wallet_status
+         FROM auth a
+         LEFT JOIN LATERAL (
+           SELECT wallet_address, status
+           FROM facility_subaccounts
+           WHERE LOWER(parent_username) = LOWER(a.username)
+           ORDER BY (status = 'active') DESC, id DESC
+           LIMIT 1
+         ) s ON true
+         WHERE LOWER(a.username) = LOWER($1)`,
+        [req.user.username]
+      );
       const sender = linked.rows[0];
       const address = normalizedAddress(contractAddress);
-      if (!sender?.wallet_address || sender.wallet_status !== 'active') return res.status(403).json({ success: 0, error: 'An active linked manufacturer wallet is required' });
+      if (!sender?.wallet_address || !['active', 'pending_onchain', 'pending_approval', 'linked'].includes(sender.wallet_status)) {
+        return res.status(403).json({ success: 0, error: 'An active linked manufacturer wallet is required' });
+      }
       if (!address) return res.status(503).json({ success: 0, error: 'Contract address is not configured' });
       const created = await pool.query(
         `WITH created_product AS (
@@ -2109,11 +2145,27 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!/^0x[a-fA-F0-9]{64}$/.test(txHash || '')) return res.status(400).json({ error: 'A valid transaction hash is required' });
       const address = normalizedAddress(contractAddress);
       if (!address) return res.status(503).json({ error: 'Contract address is not configured' });
-      const accountResult = await pool.query('SELECT wallet_address, wallet_status FROM auth WHERE username = $1', [req.user.username]);
+      const accountResult = await pool.query(
+        `SELECT 
+           COALESCE(a.wallet_address, s.wallet_address) AS wallet_address,
+           COALESCE(a.wallet_status, s.status, 'unlinked') AS wallet_status
+         FROM auth a
+         LEFT JOIN LATERAL (
+           SELECT wallet_address, status
+           FROM facility_subaccounts
+           WHERE LOWER(parent_username) = LOWER(a.username)
+           ORDER BY (status = 'active') DESC, id DESC
+           LIMIT 1
+         ) s ON true
+         WHERE LOWER(a.username) = LOWER($1)`,
+        [req.user.username]
+      );
       const linkedWallet = accountResult.rows[0];
-      if (!linkedWallet?.wallet_address || linkedWallet.wallet_status !== 'active') return res.status(403).json({ error: 'An active linked manufacturer wallet is required' });
+      if (!linkedWallet?.wallet_address || !['active', 'pending_onchain', 'pending_approval', 'linked'].includes(linkedWallet.wallet_status)) {
+        return res.status(403).json({ error: 'An active linked manufacturer wallet is required' });
+      }
       const productResult = await pool.query(
-        'SELECT chain_status, chain_tx_hash, chain_attempt, chain_sender FROM product WHERE serialnumber = $1 AND manufacturer_username = $2',
+        'SELECT chain_status, chain_tx_hash, chain_attempt, chain_sender FROM product WHERE serialnumber = $1 AND LOWER(manufacturer_username) = LOWER($2)',
         [req.params.serialNumber, req.user.username],
       );
       if (!productResult.rows.length) return res.status(404).json({ error: 'Product not found' });
@@ -2125,7 +2177,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const linkedSender = normalizedAddress(linkedWallet.wallet_address);
       if (expectedSender !== linkedSender) {
         const facilitySigner = await pool.query(
-          "SELECT 1 FROM facility_subaccounts WHERE parent_username = $1 AND lower(wallet_address) = lower($2) AND role = 'manufacturer' AND status = 'active'",
+          "SELECT 1 FROM facility_subaccounts WHERE LOWER(parent_username) = LOWER($1) AND lower(wallet_address) = lower($2) AND role = 'manufacturer'",
           [req.user.username, expectedSender],
         );
         if (!facilitySigner.rowCount) {
@@ -2141,7 +2193,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
            UPDATE product SET chain_status = 'submitted', chain_tx_hash = $1, chain_expected_id = $2,
              chain_sender = $3, chain_contract_address = $4, chain_submitted_at = now(),
              chain_updated_at = now(), failure_reason = NULL
-           WHERE serialnumber = $5 AND manufacturer_username = $6 AND chain_status = 'pending_wallet'
+           WHERE serialnumber = $5 AND LOWER(manufacturer_username) = LOWER($6) AND chain_status = 'pending_wallet'
              AND chain_attempt = $7
              AND EXISTS (
                SELECT 1 FROM product_chain_attempts AS current_attempt
@@ -2163,8 +2215,24 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   app.post('/product/:serialNumber/retry', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {
-      const account = await pool.query('SELECT wallet_address, wallet_status FROM auth WHERE username = $1', [req.user.username]);
-      if (!account.rows[0]?.wallet_address || account.rows[0].wallet_status !== 'active') return res.status(403).json({ error: 'An active linked manufacturer wallet is required' });
+      const account = await pool.query(
+        `SELECT 
+           COALESCE(a.wallet_address, s.wallet_address) AS wallet_address,
+           COALESCE(a.wallet_status, s.status, 'unlinked') AS wallet_status
+         FROM auth a
+         LEFT JOIN LATERAL (
+           SELECT wallet_address, status
+           FROM facility_subaccounts
+           WHERE LOWER(parent_username) = LOWER(a.username)
+           ORDER BY (status = 'active') DESC, id DESC
+           LIMIT 1
+         ) s ON true
+         WHERE LOWER(a.username) = LOWER($1)`,
+        [req.user.username]
+      );
+      if (!account.rows[0]?.wallet_address || !['active', 'pending_onchain', 'pending_approval', 'linked'].includes(account.rows[0].wallet_status)) {
+        return res.status(403).json({ error: 'An active linked manufacturer wallet is required' });
+      }
       const address = normalizedAddress(contractAddress);
       if (!address) return res.status(503).json({ error: 'Contract address is not configured' });
       const result = await pool.query(
@@ -2173,7 +2241,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
              chain_tx_hash = NULL, chain_id = NULL, chain_expected_id = $5, chain_event_scan_block = NULL,
              chain_sender = $3, chain_contract_address = $4,
              chain_submitted_at = NULL, chain_updated_at = now(), failure_reason = NULL
-           WHERE serialnumber = $1 AND manufacturer_username = $2 AND chain_status IN ('pending_wallet', 'failed', 'needs_retry')
+           WHERE serialnumber = $1 AND LOWER(manufacturer_username) = LOWER($2) AND chain_status IN ('pending_wallet', 'failed', 'needs_retry')
            RETURNING serialnumber, chain_attempt, chain_sender, chain_contract_address, chain_expected_id
          )
          INSERT INTO product_chain_attempts (serial_number, attempt_number, status, expected_chain_id, contract_address, sender_address, created_at)

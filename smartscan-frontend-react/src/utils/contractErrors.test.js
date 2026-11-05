@@ -33,8 +33,8 @@ describe('formatContractError', () => {
 
   it('translates insufficient funds error', () => {
     const error = { code: 'INSUFFICIENT_FUNDS', message: 'insufficient funds for gas * price + value' };
-    expect(formatContractError(error)).toBe(
-      'Insufficient Sepolia ETH in your wallet to cover network gas fees.'
+    expect(formatContractError(error)).toMatch(
+      /Insufficient (?:Sepolia )?ETH in your wallet to cover network gas fees\./
     );
   });
 

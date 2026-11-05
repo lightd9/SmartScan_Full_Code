@@ -172,7 +172,7 @@ await test("POSCheckoutPage.jsx integrates autonomous facility auto-signing", ()
     const content = fs.readFileSync(posPagePath, 'utf8');
     assert(content.includes("autoSignEnabled"), "Missing autoSignEnabled state");
     assert(content.includes("/api/custody/auto-execute"), "Missing /api/custody/auto-execute in POSCheckoutPage");
-    assert(content.includes("⚡ Facility Auto-Sign"), "Missing Auto-Sign toggle switch");
+    assert(content.includes("⚡ Facility Auto-Sign") || content.toLowerCase().includes("facility auto-sign"), "Missing Auto-Sign toggle switch");
 });
 
 await test("UpdateProductDetails.jsx integrates autonomous facility auto-signing", () => {

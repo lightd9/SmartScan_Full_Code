@@ -206,40 +206,25 @@ const AddProduct = () => {
         if (!serialNumber) return;
         setDispatchLoading(true);
         setSubmitError("");
-        setChainNotice("Initiating outbound transit dispatch to supply chain (Open Dispatch)...");
+        setChainNotice("Initiating outbound transit dispatch via facility wallet...");
         try {
-            const { ethereum } = window;
-            if (!ethereum) throw new Error("MetaMask is required to sign transit dispatch.");
-            const accounts = await ethereum.request({ method: "eth_requestAccounts" });
-            const account = accounts[0];
-
-            setLoading("Authorizing transit dispatch...");
-            await axios.post('/wallet/authorize-write', {
-                walletAddress: account,
+            setLoading("Dispatching consignment via facility wallet...");
+            const autoRes = await axios.post('/api/custody/auto-execute', {
+                serialNumber,
                 action: 'dispatch',
+                location: manuLocation,
+                recipientWallet: ethers.ZeroAddress,
             });
 
-            const provider = new ethers.BrowserProvider(ethereum);
-            const signer = await provider.getSigner();
-            const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-
-            setLoading("Confirm transit dispatch in your MetaMask popup window...");
-            const dispatchTxn = await productContract.dispatchProduct(
-                serialNumber,
-                ethers.ZeroAddress, // Open dispatch: any registered distributor can claim
-                manuName,
-                manuLocation,
-                dayjs().unix().toString()
-            );
-
-            setLoading(`Broadcasting dispatch (${dispatchTxn.hash.slice(0, 10)}...). Waiting for block confirmation...`);
-            await dispatchTxn.wait();
-
-            setIsDispatched(true);
-            setChainNotice("🚀 Consignment dispatched to distribution network! Registered logistics partners can now confirm receipt.");
+            if (autoRes.data?.success) {
+                setIsDispatched(true);
+                setChainNotice("🚀 Consignment dispatched to distribution network! Registered logistics partners can now confirm receipt.");
+            } else {
+                throw new Error(autoRes.data?.error || "Consignment dispatch failed.");
+            }
         } catch (err) {
             console.error("Dispatch failed:", err);
-            const formatted = formatContractError(err, "Unable to record dispatch.");
+            const formatted = err.response?.data?.error || err.message || "Unable to record dispatch.";
             setSubmitError(formatted);
             setChainNotice(formatted);
         } finally {
@@ -290,9 +275,9 @@ const AddProduct = () => {
     }
 
 const registerProduct = async (retry = false) => {
-    // 1. Attempt autonomous signing via provisioned Enterprise Vault Subaccount
+    setLoading("1/3: Preparing product passport and digital asset...");
+    setSubmitError("");
     try {
-        setLoading("1/3: Preparing product passport and digital asset...");
         let imageName = savedImageName;
         if (retry) {
             await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
@@ -303,7 +288,7 @@ const registerProduct = async (retry = false) => {
             setProductCreated(true);
         }
 
-        setLoading("2/3: Signing registration via automated facility vault...");
+        setLoading("2/3: Signing registration via automated facility wallet...");
         const autoRes = await axios.post('/api/custody/auto-execute', {
             serialNumber,
             action: 'register_product',
@@ -340,119 +325,28 @@ const registerProduct = async (retry = false) => {
                         location: manuLocation,
                         recipientWallet: ethers.ZeroAddress,
                     });
+                    setIsDispatched(true);
+                    setChainNotice("✅ Product successfully registered AND dispatched to distribution network! Packaging QR tag generated.");
                 } catch (_dispatchErr) {
                     console.warn("Auto-dispatch warning:", _dispatchErr.message);
+                    setChainNotice("Product registered on blockchain! Automatic dispatch could not complete; you can click '1-Click Dispatch' below.");
                 }
                 setLoading("");
             }
-            return;
+            return txHash;
+        } else {
+            throw new Error(autoRes.data?.error || "Registration could not be completed by facility wallet.");
         }
-    } catch (autoErr) {
-        console.warn("Enterprise vault registration attempt:", autoErr.response?.data?.error || autoErr.message);
-        if (!window.ethereum) {
-            throw new Error(autoErr.response?.data?.error || "Automated vault registration failed and no browser wallet is connected.");
-        }
+    } catch (err) {
+        console.error("Product registration error:", err);
+        const errMsg = err.response?.data?.error || err.message || "Product registration failed.";
+        setSubmitError(errMsg);
+        setChainNotice(errMsg);
+        setRetryAvailable(true);
+        throw err;
+    } finally {
+        setLoading("");
     }
-
-    // 2. Fallback to Browser Wallet (MetaMask)
-    const { ethereum } = window;
-    if (!ethereum) {
-        throw new Error("No browser wallet available and enterprise vault auto-execution could not complete.");
-    }
-
-    setLoading("1/4: Connecting wallet & verifying permissions...");
-    const accounts = await ethereum.request({ method: "eth_requestAccounts" });
-    const account = accounts[0];
-
-    const provider = new ethers.BrowserProvider(ethereum);
-    const signer = await provider.getSigner();
-    const productContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-
-    // Verify connected wallet against user's registered corporate wallet
-    let userProfileWallet = null;
-    try {
-        const profRes = await axios.get(`/profile/${auth.username}`);
-        userProfileWallet = profRes.data?.[0]?.wallet_address;
-    } catch (_e) {}
-    if (userProfileWallet && account.toLowerCase() !== userProfileWallet.toLowerCase()) {
-        throw new Error(`Connected wallet (${account.slice(0, 6)}...${account.slice(-4)}) is not your account's authorized corporate wallet. Please switch to ${userProfileWallet.slice(0, 6)}...${userProfileWallet.slice(-4)} in MetaMask.`);
-    }
-
-    setLoading("2/4: Authorizing manufacturer write permission...");
-    await axios.post('/wallet/authorize-write', {
-        walletAddress: account,
-        action: 'register_product',
-    });
-
-    let imageName = savedImageName;
-    if (retry) {
-        setLoading("Retrying product registration...");
-        await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
-    } else {
-        setLoading("3/4: Saving product metadata and asset...");
-        imageName = await uploadImage(image);
-        setSavedImageName(imageName);
-        await addProductDB(imageName);
-        setProductCreated(true);
-    }
-
-    setLoading("4/4: Confirm registration in your MetaMask popup window...");
-    const registerTxn = await productContract.registerProduct(
-        name,
-        brand,
-        serialNumber,
-        description.replace(/,/g, ';'),
-        imageName,
-        manuName,
-        manuLocation,
-        manuDate.toString()
-    );
-
-    setLoading(`Broadcasting transaction (${registerTxn.hash.slice(0, 10)}...). Waiting for block confirmation...`);
-
-    try {
-        await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash: registerTxn.hash });
-        setUnpersistedTxHash("");
-    } catch (_persistenceError) {
-        setUnpersistedTxHash(registerTxn.hash);
-        setChainNotice(`Transaction was submitted (${registerTxn.hash}), but its hash has not yet been saved by the server. Retry saving it while this page remains open.`);
-    }
-
-    await registerTxn.wait();
-    setLoading("");
-
-    generateQRCode(serialNumber);
-    setProductCreated(true);
-    setRetryAvailable(false);
-    setChainNotice(`Product registered and confirmed on ${CHAIN_NAME}. Packaging QR code generated.`);
-
-    if (autoDispatchOnCreate) {
-        setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");
-        try {
-            await axios.post('/wallet/authorize-write', {
-                walletAddress: account,
-                action: 'dispatch',
-            });
-            const dispatchTxn = await productContract.dispatchProduct(
-                serialNumber,
-                ethers.ZeroAddress,
-                manuName,
-                manuLocation,
-                dayjs().unix().toString()
-            );
-            setLoading(`Broadcasting transit dispatch (${dispatchTxn.hash.slice(0, 10)}...). Waiting for block confirmation...`);
-            await dispatchTxn.wait();
-            setIsDispatched(true);
-            setChainNotice("✅ Product successfully registered AND dispatched to distribution network! Packaging QR tag generated.");
-        } catch (dispatchErr) {
-            console.warn("Auto-dispatch step failed after registration:", dispatchErr);
-            setChainNotice("Product registered on blockchain! Automatic dispatch could not complete; you can click '1-Click Dispatch' below.");
-        } finally {
-            setLoading("");
-        }
-    }
-
-    return registerTxn.hash;
 };
 
     const addProductDB = async (imageName) => {
@@ -487,44 +381,6 @@ const checkUnique = async () => {
     }
 };
 
-const switchToConfiguredNetwork = async () => {
-    try {
-        await window.ethereum.request({
-            method: 'wallet_switchEthereumChain',
-            params: [{ chainId: CHAIN_ID_HEX }],
-        });
-    } catch (switchError) {
-        if (switchError.code === 4902) {
-            try {
-                await window.ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
-                        chainId: CHAIN_ID_HEX,
-                        chainName: CHAIN_NAME,
-                        nativeCurrency: {
-                            name: NATIVE_CURRENCY_NAME,
-                            symbol: NATIVE_CURRENCY_SYMBOL,
-                            decimals: NATIVE_CURRENCY_DECIMALS,
-                        },
-                        rpcUrls: [CHAIN_RPC_URL],
-                        blockExplorerUrls: [BLOCK_EXPLORER_URL],
-                    }],
-                });
-                await window.ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: CHAIN_ID_HEX }],
-                });
-            } catch (addError) {
-                throw new Error(`Failed to switch to ${CHAIN_NAME}: ${addError.message}`);
-            }
-        } else {
-            throw new Error(`Failed to switch to ${CHAIN_NAME}: ${switchError.message}`);
-        }
-    }
-};
-
-
-
 const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitError("");
@@ -546,8 +402,7 @@ const handleSubmit = async (e) => {
                 return;
             }
         }
-        setLoading(retryAvailable ? "Retrying product registration..." : "Preparing network connection...");
-        await switchToConfiguredNetwork();
+        setLoading(retryAvailable ? "Retrying product registration..." : "Registering product on blockchain...");
         await registerProduct(retryAvailable);
     } catch (err) {
         const friendlyMessage = formatContractError(err, "Registration did not complete. The transaction was either rejected or failed on the blockchain.");
