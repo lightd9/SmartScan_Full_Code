@@ -582,6 +582,14 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           return res.status(400).json({ success: 0, error: `Image file reference must not exceed ${MAX_TEXT_LENGTH} characters` });
         }
       }
+      await ensureSubaccountTables();
+
+      // Automatically generate encapsulated EVM operational wallet for this enterprise partner
+      let autoWallet = null;
+      if (['manufacturer', 'supplier', 'retailer'].includes(role) || createsProfile) {
+        autoWallet = generateEncapsulatedSubaccount();
+      }
+
       client = await pool.connect();
       await client.query('BEGIN');
       const exists = await client.query('SELECT 1 FROM auth WHERE username = $1', [username]);
@@ -589,15 +597,97 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         await client.query('ROLLBACK');
         return res.status(409).json({ success: 0, error: 'Username already exists' });
       }
-      await client.query('INSERT INTO auth (username, password, role) VALUES ($1, $2, $3)', [username, hashPassword(password), role]);
+
+      if (autoWallet) {
+        await client.query(
+          'INSERT INTO auth (username, password, role, wallet_address, wallet_status) VALUES ($1, $2, $3, $4, $5)',
+          [username, hashPassword(password), role, autoWallet.walletAddress, 'active']
+        );
+      } else {
+        await client.query(
+          'INSERT INTO auth (username, password, role) VALUES ($1, $2, $3)',
+          [username, hashPassword(password), role]
+        );
+      }
+
       if (createsProfile) {
         await client.query(
           'INSERT INTO profile (username, name, description, website, location, image, role) VALUES ($1, $2, $3, $4, $5, $6, $7)',
           [username, name.trim(), description, website, location, image, role],
         );
       }
+
+      let subaccountId = null;
+      if (autoWallet && ['manufacturer', 'supplier', 'retailer'].includes(role)) {
+        const facilityCode = `FAC-${username.toUpperCase().replace(/[^A-Z0-9]/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const subName = `${(name ? name.trim() : username)} Primary Vault`;
+        try {
+          const subRes = await client.query(
+            `INSERT INTO facility_subaccounts
+             (parent_username, subaccount_name, facility_code, role, wallet_address, encrypted_private_key, key_iv, key_auth_tag, key_version, status, gas_balance_wei)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active', 0)
+             RETURNING id`,
+            [username, subName, facilityCode, role, autoWallet.walletAddress, autoWallet.encryptedPrivateKey, autoWallet.keyIv, autoWallet.keyAuthTag, autoWallet.keyVersion]
+          );
+          if (subRes.rows?.[0]) subaccountId = subRes.rows[0].id;
+        } catch (subErr) {
+          console.warn('Facility subaccount record notice:', subErr.message);
+        }
+
+        try {
+          await client.query(
+            'INSERT INTO wallet_account_events (username, wallet_address, event_type, details) VALUES ($1, $2, $3, $4)',
+            [username, autoWallet.walletAddress, 'created_and_linked', JSON.stringify({ provisionedBy: req.user.username, automated: true })]
+          );
+        } catch (_auditErr) {
+          // best-effort event audit
+        }
+      }
+
       await client.query('COMMIT');
-      return res.json({ success: 1 });
+
+      // Asynchronously trigger initial on-chain role grant and gas funding
+      if (autoWallet && ['manufacturer', 'supplier', 'retailer'].includes(role)) {
+        const roleId = CHAIN_ROLE_IDS[role];
+        (async () => {
+          try {
+            const treasuryWallet = getTreasuryWallet(rpcUrl);
+            if (treasuryWallet && expectedContractAddress && roleId) {
+              const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, treasuryWallet);
+              const currentRole = Number(await roleContract.roles(autoWallet.walletAddress));
+              if (currentRole !== roleId) {
+                const tx = await roleContract.grantRole(autoWallet.walletAddress, roleId, (name ? name.trim() : username));
+                await tx.wait(1);
+              }
+            }
+          } catch (grantErr) {
+            console.warn('Auto-grant role on onboarding notice:', grantErr.message);
+          }
+          try {
+            await fundSubaccount({
+              recipientWallet: autoWallet.walletAddress,
+              subaccountId,
+              amountEth: '0.005',
+              triggerReason: 'onboarding_creation_grant',
+              pool,
+              rpcUrl,
+            });
+          } catch (fundErr) {
+            console.warn('Auto-fund gas on onboarding notice:', fundErr.message);
+          }
+        })().catch((err) => console.warn('Background onboarding pipeline notice:', err.message));
+      }
+
+      return res.json({
+        success: 1,
+        username,
+        role,
+        walletAddress: autoWallet?.walletAddress || null,
+        walletStatus: autoWallet ? 'active' : 'unlinked',
+        message: autoWallet
+          ? `Account @${username} created with automated operational wallet (${autoWallet.walletAddress}).`
+          : `Account @${username} created successfully.`
+      });
     } catch (err) {
       try { if (client) await client.query('ROLLBACK'); } catch (_rollbackError) { /* transaction may already be closed */ }
       if (err.code === '23505') return res.status(409).json({ success: 0, error: 'Username or profile already exists' });

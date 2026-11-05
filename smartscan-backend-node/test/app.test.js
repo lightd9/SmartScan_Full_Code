@@ -165,7 +165,8 @@ function createFakePool() {
         return { rows: [], rowCount: 1 };
       }
       if (s.startsWith('insert into wallet_operation_events') || s.startsWith('insert into wallet_account_events')
-        || ['begin', 'commit', 'rollback'].includes(s)) return { rows: [], rowCount: 1 };
+        || s.startsWith('insert into facility_subaccounts')
+        || ['begin', 'commit', 'rollback'].includes(s)) return { rows: [{ id: 1 }], rowCount: 1 };
 
       if (s.startsWith('select token_version from auth where username')) {
         return { rows: state.auth.filter((a) => a.username === params[0]).map(({ token_version }) => ({ token_version })) };
@@ -198,7 +199,15 @@ function createFakePool() {
         return { rows: state.auth.filter((a) => a.username === params[0]).map(() => ({ ok: 1 })) };
       }
       if (s.startsWith('insert into auth')) {
-        state.auth.push({ id: state.auth.length + 1, username: params[0], password: params[1], role: params[2], token_version: 0 });
+        state.auth.push({
+          id: state.auth.length + 1,
+          username: params[0],
+          password: params[1],
+          role: params[2],
+          wallet_address: params[3] || null,
+          wallet_status: params[4] || 'unlinked',
+          token_version: 0,
+        });
         return { rows: [] };
       }
       if (s.startsWith('select * from profile where username')) {

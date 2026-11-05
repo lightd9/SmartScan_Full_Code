@@ -148,7 +148,7 @@ const AddAccount = () => {
         try {
             const fileName = await uploadImage(image);
 
-            await axios.post('/addaccount', {
+            const res = await axios.post('/addaccount', {
                 username: cleanUser,
                 password: pwd,
                 name: cleanName,
@@ -158,6 +158,8 @@ const AddAccount = () => {
                 image: fileName,
                 role
             });
+
+            const createdWallet = res.data?.walletAddress;
 
             setUser('');
             setPwd('');
@@ -173,7 +175,11 @@ const AddAccount = () => {
             });
 
             setErrMsg('');
-            setSuccessMsg(`Enterprise account for @${cleanUser} created successfully! Authorized on-chain roles may now be assigned.`);
+            setSuccessMsg(
+                createdWallet
+                    ? `Enterprise account for @${cleanUser} created! Encapsulated operational wallet (${createdWallet}) automatically provisioned, funded with gas, and linked.`
+                    : `Enterprise account for @${cleanUser} created successfully!`
+            );
         } catch (err) {
             setSuccessMsg('');
             const serverError = err.response?.data?.error || err.response?.data?.message;
@@ -340,20 +346,75 @@ const AddAccount = () => {
                             value={location}
                         />
 
-                        <div>
-                            <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 8 }}>
-                                Organization Logo / Avatar
-                            </label>
-                            <Button variant="outlined" component="label" fullWidth sx={{ textTransform: 'none', borderRadius: '10px' }}>
-                                Upload Logo Image
-                                <input type="file" hidden accept="image/*" onChange={handleImage} />
-                            </Button>
-                            {image.filepreview && (
-                                <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border)', maxHeight: 120, display: 'flex', justifyContent: 'center' }}>
-                                    <img src={image.filepreview} alt="Logo preview" style={{ maxHeight: '100%', objectFit: 'contain' }} />
-                                </div>
-                            )}
-                        </div>
+                        <Box sx={{ border: '1px dashed var(--color-border)', borderRadius: '12px', p: 1.75, backgroundColor: 'var(--color-surface-hover)' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                <Typography sx={{ fontSize: '12.5px', fontWeight: 600, color: 'var(--color-text-main)' }}>
+                                    Organization Logo / Avatar <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>(Optional)</span>
+                                </Typography>
+                                {image.filepreview && (
+                                    <Button
+                                        size="small"
+                                        color="error"
+                                        sx={{ textTransform: 'none', fontSize: '11px', p: 0, minWidth: 'auto', fontWeight: 600 }}
+                                        onClick={() => setImage({ file: [], filepreview: null })}
+                                    >
+                                        Remove Logo
+                                    </Button>
+                                )}
+                            </Box>
+
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                <Box
+                                    sx={{
+                                        width: 44,
+                                        height: 44,
+                                        borderRadius: '10px',
+                                        border: '1px solid var(--color-border)',
+                                        backgroundColor: '#FFFFFF',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        overflow: 'hidden',
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    {image.filepreview ? (
+                                        <img
+                                            src={image.filepreview}
+                                            alt="Logo preview"
+                                            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                        />
+                                    ) : (
+                                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: '#94A3B8' }}>
+                                            {(name || user || 'ORG').slice(0, 3).toUpperCase()}
+                                        </Typography>
+                                    )}
+                                </Box>
+
+                                <Box sx={{ flex: 1 }}>
+                                    <Button
+                                        variant="outlined"
+                                        component="label"
+                                        size="small"
+                                        sx={{
+                                            textTransform: 'none',
+                                            borderRadius: '8px',
+                                            fontSize: '12px',
+                                            py: 0.4,
+                                            px: 1.5,
+                                            borderColor: 'var(--color-border)',
+                                            color: 'var(--color-text-main)',
+                                        }}
+                                    >
+                                        {image.filepreview ? 'Change Logo' : 'Select Logo (Optional)'}
+                                        <input type="file" hidden accept="image/*" onChange={handleImage} />
+                                    </Button>
+                                    <Typography variant="caption" sx={{ display: 'block', color: 'var(--color-text-muted)', fontSize: '10.5px', mt: 0.3 }}>
+                                        Optional PNG/JPG. Not required to create account.
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Box>
 
                         <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
                             <button
