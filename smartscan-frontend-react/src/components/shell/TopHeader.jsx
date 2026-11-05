@@ -16,8 +16,6 @@ import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
 
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
-import AddRoundedIcon from '@mui/icons-material/AddRounded';
-import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
 import NotificationsNoneRoundedIcon from '@mui/icons-material/NotificationsNoneRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
@@ -25,10 +23,6 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import PersonOutlineRoundedIcon from '@mui/icons-material/PersonOutlineRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
-import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
-import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
-import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
-import PointOfSaleRoundedIcon from '@mui/icons-material/PointOfSaleRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 
 import { useScanner } from '../../context/ScannerContext';
@@ -44,7 +38,6 @@ export default function TopHeader({ onSearch }) {
   const [unreadNotifications, setUnreadNotifications] = useState(true);
 
   // Menu Anchors
-  const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
   const [notifMenuAnchor, setNotifMenuAnchor] = useState(null);
   const [accountMenuAnchor, setAccountMenuAnchor] = useState(null);
 
@@ -145,56 +138,6 @@ export default function TopHeader({ onSearch }) {
     }
   };
 
-  // Quick action items for role dropdown
-  const getActionMenuItems = () => {
-    switch (role) {
-      case 'manufacturer':
-        return [
-          { label: 'Mint New Product', icon: <AddRoundedIcon fontSize="small" />, onClick: () => navigate('/add-product') },
-          { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
-          { label: 'Inspect Custody Chain', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
-          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
-        ];
-      case 'admin':
-        return [
-          { label: 'Provision Partner Account', icon: <AddRoundedIcon fontSize="small" />, onClick: () => navigate('/add-account') },
-          { label: 'Manage Accounts & Keys', icon: <BusinessRoundedIcon fontSize="small" />, onClick: () => navigate('/manage-account') },
-          { label: 'Facility Wallets & Treasury', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
-          { label: 'POS Checkout Register', icon: <PointOfSaleRoundedIcon fontSize="small" />, onClick: () => navigate('/pos') },
-          { label: 'System Operations & Reconciliation', icon: <SecurityRoundedIcon fontSize="small" />, onClick: () => navigate('/admin/operations') },
-          { label: 'Public Verifier Scanner', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
-        ];
-      case 'supplier':
-        return [
-          { label: 'Scan Inbound Cargo', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
-          { label: 'Transfer Custody', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
-          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
-        ];
-      case 'retailer':
-        return [
-          { label: 'POS Checkout Register', icon: <PointOfSaleRoundedIcon fontSize="small" />, onClick: () => navigate('/pos') },
-          { label: 'Scan & Mark Sold', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
-          { label: 'Shelf Stock Ledger', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
-          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
-        ];
-      default:
-        return [
-          { label: 'Dashboard Overview', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate(`/${role}`) },
-          { label: 'POS Checkout Register', icon: <PointOfSaleRoundedIcon fontSize="small" />, onClick: () => navigate('/pos') },
-          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
-          { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
-        ];
-    }
-  };
-
-  const getPrimaryLabel = () => {
-    if (role === 'manufacturer') return 'New Product';
-    if (role === 'admin') return 'New Account';
-    if (role === 'supplier') return 'Inbound Scan';
-    if (role === 'retailer') return 'Scan & Sell';
-    return 'Action';
-  };
-
   const formatAddress = (addr) => {
     if (!addr) return 'Connect Wallet';
     return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
@@ -237,50 +180,6 @@ export default function TopHeader({ onSearch }) {
           <QrCodeScannerRoundedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />
           <span>Scan Code</span>
         </button>
-
-        {/* Primary Action Button with Working Dropdown Menu */}
-        <button
-          type="button"
-          className="btn-primary-action"
-          onClick={(e) => setActionMenuAnchor(e.currentTarget)}
-          aria-haspopup="true"
-          aria-expanded={Boolean(actionMenuAnchor)}
-        >
-          <AddRoundedIcon sx={{ fontSize: 18 }} />
-          <span>{getPrimaryLabel()}</span>
-          <KeyboardArrowDownRoundedIcon sx={{ fontSize: 18, marginLeft: '2px' }} />
-        </button>
-
-        <Menu
-          anchorEl={actionMenuAnchor}
-          open={Boolean(actionMenuAnchor)}
-          onClose={() => setActionMenuAnchor(null)}
-          slotProps={{
-            paper: {
-              sx: { borderRadius: '14px', minWidth: 220, boxShadow: '0 10px 30px rgba(0,0,0,0.1)', mt: 1 },
-            },
-          }}
-        >
-          <Box sx={{ px: 2, py: 1 }}>
-            <Typography variant="caption" sx={{ fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-              Quick Actions
-            </Typography>
-          </Box>
-          <Divider sx={{ my: 0.5 }} />
-          {getActionMenuItems().map((item, index) => (
-            <MenuItem
-              key={index}
-              onClick={() => {
-                setActionMenuAnchor(null);
-                item.onClick();
-              }}
-              sx={{ py: 1.2, fontSize: '0.875rem', fontWeight: 600, color: '#374151' }}
-            >
-              <ListItemIcon sx={{ color: 'var(--color-primary)' }}>{item.icon}</ListItemIcon>
-              <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 600 }} />
-            </MenuItem>
-          ))}
-        </Menu>
 
         {/* Notifications sit immediately before the combined account control */}
         <button

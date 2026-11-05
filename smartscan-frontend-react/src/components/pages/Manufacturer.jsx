@@ -112,7 +112,7 @@ export default function Manufacturer() {
             onClick={() => navigate('/add-product')}
           >
             <AddRoundedIcon sx={{ fontSize: 18 }} />
-            <span>+ Mint Product</span>
+            <span>Mint Product</span>
           </button>
         }
       />

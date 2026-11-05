@@ -85,7 +85,7 @@ export default function Supplier() {
             title="Auto-detects Inbound Receipt or Outbound Dispatch based on blockchain state"
           >
             <QrCodeScannerOutlinedIcon sx={{ fontSize: 18 }} />
-            <span>+ Smart Scan</span>
+            <span>Smart Scan</span>
           </button>
         }
       />
