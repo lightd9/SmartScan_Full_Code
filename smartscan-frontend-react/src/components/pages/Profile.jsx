@@ -31,6 +31,7 @@ export default function Profile() {
 
   const { auth, logout } = useAuth();
   const navigate = useNavigate();
+  const isAdmin = (role || auth?.role || '').toLowerCase() === 'admin';
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -255,15 +256,17 @@ export default function Profile() {
               This account utilizes an encapsulated subaccount vault. Transactions are signed headlessly and gas is replenished automatically by the system treasury. No browser extensions or manual private key handling is required.
             </p>
 
-            <button
-              type="button"
-              className="btn-primary-action"
-              style={{ width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              onClick={() => navigate('/subaccounts')}
-            >
-              <span>Manage Facility Subaccounts & Gas Treasury</span>
-              <ArrowForwardRoundedIcon sx={{ fontSize: 16 }} />
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                className="btn-primary-action"
+                style={{ width: '100%', justifyContent: 'center', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                onClick={() => navigate('/subaccounts')}
+              >
+                <span>Manage Facility Subaccounts & Gas Treasury</span>
+                <ArrowForwardRoundedIcon sx={{ fontSize: 16 }} />
+              </button>
+            )}
           </div>
 
           <div style={{ borderTop: '1px solid var(--color-divider)' }}></div>

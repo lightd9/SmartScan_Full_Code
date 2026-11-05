@@ -87,6 +87,18 @@
   transition: color 0.2s ease;
 }
 
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.sidebar-footer-links {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 /* --------------------------------------------------------------------------
    Main Canvas Content Area
    -------------------------------------------------------------------------- */
@@ -674,6 +686,7 @@ button.sidebar-nav-item {
 }
 
 .sidebar-logout {
+  margin-top: 8px;
   color: var(--color-text-secondary);
 }
 

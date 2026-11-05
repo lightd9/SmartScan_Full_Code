@@ -9,7 +9,9 @@ import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlin
 import AddCircleOutlineOutlinedIcon from '@mui/icons-material/AddCircleOutlineOutlined';
 import PointOfSaleOutlinedIcon from '@mui/icons-material/PointOfSaleOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
-import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import HelpOutlineOutlinedIcon from '@mui/icons-material/HelpOutlineOutlined';
+import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 
 export default function Sidebar({ isOpen = false, onClose = () => {}, navigationRef }) {
@@ -34,8 +36,6 @@ export default function Sidebar({ isOpen = false, onClose = () => {}, navigation
   } else if (role === 'retailer') {
     items.push({ to: '/pos', label: 'POS register', icon: <PointOfSaleOutlinedIcon className="nav-icon" /> });
   }
-
-  items.push({ to: '/profile', label: 'Profile and security', icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" /> });
 
   const signOut = () => {
     onClose();
@@ -65,6 +65,36 @@ export default function Sidebar({ isOpen = false, onClose = () => {}, navigation
       </div>
 
       <div className="sidebar-footer">
+        <nav className="sidebar-footer-links" aria-label="Settings and help">
+          <NavLink
+            to="/profile"
+            onClick={onClose}
+            className={({ isActive }) => 'sidebar-nav-item' + (isActive ? ' active' : '')}
+          >
+            <SettingsOutlinedIcon className="nav-icon" />
+            <span>Settings</span>
+          </NavLink>
+          <a
+            href="https://github.com/lightd9/SmartScan_Full_Code/issues/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClose}
+            className="sidebar-nav-item"
+          >
+            <HelpOutlineOutlinedIcon className="nav-icon" />
+            <span>Support</span>
+          </a>
+          <a
+            href="/user_manual.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClose}
+            className="sidebar-nav-item"
+          >
+            <MenuBookOutlinedIcon className="nav-icon" />
+            <span>Docs</span>
+          </a>
+        </nav>
         <button type="button" onClick={signOut} className="sidebar-nav-item sidebar-logout">
           <LogoutOutlinedIcon className="nav-icon" />
           <span>Sign out</span>

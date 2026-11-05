@@ -323,14 +323,40 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!validText(username, 50) || !validText(password, 200)) {
         return res.status(400).json({ error: 'Username and password are required' });
       }
-      const { rows } = await pool.query('SELECT username, password, role, wallet_address, wallet_status, token_version FROM auth WHERE username = $1', [username]);
+      const { rows } = await pool.query(
+        `SELECT a.username, a.password, a.role, 
+                COALESCE(a.wallet_address, s.wallet_address) AS wallet_address, 
+                COALESCE(a.wallet_status, s.status, 'unlinked') AS wallet_status, 
+                a.token_version,
+                s.wallet_address AS subaccount_wallet,
+                s.status AS subaccount_status
+         FROM auth a 
+         LEFT JOIN LATERAL (
+           SELECT wallet_address, status 
+           FROM facility_subaccounts 
+           WHERE LOWER(parent_username) = LOWER(a.username) 
+           ORDER BY (status = 'active') DESC, id DESC 
+           LIMIT 1
+         ) s ON true 
+         WHERE LOWER(a.username) = LOWER($1)`,
+        [username]
+      );
       if (rows.length === 0 || !verifyPassword(password, rows[0].password)) {
         return res.status(401).json({ error: 'Invalid username or password' });
       }
       const account = rows[0];
       if (!isHashed(account.password)) {
         // Opportunistically upgrade legacy plaintext passwords on successful login.
-        await pool.query('UPDATE auth SET password = $1 WHERE username = $2', [hashPassword(password), username]);
+        await pool.query('UPDATE auth SET password = $1 WHERE username = $2', [hashPassword(password), account.username]);
+      }
+      // If auth.wallet_address was missing but found in facility subaccounts, auto-heal auth record
+      if (!account.wallet_address && account.subaccount_wallet) {
+        account.wallet_address = account.subaccount_wallet;
+        account.wallet_status = account.subaccount_status || 'active';
+        await pool.query(
+          'UPDATE auth SET wallet_address = $1, wallet_status = $2 WHERE username = $3',
+          [account.wallet_address, account.wallet_status, account.username]
+        ).catch(() => {});
       }
       const token = jwt.sign({ username: account.username, role: account.role, tokenVersion: Number(account.token_version || 0) }, jwtSecret, { expiresIn: jwtExpiresIn });
       return res.json({ token, user: { username: account.username, role: account.role, walletAddress: account.wallet_address, walletStatus: account.wallet_status } });
@@ -798,7 +824,30 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   app.get('/profileAll', authenticate, authorize('admin'), async (req, res, next) => {
     try {
-      const { rows } = await pool.query('SELECT p.*, a.role AS account_role, a.wallet_address, a.wallet_status FROM profile p JOIN auth a ON a.username = p.username ORDER BY p.username');
+      const { rows } = await pool.query(
+        `SELECT 
+           COALESCE(p.id, a.id) AS id,
+           a.username,
+           COALESCE(p.name, a.username) AS name,
+           COALESCE(p.description, '') AS description,
+           COALESCE(p.website, '') AS website,
+           COALESCE(p.location, '') AS location,
+           p.image,
+           a.role,
+           a.role AS account_role,
+           COALESCE(a.wallet_address, s.wallet_address) AS wallet_address,
+           COALESCE(a.wallet_status, s.status, 'unlinked') AS wallet_status
+         FROM auth a
+         LEFT JOIN profile p ON LOWER(p.username) = LOWER(a.username)
+         LEFT JOIN LATERAL (
+           SELECT wallet_address, status
+           FROM facility_subaccounts
+           WHERE LOWER(parent_username) = LOWER(a.username)
+           ORDER BY (status = 'active') DESC, id DESC
+           LIMIT 1
+         ) s ON true
+         ORDER BY a.username`
+      );
       return res.json(rows);
     } catch (err) {
       return next(err);
@@ -808,10 +857,34 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   app.get('/profile/:username', authenticate, async (req, res, next) => {
     try {
       const { username } = req.params;
-      if (req.user.role !== 'admin' && req.user.username !== username) {
+      if (req.user.role !== 'admin' && req.user.username?.toLowerCase() !== username?.toLowerCase()) {
         return res.status(403).json({ error: 'Forbidden' });
       }
-      const { rows } = await pool.query('SELECT p.*, a.role AS account_role, a.wallet_address, a.wallet_status FROM profile p JOIN auth a ON a.username = p.username WHERE p.username = $1', [username]);
+      const { rows } = await pool.query(
+        `SELECT 
+           COALESCE(p.id, a.id) AS id,
+           a.username,
+           COALESCE(p.name, a.username) AS name,
+           COALESCE(p.description, '') AS description,
+           COALESCE(p.website, '') AS website,
+           COALESCE(p.location, '') AS location,
+           p.image,
+           a.role,
+           a.role AS account_role,
+           COALESCE(a.wallet_address, s.wallet_address) AS wallet_address,
+           COALESCE(a.wallet_status, s.status, 'unlinked') AS wallet_status
+         FROM auth a
+         LEFT JOIN profile p ON LOWER(p.username) = LOWER(a.username)
+         LEFT JOIN LATERAL (
+           SELECT wallet_address, status
+           FROM facility_subaccounts
+           WHERE LOWER(parent_username) = LOWER(a.username)
+           ORDER BY (status = 'active') DESC, id DESC
+           LIMIT 1
+         ) s ON true
+         WHERE LOWER(a.username) = LOWER($1)`,
+        [username]
+      );
       return res.json(rows);
     } catch (err) {
       return next(err);

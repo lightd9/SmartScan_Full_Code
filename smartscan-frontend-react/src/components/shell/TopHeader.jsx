@@ -40,7 +40,9 @@ export default function TopHeader({ onSearch, mobileNavOpen = false, menuButtonR
 
   useEffect(() => {
     let active = true;
-    if (!auth?.walletAddress && role === 'admin') {
+    if (auth?.walletAddress) {
+      setWalletAddress(auth.walletAddress);
+    } else if (role === 'admin') {
       axios.get('/api/subaccounts/treasury-status')
         .then(({ data }) => {
           if (active) setWalletAddress(data?.address || '');
@@ -48,11 +50,20 @@ export default function TopHeader({ onSearch, mobileNavOpen = false, menuButtonR
         .catch(() => {
           if (active) setWalletAddress('');
         });
+    } else if (auth?.username) {
+      axios.get(`/profile/${auth.username}`)
+        .then(({ data }) => {
+          const addr = data?.[0]?.wallet_address;
+          if (active && addr) setWalletAddress(addr);
+        })
+        .catch(() => {
+          if (active) setWalletAddress('');
+        });
     } else {
-      setWalletAddress(auth?.walletAddress || '');
+      setWalletAddress('');
     }
     return () => { active = false; };
-  }, [auth?.walletAddress, role]);
+  }, [auth?.walletAddress, auth?.username, role]);
 
   useEffect(() => {
     let active = true;

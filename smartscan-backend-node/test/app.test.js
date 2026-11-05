@@ -171,8 +171,8 @@ function createFakePool() {
       if (s.startsWith('select token_version from auth where username')) {
         return { rows: state.auth.filter((a) => a.username === params[0]).map(({ token_version }) => ({ token_version })) };
       }
-      if (s.startsWith('select username, password, role, wallet_address, wallet_status, token_version from auth where username')) {
-        return { rows: state.auth.filter((a) => a.username === params[0]) };
+      if (s.startsWith('select username, password, role, wallet_address, wallet_status, token_version from auth where username') || s.startsWith('select a.username, a.password, a.role')) {
+        return { rows: state.auth.filter((a) => a.username.toLowerCase() === String(params[0]).toLowerCase()) };
       }
       if (s.startsWith('select password from auth where username')) {
         return { rows: state.auth.filter((a) => a.username === params[0]).map(({ password }) => ({ password })) };
