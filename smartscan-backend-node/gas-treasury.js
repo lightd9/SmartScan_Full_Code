@@ -18,7 +18,7 @@ function createConfiguredWallet(privateKey, rpcUrl, configuredChainId, secretNam
 }
 
 function getTreasuryWallet(rpcUrl = null, configuredChainId = process.env.CHAIN_ID || '11155111') {
-  const privateKey = process.env.TREASURY_FAUCET_PRIVATE_KEY || (process.env.NODE_ENV !== 'production' ? process.env.PRIVATE_KEY : null);
+  const privateKey = process.env.TREASURY_FAUCET_PRIVATE_KEY || process.env.CONTRACT_OWNER_PRIVATE_KEY || process.env.PRIVATE_KEY;
   return createConfiguredWallet(
     privateKey,
     rpcUrl,
@@ -28,7 +28,7 @@ function getTreasuryWallet(rpcUrl = null, configuredChainId = process.env.CHAIN_
 }
 
 function getContractOwnerWallet(rpcUrl = null, configuredChainId = process.env.CHAIN_ID || '11155111') {
-  const privateKey = process.env.CONTRACT_OWNER_PRIVATE_KEY || (process.env.NODE_ENV !== 'production' ? process.env.PRIVATE_KEY : null);
+  const privateKey = process.env.CONTRACT_OWNER_PRIVATE_KEY || process.env.PRIVATE_KEY;
   return createConfiguredWallet(
     privateKey,
     rpcUrl,

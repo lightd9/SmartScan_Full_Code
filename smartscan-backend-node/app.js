@@ -1777,6 +1777,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       let grantTxHash = null;
       if (onchainRole !== roleId) {
+        if (onchainRole !== 0) {
+          const revokeTx = await roleContract.revokeRole(subaccount.wallet_address);
+          await revokeTx.wait(1);
+        }
         const grantTx = await roleContract.grantRole(subaccount.wallet_address, roleId, subaccount.subaccount_name);
         const grantReceipt = await grantTx.wait(1);
         grantTxHash = grantReceipt.hash;
@@ -1930,23 +1934,41 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         });
       }
 
-      // If subaccount is not active yet, auto-activate on-chain if contract owner is configured
-      if (subaccount.status !== 'active') {
+      // Ensure the facility subaccount wallet has its expected on-chain role granted
+      const expectedRoleId = CHAIN_ROLE_IDS[subaccount.role];
+      if (expectedRoleId && scanProvider && expectedContractAddress && process.env.NODE_ENV !== 'test') {
         try {
-          const roleContract = await getOwnerRoleContract();
-          if (roleContract) {
-            const roleId = CHAIN_ROLE_IDS[subaccount.role];
-            const onchainRole = Number(await roleContract.roles(subaccount.wallet_address));
-            if (onchainRole !== roleId && roleId) {
-              const grantTx = await roleContract.grantRole(subaccount.wallet_address, roleId, subaccount.subaccount_name);
+          const roleChecker = new ethers.Contract(expectedContractAddress, ['function roles(address) view returns (uint8)'], scanProvider);
+          let onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
+          if (onchainRole !== expectedRoleId) {
+            const roleContract = await getOwnerRoleContract();
+            if (roleContract) {
+              if (onchainRole !== 0) {
+                const revokeTx = await roleContract.revokeRole(subaccount.wallet_address);
+                await revokeTx.wait(1);
+              }
+              const grantTx = await roleContract.grantRole(
+                subaccount.wallet_address,
+                expectedRoleId,
+                subaccount.subaccount_name || subaccount.parent_username
+              );
               await grantTx.wait(1);
+              onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
             }
-            await pool.query("UPDATE facility_subaccounts SET status = 'active', updated_at = NOW() WHERE id = $1", [subaccount.id]);
-            await pool.query("UPDATE auth SET wallet_status = 'active', wallet_address = $1 WHERE LOWER(username) = LOWER($2)", [subaccount.wallet_address, subaccount.parent_username]);
-            subaccount.status = 'active';
           }
-        } catch (approveErr) {
-          console.warn('Auto-activate subaccount on custody execution notice:', approveErr.message);
+          if (onchainRole === expectedRoleId) {
+            if (subaccount.status !== 'active') {
+              await pool.query("UPDATE facility_subaccounts SET status = 'active', updated_at = NOW() WHERE id = $1", [subaccount.id]);
+              await pool.query("UPDATE auth SET wallet_status = 'active', wallet_address = $1 WHERE LOWER(username) = LOWER($2)", [subaccount.wallet_address, subaccount.parent_username]);
+              subaccount.status = 'active';
+            }
+          } else {
+            return res.status(403).json({
+              error: `Facility wallet (${subaccount.wallet_address}) is not authorized on-chain as ${subaccount.role} (contract role: ${onchainRole}, expected: ${expectedRoleId}). Please request an on-chain role approval from the administrator.`
+            });
+          }
+        } catch (roleErr) {
+          console.warn('Role verification/grant on custody execution notice:', roleErr.message);
         }
       }
 
