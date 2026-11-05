@@ -1,4 +1,4 @@
-import { Box, Paper, Typography, TextField, MenuItem, Alert } from '@mui/material';
+import { Box, Paper, Typography, TextField, MenuItem, Alert, Chip, Avatar, Tooltip, IconButton } from '@mui/material';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import '../shell/shell.css';
@@ -10,23 +10,140 @@ import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESS, CONTRACT_ABI, CHAIN_ID_HEX } from '../../config/contract';
 import { formatContractError } from '../../utils/contractErrors';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 
 const columns = [
-    { field: 'name', headerName: 'Name', width: 120, editable: true },
     {
-        field: 'description',
-        headerName: 'Description',
-        width: 300,
-        editable: true
+        field: 'name',
+        headerName: 'Partner Organization',
+        width: 220,
+        renderCell: (params) => (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                <Avatar
+                    sx={{
+                        width: 32,
+                        height: 32,
+                        fontSize: '0.8rem',
+                        fontWeight: 700,
+                        backgroundColor: '#EFF6FF',
+                        color: '#2563EB',
+                        border: '1px solid #BFDBFE',
+                    }}
+                >
+                    {(params.row.name || params.row.username || 'P').charAt(0).toUpperCase()}
+                </Avatar>
+                <Box>
+                    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: '#0F172A', lineHeight: 1.2 }}>
+                        {params.row.name || params.row.username}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B', fontSize: '0.75rem' }}>
+                        @{params.row.username}
+                    </Typography>
+                </Box>
+            </Box>
+        ),
     },
-    { field: 'username', headerName: 'Username', width: 130, editable: true },
-    { field: 'website', headerName: 'Website', width: 200, editable: true },
-    { field: 'location', headerName: 'Location', width: 200, editable: true },
-    { field: 'account_role', headerName: 'Role', width: 130 },
-    { field: 'image', headerName: 'Image', width: 130 },
-    { field: 'wallet_address', headerName: 'Business wallet', width: 310 },
-    { field: 'wallet_status', headerName: 'Wallet status', width: 140 },
-
+    {
+        field: 'account_role',
+        headerName: 'Role',
+        width: 140,
+        renderCell: (params) => {
+            const role = (params.value || '').toLowerCase();
+            const colorMap = {
+                admin: { bg: '#EFF6FF', text: '#1D4ED8', border: '#BFDBFE' },
+                manufacturer: { bg: '#FDF2F8', text: '#BE185D', border: '#FBCFE8' },
+                supplier: { bg: '#F0FDF4', text: '#15803D', border: '#BBF7D0' },
+                retailer: { bg: '#FFFBEB', text: '#B45309', border: '#FDE68A' },
+            };
+            const style = colorMap[role] || { bg: '#F3F4F6', text: '#374151', border: '#E5E7EB' };
+            return (
+                <Chip
+                    label={role.toUpperCase()}
+                    size="small"
+                    sx={{
+                        fontWeight: 700,
+                        fontSize: '0.7rem',
+                        backgroundColor: style.bg,
+                        color: style.text,
+                        border: `1px solid ${style.border}`,
+                        borderRadius: '6px',
+                    }}
+                />
+            );
+        },
+    },
+    {
+        field: 'wallet_status',
+        headerName: 'Wallet Status',
+        width: 140,
+        renderCell: (params) => {
+            const status = (params.value || 'unlinked').toLowerCase();
+            const isLinked = status === 'linked' || status === 'active';
+            const isSuspended = status === 'suspended';
+            return (
+                <Chip
+                    label={status.toUpperCase()}
+                    size="small"
+                    sx={{
+                        fontWeight: 700,
+                        fontSize: '0.7rem',
+                        backgroundColor: isLinked ? '#ECFDF5' : isSuspended ? '#FFFBEB' : '#FEF2F2',
+                        color: isLinked ? '#059669' : isSuspended ? '#D97706' : '#DC2626',
+                        border: isLinked ? '1px solid #A7F3D0' : isSuspended ? '1px solid #FDE68A' : '1px solid #FECACA',
+                        borderRadius: '6px',
+                    }}
+                />
+            );
+        },
+    },
+    {
+        field: 'wallet_address',
+        headerName: 'Authorized Wallet',
+        width: 260,
+        renderCell: (params) => {
+            const addr = params.value;
+            if (!addr || addr === ethers.ZeroAddress) {
+                return <Typography variant="caption" sx={{ color: '#9CA3AF', fontStyle: 'italic' }}>Not linked</Typography>;
+            }
+            const short = `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+            return (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography sx={{ fontFamily: 'monospace', fontSize: '0.82rem', fontWeight: 600, color: '#1E293B' }}>
+                        {short}
+                    </Typography>
+                    <Tooltip title="Copy address">
+                        <IconButton
+                            size="small"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                navigator.clipboard.writeText(addr);
+                            }}
+                            sx={{ p: 0.5 }}
+                        >
+                            <ContentCopyRoundedIcon sx={{ fontSize: 14, color: '#64748B' }} />
+                        </IconButton>
+                    </Tooltip>
+                    <Tooltip title="View on Etherscan">
+                        <IconButton
+                            size="small"
+                            component="a"
+                            href={`https://sepolia.etherscan.io/address/${addr}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            sx={{ p: 0.5 }}
+                        >
+                            <OpenInNewRoundedIcon sx={{ fontSize: 14, color: '#64748B' }} />
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+            );
+        },
+    },
+    { field: 'location', headerName: 'Location', width: 180 },
+    { field: 'website', headerName: 'Website', width: 180 },
+    { field: 'description', headerName: 'Description', width: 260 },
 ];
 
 const ROLE_IDS = { admin: 1, manufacturer: 2, supplier: 3, retailer: 4 };
@@ -274,10 +391,11 @@ const ManageAccount = () => {
                     )}
                 </div>
 
-                <div style={{ height: 380, width: '100%', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                <div style={{ height: 420, width: '100%', borderRadius: 12, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
                     <DataGrid
                         rows={rows}
                         columns={columns}
+                        rowHeight={56}
                         pageSize={5}
                         rowsPerPageOptions={[5]}
                         onRowClick={(params) => setSelected(params.row)}

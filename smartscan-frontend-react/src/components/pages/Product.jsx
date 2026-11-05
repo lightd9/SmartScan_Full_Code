@@ -1,4 +1,7 @@
-import { Box, Paper, Avatar, Typography, Button, Alert, TextField } from '@mui/material';
+import { Box, Paper, Avatar, Typography, Button, Alert, TextField, CircularProgress } from '@mui/material';
+import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded';
+import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import bgImg from '../../img/bg.png';
 import Timeline from '@mui/lab/Timeline';
 import TimelineItem from '@mui/lab/TimelineItem';
@@ -171,14 +174,102 @@ const Product = () => {
     }
 
     if (!productLoaded) {
-        return <Box sx={{ minHeight: '80vh', display: 'grid', placeItems: 'center', p: 2 }}>
-            <Paper elevation={3} sx={{ width: 'min(400px, 100%)', p: 3, backgroundColor: '#e3eefc' }}>
-                <Typography variant="h6" sx={{ mb: 2 }}>Product verification</Typography>
-                {scanWarnings.map((warning) => <Alert key={warning} severity="warning" sx={{ mb: 1 }}>{formatScanWarning(warning)}</Alert>)}
-                {loadError ? <Alert severity="error">{loadError}</Alert> : <Typography role="status">Verifying product on the configured blockchain…</Typography>}
-                <Button onClick={handleBack} sx={{ mt: 2 }}>Back</Button>
-            </Paper>
-        </Box>;
+        return (
+            <Box sx={{
+                minHeight: '100vh',
+                backgroundColor: '#F8FAFC',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                p: 3,
+                fontFamily: "'Plus Jakarta Sans', sans-serif"
+            }}>
+                <Paper
+                    elevation={0}
+                    sx={{
+                        width: '100%',
+                        maxWidth: 460,
+                        p: { xs: 3.5, sm: 4.5 },
+                        textAlign: 'center',
+                        backgroundColor: '#FFFFFF',
+                        borderRadius: '24px',
+                        border: '1px solid #ECEEF2',
+                        boxShadow: '0 20px 45px -15px rgba(15, 23, 42, 0.08)',
+                    }}
+                >
+                    <Box sx={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: '16px',
+                        backgroundColor: loadError ? '#FEE2E2' : '#EFF6FF',
+                        color: loadError ? '#DC2626' : '#2563EB',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        mx: 'auto',
+                        mb: 2.5
+                    }}>
+                        {loadError ? <SecurityRoundedIcon sx={{ fontSize: 28 }} /> : <CircularProgress size={28} color="inherit" />}
+                    </Box>
+
+                    <Typography variant="h6" sx={{ fontWeight: 800, color: '#0F172A', mb: 1 }}>
+                        {loadError ? 'Verification Alert' : 'Querying Blockchain Ledger'}
+                    </Typography>
+
+                    <Typography variant="body2" sx={{ color: '#64748B', mb: 3, lineHeight: 1.6 }}>
+                        {loadError
+                            ? 'The scanned product identity could not be verified on the official Ethereum Sepolia contract.'
+                            : 'Authenticating digital passport on Ethereum Sepolia (Chain ID: 11155111)...'}
+                    </Typography>
+
+                    {scanWarnings.map((warning) => (
+                        <Alert key={warning} severity="warning" sx={{ mb: 1.5, textAlign: 'left', borderRadius: '12px' }}>
+                            {formatScanWarning(warning)}
+                        </Alert>
+                    ))}
+
+                    {loadError && (
+                        <Alert severity="error" sx={{ textAlign: 'left', mb: 3, borderRadius: '12px' }}>
+                            {loadError}
+                        </Alert>
+                    )}
+
+                    <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center' }}>
+                        <Button
+                            variant="outlined"
+                            onClick={handleBack}
+                            startIcon={<ArrowBackRoundedIcon />}
+                            sx={{
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                borderRadius: '10px',
+                                px: 2.5,
+                                borderColor: '#CBD5E1',
+                                color: '#334155',
+                                '&:hover': { borderColor: '#94A3B8', backgroundColor: '#F8FAFC' }
+                            }}
+                        >
+                            Return Back
+                        </Button>
+                        <Button
+                            variant="contained"
+                            onClick={() => navigate('/scanner')}
+                            startIcon={<QrCodeScannerRoundedIcon />}
+                            sx={{
+                                textTransform: 'none',
+                                fontWeight: 700,
+                                borderRadius: '10px',
+                                px: 2.5,
+                                background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%)',
+                                color: '#FFFFFF',
+                            }}
+                        >
+                            Scan Another
+                        </Button>
+                    </Box>
+                </Paper>
+            </Box>
+        );
     }
 
 

@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BrowserMultiFormatReader } from '@zxing/browser';
 
-const QrScanner = ({ passData }) => {
+const QrScanner = ({ passData, onScan }) => {
   const videoRef = useRef(null);
   const [cameraError, setCameraError] = useState('');
   const hasScannedRef = useRef(false);
+  const handleScanCallback = onScan || passData;
 
   useEffect(() => {
     let controls = null;
@@ -33,9 +34,9 @@ const QrScanner = ({ passData }) => {
             if (!mounted) return;
             if (result && !hasScannedRef.current) {
               const text = result.getText ? result.getText() : String(result);
-              if (text) {
+              if (text && handleScanCallback) {
                 hasScannedRef.current = true;
-                passData(text);
+                handleScanCallback(text);
               }
             }
           }

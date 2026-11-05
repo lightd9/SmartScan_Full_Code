@@ -27,6 +27,8 @@ import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
+import PointOfSaleRoundedIcon from '@mui/icons-material/PointOfSaleRounded';
+import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 
 import { useScanner } from '../../context/ScannerContext';
 
@@ -108,11 +110,14 @@ export default function TopHeader({ onSearch }) {
           { label: 'Mint New Product', icon: <AddRoundedIcon fontSize="small" />, onClick: () => navigate('/add-product') },
           { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
           { label: 'Inspect Custody Chain', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
+          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
         ];
       case 'admin':
         return [
           { label: 'Provision Partner Account', icon: <AddRoundedIcon fontSize="small" />, onClick: () => navigate('/add-account') },
           { label: 'Manage Accounts & Keys', icon: <BusinessRoundedIcon fontSize="small" />, onClick: () => navigate('/manage-account') },
+          { label: 'Facility Wallets & Treasury', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
+          { label: 'POS Checkout Register', icon: <PointOfSaleRoundedIcon fontSize="small" />, onClick: () => navigate('/pos') },
           { label: 'System Operations & Reconciliation', icon: <SecurityRoundedIcon fontSize="small" />, onClick: () => navigate('/admin/operations') },
           { label: 'Public Verifier Scanner', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
         ];
@@ -120,15 +125,20 @@ export default function TopHeader({ onSearch }) {
         return [
           { label: 'Scan Inbound Cargo', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
           { label: 'Transfer Custody', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
+          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
         ];
       case 'retailer':
         return [
+          { label: 'POS Checkout Register', icon: <PointOfSaleRoundedIcon fontSize="small" />, onClick: () => navigate('/pos') },
           { label: 'Scan & Mark Sold', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
           { label: 'Shelf Stock Ledger', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate('/update-product') },
+          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
         ];
       default:
         return [
           { label: 'Dashboard Overview', icon: <Inventory2OutlinedIcon fontSize="small" />, onClick: () => navigate(`/${role}`) },
+          { label: 'POS Checkout Register', icon: <PointOfSaleRoundedIcon fontSize="small" />, onClick: () => navigate('/pos') },
+          { label: 'Facility Subaccounts', icon: <AccountBalanceWalletRoundedIcon fontSize="small" />, onClick: () => navigate('/subaccounts') },
           { label: 'Verify & Scan Code', icon: <QrCodeScannerRoundedIcon fontSize="small" />, onClick: () => openScanner() },
         ];
     }

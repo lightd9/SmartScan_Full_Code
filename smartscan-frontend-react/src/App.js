@@ -27,7 +27,39 @@ const Missing = lazy(() => import('./components/pages/Missing'));
 function App() {
 
   return (
-    <Suspense fallback={<div role="status" aria-live="polite">Loading page…</div>}>
+    <Suspense
+      fallback={
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#F8FAFC',
+            fontFamily: "'Plus Jakarta Sans', sans-serif",
+            color: '#64748B',
+            fontSize: '0.95rem',
+            fontWeight: 600,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              style={{
+                width: 22,
+                height: 22,
+                border: '2.5px solid #CBD5E1',
+                borderTopColor: '#2563EB',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+              }}
+            />
+            Loading SmartScan…
+          </div>
+        </div>
+      }
+    >
     <Routes>
       <Route path='/' element={<Layout />}>
 

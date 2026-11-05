@@ -3,14 +3,15 @@ import React from "react";
 import CustomButton from "./CustomButton";
 import { useScanner } from "../../context/ScannerContext";
 
+const CustomBox = styled(Box)(({ theme }) => ({
+  width: "55%",
+  [theme.breakpoints.down("md")]: {
+    width: "85%",
+  },
+}));
+
 const Guide = () => {
   const { openScanner } = useScanner();
-  const CustomBox = styled(Box)(({ theme }) => ({
-    width: "30%",
-    [theme.breakpoints.down("md")]: {
-      width: "85%",
-    },
-  }));
 
   return (
     <Box

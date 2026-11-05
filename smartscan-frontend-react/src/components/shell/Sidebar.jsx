@@ -17,6 +17,7 @@ import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import PointOfSaleOutlinedIcon from '@mui/icons-material/PointOfSaleOutlined';
 
 export default function Sidebar() {
   const { auth, logout } = useAuth();
@@ -59,7 +60,7 @@ export default function Sidebar() {
         {
           to: '/pos',
           label: 'POS Register',
-          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
+          icon: <PointOfSaleOutlinedIcon className="nav-icon" />,
         },
         {
           onClick: () => openScanner(),
@@ -103,7 +104,7 @@ export default function Sidebar() {
         {
           to: '/pos',
           label: 'POS Register',
-          icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
+          icon: <PointOfSaleOutlinedIcon className="nav-icon" />,
         },
         {
           onClick: () => openScanner(),
@@ -262,7 +263,7 @@ export default function Sidebar() {
         </NavLink>
 
         <a
-          href="https://github.com"
+          href="https://github.com/lightd9/SmartScan_Full_Code"
           target="_blank"
           rel="noreferrer"
           className="sidebar-nav-item"

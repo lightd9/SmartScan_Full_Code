@@ -2,18 +2,19 @@ import { Box, Container, styled, Typography } from "@mui/material";
 import React from "react";
 import logoImg from "../../img/logo.png";
 
-const Companies = () => {
-  const CustomContainer = styled(Container)(({ theme }) => ({
-    display: "flex",
-    justifyContent: "space-between",
+const CustomContainer = styled(Container)(({ theme }) => ({
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  [theme.breakpoints.down("md")]: {
+    flexDirection: "column",
     alignItems: "center",
-    [theme.breakpoints.down("md")]: {
-      flexDirection: "column",
-      alignItems: "center",
-      textAlign: "center",
-      marginBottom: theme.spacing(4),
-    },
-  }));
+    textAlign: "center",
+    marginBottom: theme.spacing(4),
+  },
+}));
+
+const Companies = () => {
 
   return (
     <Box sx={{ mt: 10 }}>

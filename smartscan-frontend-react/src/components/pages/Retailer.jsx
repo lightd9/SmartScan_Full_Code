@@ -116,13 +116,13 @@ export default function Retailer() {
               title: 'Customer Verification Scan · Lane 3',
               time: '10:15 AM · Genuine Verified',
               color: 'green',
-              avatars: ['https://i.pravatar.cc/100?img=32'],
+              avatars: ['POS'],
             },
             {
               title: 'Terminal Sale Finalized on Ledger',
               time: '12:45 PM · Marked Sold',
               color: 'blue',
-              avatars: ['https://i.pravatar.cc/100?img=41'],
+              avatars: ['RET'],
             },
           ]}
         />

@@ -120,6 +120,62 @@ export const Navbar = () => {
             <NavbarLogo src={logoImg} alt="SmartScan" />
           </Link>
         </Box>
+
+        {/* Desktop Navigation Links */}
+        <Box
+          sx={{
+            display: { xs: "none", md: "flex" },
+            alignItems: "center",
+            gap: "1.8rem",
+          }}
+        >
+          <Link
+            to="/"
+            style={{
+              textDecoration: "none",
+              color: "#334155",
+              fontWeight: 600,
+              fontSize: "14.5px",
+              transition: "color 0.2s",
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.color = "#2563EB")}
+            onMouseOut={(e) => (e.currentTarget.style.color = "#334155")}
+          >
+            Home
+          </Link>
+          <button
+            type="button"
+            onClick={() => openScanner()}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#334155",
+              fontWeight: 600,
+              fontSize: "14.5px",
+              padding: 0,
+              transition: "color 0.2s",
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.color = "#2563EB")}
+            onMouseOut={(e) => (e.currentTarget.style.color = "#334155")}
+          >
+            Verify Product
+          </button>
+          <Link
+            to="/pos"
+            style={{
+              textDecoration: "none",
+              color: "#334155",
+              fontWeight: 600,
+              fontSize: "14.5px",
+              transition: "color 0.2s",
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.color = "#2563EB")}
+            onMouseOut={(e) => (e.currentTarget.style.color = "#334155")}
+          >
+            POS Register
+          </Link>
+        </Box>
       </Box>
 
       <Box

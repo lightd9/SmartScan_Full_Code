@@ -116,13 +116,13 @@ export default function Supplier() {
               title: 'Cross-Dock Transfer · Bay 14',
               time: '11:00 AM · Courier Team A',
               color: 'green',
-              avatars: ['https://i.pravatar.cc/100?img=15', 'https://i.pravatar.cc/100?img=16'],
+              avatars: ['LOG', 'DC'],
             },
             {
               title: 'Retail Dispatch Staging',
               time: '03:30 PM · Outbound Terminal',
               color: 'blue',
-              avatars: ['https://i.pravatar.cc/100?img=22'],
+              avatars: ['STG'],
             },
           ]}
         />

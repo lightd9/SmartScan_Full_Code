@@ -142,19 +142,19 @@ export default function Manufacturer() {
               title: 'Batch Dispatched to Primary Distributor',
               time: '09:30 AM · Verified Signer',
               color: 'green',
-              avatars: ['https://i.pravatar.cc/100?img=3', 'https://i.pravatar.cc/100?img=4'],
+              avatars: ['MF', 'QC'],
             },
             {
               title: 'Packaging Label High-Res QR Generation',
               time: '02:00 PM · Factory Gate 2',
               color: 'blue',
-              avatars: ['https://i.pravatar.cc/100?img=11'],
+              avatars: ['PKG'],
             },
             {
               title: 'Scheduled Reconciler Sync Window',
               time: 'Continuous EVM Watchdog',
               color: 'orange',
-              avatars: ['https://i.pravatar.cc/100?img=52'],
+              avatars: ['EVM'],
             },
           ]}
         />

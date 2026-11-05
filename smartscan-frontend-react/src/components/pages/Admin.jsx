@@ -120,19 +120,19 @@ export default function Admin() {
               title: 'Smart Contract Reconciler Cycle',
               time: 'Running Every 60s',
               color: 'green',
-              avatars: ['https://i.pravatar.cc/100?img=12', 'https://i.pravatar.cc/100?img=33'],
+              avatars: ['AD', 'OP'],
             },
             {
               title: 'Scan Anomaly Geofence Audit',
               time: 'Telemetry Engine Active',
               color: 'blue',
-              avatars: ['https://i.pravatar.cc/100?img=60'],
+              avatars: ['SEC'],
             },
             {
               title: 'Scheduled Key Rotation & Token Audit',
               time: 'Automated Revocation Guard',
               color: 'orange',
-              avatars: ['https://i.pravatar.cc/100?img=47'],
+              avatars: ['KEY'],
             },
           ]}
         />

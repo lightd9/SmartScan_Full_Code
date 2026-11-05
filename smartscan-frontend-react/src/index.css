@@ -163,3 +163,12 @@ button {
   color: var(--color-text-main);
   font-weight: 700;
 }
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

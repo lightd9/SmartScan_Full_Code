@@ -16,8 +16,7 @@ export const findMetaMaskAccount = async () => {
 export const connectMetaMask = async () => {
   const ethereum = getEthereumObject();
   if (!ethereum) {
-    alert('Get MetaMask!');
-    return null;
+    throw new Error('MetaMask or a Web3-compatible browser extension is not installed.');
   }
   const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
   return accounts[0];

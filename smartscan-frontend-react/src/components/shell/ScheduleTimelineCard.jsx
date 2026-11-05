@@ -27,21 +27,21 @@ export default function ScheduleTimelineCard({
       time: '01:00 PM to 02:30 PM',
       color: 'green',
       description: 'Physical handover and carrier signing for outbound verified batch items.',
-      avatars: ['https://i.pravatar.cc/100?img=1', 'https://i.pravatar.cc/100?img=2'],
+      avatars: ['MF', 'LG'],
     },
     {
       title: 'Chain Event Verification',
       time: '04:00 PM to 05:00 PM',
       color: 'blue',
       description: 'On-chain block confirmation and node receipt validation with smart contract state.',
-      avatars: ['https://i.pravatar.cc/100?img=3', 'https://i.pravatar.cc/100?img=4'],
+      avatars: ['BL', 'EVM'],
     },
     {
       title: 'Dock Delivery Reconciliation',
       time: '05:30 PM to 06:15 PM',
       color: 'orange',
       description: 'Inbound consignment optical scan verification and storage placement.',
-      avatars: ['https://i.pravatar.cc/100?img=5'],
+      avatars: ['DC'],
     },
   ],
 }) {
@@ -141,9 +141,39 @@ export default function ScheduleTimelineCard({
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {ev.avatars && ev.avatars.length > 0 && (
                 <div className="avatar-stack">
-                  {ev.avatars.map((av, avIdx) => (
-                    <img key={avIdx} src={av} alt="Participant" />
-                  ))}
+                  {ev.avatars.map((av, avIdx) => {
+                    const isUrl = typeof av === 'string' && (av.startsWith('http') || av.startsWith('/'));
+                    if (isUrl) {
+                      return <img key={avIdx} src={av} alt="Participant" />;
+                    }
+                    const palette = ['#2563EB', '#7C3AED', '#059669', '#D97706'];
+                    return (
+                      <div
+                        key={avIdx}
+                        className="avatar-initials-badge"
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: '50%',
+                          backgroundColor: palette[avIdx % palette.length],
+                          color: '#FFFFFF',
+                          fontSize: '0.68rem',
+                          fontWeight: 700,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          border: '2px solid #FFFFFF',
+                          marginLeft: avIdx > 0 ? -8 : 0,
+                          letterSpacing: '-0.3px',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                          verticalAlign: 'middle',
+                        }}
+                        title={av}
+                      >
+                        {av}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
               <MoreHorizRoundedIcon

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TextField, Box, Paper, Typography, Autocomplete, Button } from '@mui/material';
+import { TextField, Box, Paper, Typography, Autocomplete, Button, Alert } from '@mui/material';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import '../shell/shell.css';
@@ -18,6 +18,7 @@ const AddAccount = () => {
     const [website, setWebsite] = useState('');
     const [location, setLocation] = useState('');
     const [errMsg, setErrMsg] = useState('');
+    const [successMsg, setSuccessMsg] = useState('');
     const [image, setImage] = useState({
         file: [],
         filepreview: null
@@ -107,8 +108,9 @@ const uploadImage = async (image) => {
             });
 
             setErrMsg('');
-            alert('Account created successfully.');
+            setSuccessMsg(`Enterprise account for @${user} created successfully! Authorized on-chain roles may now be assigned.`);
         } catch (err) {
+            setSuccessMsg('');
             if (!err?.response) {
                 setErrMsg('Server is down. Please try again later.');
             } else if (err.response?.status === 409) {
@@ -120,7 +122,7 @@ const uploadImage = async (image) => {
             } else {
                 setErrMsg('Failed to add the account. Please try again later.');
             }
-            errRef.current.focus();
+            errRef.current?.focus();
         }
     };
 
@@ -149,22 +151,16 @@ const uploadImage = async (image) => {
                 ]}
             />
 
+            {successMsg && (
+                <Alert severity="success" sx={{ mb: 2, borderRadius: '12px' }} onClose={() => setSuccessMsg('')}>
+                    {successMsg}
+                </Alert>
+            )}
+
             {errMsg && (
-                <div
-                    ref={errRef}
-                    role="alert"
-                    tabIndex={-1}
-                    style={{
-                        padding: '12px 18px',
-                        borderRadius: '10px',
-                        backgroundColor: 'var(--status-red-bg)',
-                        color: 'var(--status-red-text)',
-                        fontSize: '13px',
-                        fontWeight: 600,
-                    }}
-                >
+                <Alert severity="error" ref={errRef} tabIndex={-1} sx={{ mb: 2, borderRadius: '12px' }} onClose={() => setErrMsg('')}>
                     {errMsg}
-                </div>
+                </Alert>
             )}
 
             <form onSubmit={handleSubmit} style={{ width: '100%' }}>

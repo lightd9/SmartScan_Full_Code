@@ -417,7 +417,7 @@ const checkUnique = async () => {
         setIsUnique(!isDuplicate);
         return !isDuplicate; // return result to be used in handleSubmit
     } catch (_err) {
-        alert("Unable to verify the serial number. Please try again.");
+        setSubmitError("Unable to verify the serial number uniqueness. Please check your network connection and try again.");
         return false;
     }
 };
