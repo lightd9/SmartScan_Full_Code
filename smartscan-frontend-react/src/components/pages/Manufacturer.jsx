@@ -90,7 +90,6 @@ export default function Manufacturer() {
       icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
       value: `${confirmedCount || 0}`,
       label: 'Chains Confirmed',
-      onClick: () => navigate('/update-product'),
     },
     {
       icon: <HourglassEmptyRoundedIcon sx={{ fontSize: 17, color: retryCount > 0 ? '#DC2626' : '#8A92A6' }} />,

@@ -230,8 +230,8 @@ export default function ScannerModal({ open, onClose, initialCode = '' }) {
             <QrCodeScannerRoundedIcon sx={{ fontSize: 22 }} />
           </div>
           <div className="scanner-title-text">
-            <h3>Verify Product Barcode</h3>
-            <p>Direct smart contract verification on Sepolia</p>
+            <h3>Smart Custody & Verification Scanner</h3>
+            <p>Auto-detects Inbound Receipt, Outbound Dispatch, or POS Sale on Sepolia</p>
           </div>
         </div>
         <IconButton

@@ -56,21 +56,19 @@ export default function Retailer() {
   const retailerMetrics = [
     {
       icon: <StorefrontOutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
-      value: `${products.length || 14}`,
+      value: `${products.length || 0}`,
       label: 'Units on Shelf',
-      onClick: () => navigate('/update-product'),
     },
     {
       icon: <PointOfSaleOutlinedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
-      value: '42',
-      label: 'Verified Sales',
-      onClick: () => openScanner(),
+      value: `${products.filter(p => p.chain_status === 'confirmed').length || 0}`,
+      label: 'Verified Inventory',
+      onClick: () => navigate('/pos'),
     },
     {
       icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#2563EB' }} />,
       value: '100%',
       label: 'Genuine Authenticated',
-      onClick: () => openScanner(),
     },
   ];
 
@@ -85,9 +83,10 @@ export default function Retailer() {
             type="button"
             className="btn-primary-action"
             onClick={() => openScanner()}
+            title="Auto-detects Store Receiving or Retail Point-of-Sale based on blockchain state"
           >
             <QrCodeScannerOutlinedIcon sx={{ fontSize: 18 }} />
-            <span>+ Scan & Sell</span>
+            <span>+ Smart Scan</span>
           </button>
         }
       />
@@ -97,7 +96,6 @@ export default function Retailer() {
         title="Store Inventory & Authentication Terminal"
         titleIcon={<StorefrontOutlinedIcon className="card-title-icon" />}
         filterLabel="Available Stock"
-        onSeeAllClick={() => openScanner()}
         columns={[
           { label: 'Item / Product Identifier', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
           { label: 'Floor Associate / Register', icon: <PointOfSaleOutlinedIcon sx={{ fontSize: 16 }} /> },

@@ -369,10 +369,10 @@ const ScannerPage = () => {
                         </Box>
                         <Box>
                             <Typography variant="h6" sx={{ fontWeight: 800, color: '#111827', fontSize: '1.2rem', lineHeight: 1.2 }}>
-                                Verify Product Barcode
+                                Smart Custody & Verification Scanner
                             </Typography>
                             <Typography variant="caption" sx={{ color: '#6B7280', fontWeight: 500 }}>
-                                Cryptographic on-chain provenance on Sepolia
+                                Auto-detects Inbound Receipt, Outbound Dispatch, or Retail Sale on Sepolia
                             </Typography>
                         </Box>
                     </Box>

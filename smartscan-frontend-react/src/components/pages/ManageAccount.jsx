@@ -82,14 +82,14 @@ const columns = [
     },
     {
         field: 'wallet_status',
-        headerName: 'Vault Status',
-        width: 150,
+        headerName: 'Wallet Status',
+        width: 140,
         renderCell: (params) => {
             const status = (params.value || 'unlinked').toLowerCase();
             const isActive = status === 'active' || status === 'linked';
             return (
                 <Chip
-                    label={isActive ? 'VAULT ACTIVE' : status.toUpperCase()}
+                    label={isActive ? 'ACTIVE' : status.toUpperCase()}
                     size="small"
                     sx={{
                         fontWeight: 700,
@@ -105,13 +105,13 @@ const columns = [
     },
     {
         field: 'wallet_address',
-        headerName: 'Assigned Enterprise Vault Wallet',
+        headerName: 'Assigned Facility Wallet',
         flex: 1.5,
         minWidth: 260,
         renderCell: (params) => {
             const addr = params.value;
             if (!addr || addr === ethers.ZeroAddress) {
-                return <Typography variant="caption" sx={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pending vault generation</Typography>;
+                return <Typography variant="caption" sx={{ color: '#9CA3AF', fontStyle: 'italic' }}>Pending wallet generation</Typography>;
             }
             const short = `${addr.slice(0, 6)}...${addr.slice(-4)}`;
             return (
@@ -185,7 +185,7 @@ const ManageAccount = () => {
         <DashboardShell>
             <GreetingBanner
                 title="Enterprise Account Directory"
-                subtitle="Manage corporate partner organizations, active vault wallets, and role authorizations"
+                subtitle="Manage corporate partner organizations, active wallets, and role authorizations"
                 metrics={[
                     {
                         icon: <BusinessRoundedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
@@ -195,7 +195,7 @@ const ManageAccount = () => {
                     {
                         icon: <CheckCircleRoundedIcon sx={{ fontSize: 18, color: '#10B981' }} />,
                         value: `${activeWalletsCount}`,
-                        label: 'Active Vaults',
+                        label: 'Active Wallets',
                     },
                     {
                         icon: <LocalGasStationRoundedIcon sx={{ fontSize: 18, color: '#9333EA' }} />,
@@ -283,7 +283,6 @@ const ManageAccount = () => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--color-text-main)' }}>
                             Automated Enterprise Key Architecture
                         </h3>
-                        <span className="vault-pill">Enterprise Standard</span>
                     </div>
                     <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
                         Users never need to install third-party wallet extensions or manage private keys. Each enterprise partner operates through dedicated encrypted facility subaccounts with automated Sepolia gas disbursement and headless on-chain execution.

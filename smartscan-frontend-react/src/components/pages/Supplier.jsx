@@ -56,21 +56,18 @@ export default function Supplier() {
   const supplierMetrics = [
     {
       icon: <WarehouseOutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
-      value: `${products.length || 8}`,
+      value: `${products.length || 0}`,
       label: 'Warehoused Cargo',
-      onClick: () => navigate('/update-product'),
     },
     {
       icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
-      value: `${products.length ? products.length - 1 : 7}`,
+      value: `${products.filter(p => p.chain_status === 'confirmed').length || 0}`,
       label: 'Deliveries Confirmed',
-      onClick: () => navigate('/update-product'),
     },
     {
       icon: <LocalShippingOutlinedIcon sx={{ fontSize: 17, color: '#9333EA' }} />,
-      value: '2',
+      value: `${products.filter(p => p.chain_status !== 'confirmed').length || 0}`,
       label: 'Active Dispatches',
-      onClick: () => openScanner(),
     },
   ];
 
@@ -85,9 +82,10 @@ export default function Supplier() {
             type="button"
             className="btn-primary-action"
             onClick={() => openScanner()}
+            title="Auto-detects Inbound Receipt or Outbound Dispatch based on blockchain state"
           >
             <QrCodeScannerOutlinedIcon sx={{ fontSize: 18 }} />
-            <span>+ Inbound Scan</span>
+            <span>+ Smart Scan</span>
           </button>
         }
       />
@@ -97,7 +95,6 @@ export default function Supplier() {
         title="Active Supply Chain Consignments"
         titleIcon={<LocalShippingOutlinedIcon className="card-title-icon" />}
         filterLabel="In Transit"
-        onSeeAllClick={() => openScanner()}
         columns={[
           { label: 'Consignment / Serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
           { label: 'Carrier / Warehouse Dock', icon: <WarehouseOutlinedIcon sx={{ fontSize: 16 }} /> },

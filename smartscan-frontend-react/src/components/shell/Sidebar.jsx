@@ -64,7 +64,7 @@ export default function Sidebar() {
         },
         {
           onClick: () => openScanner(),
-          label: 'Verify Scanner',
+          label: 'Smart Scanner',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
         }
       );
@@ -77,26 +77,16 @@ export default function Sidebar() {
         },
         {
           onClick: () => openScanner(),
-          label: 'Verify & Scan',
+          label: 'Smart Scanner',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/update-product',
-          label: 'Custody Chain',
-          icon: <Inventory2OutlinedIcon className="nav-icon" />,
         }
       );
     } else if (role === 'supplier') {
       baseItems.push(
         {
           onClick: () => openScanner(),
-          label: 'Inbound Scan',
+          label: 'Smart Scanner',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/update-product',
-          label: 'Custody Hub',
-          icon: <Inventory2OutlinedIcon className="nav-icon" />,
         }
       );
     } else if (role === 'retailer') {
@@ -108,13 +98,8 @@ export default function Sidebar() {
         },
         {
           onClick: () => openScanner(),
-          label: 'Inbound Scan',
+          label: 'Smart Scanner',
           icon: <QrCodeScannerOutlinedIcon className="nav-icon" />,
-        },
-        {
-          to: '/update-product',
-          label: 'Shelf Inventory',
-          icon: <Inventory2OutlinedIcon className="nav-icon" />,
         }
       );
     }
@@ -153,15 +138,15 @@ export default function Sidebar() {
     }
     if (role === 'supplier') {
       return [
-        { label: 'Inbound Docks', color: 'pink', onClick: () => openScanner() },
-        { label: 'Warehouse Holding', color: 'green', to: `/${role}` },
-        { label: 'Outbound Retail', color: 'blue', to: '/update-product' },
+        { label: 'Warehouse Docks', color: 'pink', to: `/${role}` },
+        { label: 'Cargo Ledger', color: 'green', to: `/${role}` },
+        { label: 'Facility Logs', color: 'blue', to: '/subaccounts' },
       ];
     }
     return [
       { label: 'Store Inventory', color: 'pink', to: `/${role}` },
-      { label: 'Sold Registrations', color: 'green', to: `/${role}` },
-      { label: 'Receiving Crates', color: 'purple', onClick: () => openScanner() },
+      { label: 'Sold Ledger', color: 'green', to: `/${role}` },
+      { label: 'Facility Logs', color: 'purple', to: '/subaccounts' },
     ];
   };
 
