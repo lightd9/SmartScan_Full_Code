@@ -127,7 +127,7 @@ export default function Sidebar() {
       },
       {
         to: '/profile',
-        label: 'Corporate Wallet',
+        label: 'Profile & Security',
         icon: <AccountBalanceWalletOutlinedIcon className="nav-icon" />,
       }
     );

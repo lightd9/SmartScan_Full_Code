@@ -366,10 +366,27 @@
   height: 8px;
   border-radius: 50%;
   background-color: #10B981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
 
 .wallet-dot.disconnected {
   background-color: #9CA3AF;
+  box-shadow: none;
+}
+
+.vault-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  background-color: #ECFDF5;
+  color: #059669;
+  border: 1px solid #A7F3D0;
+  line-height: 1.3;
 }
 
 /* --------------------------------------------------------------------------

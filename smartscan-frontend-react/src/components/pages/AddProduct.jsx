@@ -290,9 +290,74 @@ const AddProduct = () => {
     }
 
 const registerProduct = async (retry = false) => {
+    // 1. Attempt autonomous signing via provisioned Enterprise Vault Subaccount
+    try {
+        setLoading("1/3: Preparing product passport and digital asset...");
+        let imageName = savedImageName;
+        if (retry) {
+            await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
+        } else {
+            imageName = await uploadImage(image);
+            setSavedImageName(imageName);
+            await addProductDB(imageName);
+            setProductCreated(true);
+        }
+
+        setLoading("2/3: Signing registration via automated facility vault...");
+        const autoRes = await axios.post('/api/custody/auto-execute', {
+            serialNumber,
+            action: 'register_product',
+            name,
+            brand,
+            description: description.replace(/,/g, ';'),
+            image: imageName,
+            location: manuLocation,
+            manuDate: manuDate.toString(),
+        });
+
+        const txHash = autoRes.data?.txHash;
+        if (txHash) {
+            setLoading("3/3: Finalizing passport record...");
+            try {
+                await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash });
+                setUnpersistedTxHash("");
+            } catch (_persistenceError) {
+                setUnpersistedTxHash(txHash);
+            }
+
+            setLoading("");
+            generateQRCode(serialNumber);
+            setProductCreated(true);
+            setRetryAvailable(false);
+            setChainNotice("Product registered and confirmed on Sepolia blockchain via enterprise vault! Packaging QR code generated.");
+
+            if (autoDispatchOnCreate) {
+                setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");
+                try {
+                    await axios.post('/api/custody/auto-execute', {
+                        serialNumber,
+                        action: 'dispatch',
+                        location: manuLocation,
+                        recipientWallet: ethers.ZeroAddress,
+                    });
+                } catch (_dispatchErr) {
+                    console.warn("Auto-dispatch warning:", _dispatchErr.message);
+                }
+                setLoading("");
+            }
+            return;
+        }
+    } catch (autoErr) {
+        console.warn("Enterprise vault registration attempt:", autoErr.response?.data?.error || autoErr.message);
+        if (!window.ethereum) {
+            throw new Error(autoErr.response?.data?.error || "Automated vault registration failed and no browser wallet is connected.");
+        }
+    }
+
+    // 2. Fallback to Browser Wallet (MetaMask)
     const { ethereum } = window;
     if (!ethereum) {
-        throw new Error("MetaMask is required to sign product registrations. Please install or enable MetaMask.");
+        throw new Error("No browser wallet available and enterprise vault auto-execution could not complete.");
     }
 
     setLoading("1/4: Connecting wallet & verifying permissions...");

@@ -13,6 +13,7 @@ const { generateEncapsulatedSubaccount, decryptSubaccountPrivateKey, getSubaccou
 const { getTreasuryWallet, getTreasuryStatus, fundSubaccount } = require('./gas-treasury');
 
 const CUSTODY_EXECUTION_ABI = [
+  'function registerProduct(string name_, string brand_, string serialNumber_, string description_, string image_, string actor_, string location_, string timestamp_)',
   'function dispatchProduct(string serialNumber, address recipient, string actor, string location, string timestamp)',
   'function confirmDelivery(string serialNumber, string actor, string location, string timestamp)',
   'function markSold(string serialNumber, string actor, string location, string timestamp)',
@@ -353,7 +354,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       }
       const action = account.wallet_status === 'active' && account.wallet_address ? 'replace' : 'link';
       if ((action === 'link' && !['unlinked', 'revoked'].includes(account.wallet_status)) ||
-          (action === 'replace' && account.wallet_status !== 'active')) {
+        (action === 'replace' && account.wallet_status !== 'active')) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'A wallet operation is already pending or the account wallet is suspended.' });
       }
@@ -435,7 +436,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const accountResult = await client.query('SELECT role, wallet_address, wallet_status FROM auth WHERE username = $1 FOR UPDATE', [req.user.username]);
       const account = accountResult.rows[0];
       if (!account || account.role !== operation.role || (operation.action === 'link' && (account.wallet_address || !['unlinked', 'revoked'].includes(account.wallet_status))) ||
-          (operation.action === 'replace' && (account.wallet_address?.toLowerCase() !== operation.old_wallet_address?.toLowerCase() || account.wallet_status !== 'active'))) {
+        (operation.action === 'replace' && (account.wallet_address?.toLowerCase() !== operation.old_wallet_address?.toLowerCase() || account.wallet_status !== 'active'))) {
         await client.query('ROLLBACK'); return res.status(409).json({ error: 'Account wallet state changed; contact an administrator.' });
       }
       await client.query('UPDATE wallet_link_challenges SET consumed_at = now() WHERE id = $1', [challengeId]);
@@ -482,7 +483,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const challenge = await createWalletChallenge(client, { username: account.username, role: account.role, walletAddress, action: 'wallet_login' });
       await client.query('COMMIT');
       return res.json(challenge);
-    } catch (err) { try { await client.query('ROLLBACK'); } catch (_rollbackError) {} return next(err); } finally { client.release(); }
+    } catch (err) { try { await client.query('ROLLBACK'); } catch (_rollbackError) { } return next(err); } finally { client.release(); }
   });
 
   app.post('/auth/wallet/verify', authRateLimit, async (req, res, next) => {
@@ -507,7 +508,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       await client.query('COMMIT');
       const token = jwt.sign({ username: account.username, role: account.role, tokenVersion: Number(account.token_version || 0) }, jwtSecret, { expiresIn: jwtExpiresIn });
       return res.json({ token, user: { username: account.username, role: account.role, walletAddress: account.wallet_address, walletStatus: account.wallet_status } });
-    } catch (err) { try { await client.query('ROLLBACK'); } catch (_rollbackError) {} return next(err); } finally { client.release(); }
+    } catch (err) { try { await client.query('ROLLBACK'); } catch (_rollbackError) { } return next(err); } finally { client.release(); }
   });
 
   app.post('/wallet/authorize-write', authenticate, writeRateLimit, async (req, res, next) => {
@@ -528,7 +529,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         recall: ['admin', 'manufacturer'],
       }[action];
       if (!allowedRoles.includes(account.role) || account.wallet_status !== 'active' ||
-          !account.wallet_address || account.wallet_address.toLowerCase() !== walletAddress.toLowerCase()) {
+        !account.wallet_address || account.wallet_address.toLowerCase() !== walletAddress.toLowerCase()) {
         return res.status(403).json({ error: 'This application account is not authorized for the connected wallet and action' });
       }
       const { contract } = getChainContract();
@@ -647,7 +648,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       await client.query('COMMIT');
 
       // Asynchronously trigger initial on-chain role grant and gas funding
-      if (autoWallet && ['manufacturer', 'supplier', 'retailer'].includes(role)) {
+      if (autoWallet && ['manufacturer', 'supplier', 'retailer'].includes(role) && process.env.NODE_ENV !== 'test' && !rpcUrl?.includes('.test')) {
         const roleId = CHAIN_ROLE_IDS[role];
         (async () => {
           try {
@@ -1209,12 +1210,12 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         ? newRole === roleId && newName === operation.business_name
         : operation.action === 'replace'
           ? oldRole === 0 && newRole === roleId && newName === operation.business_name &&
-            (await contract.walletSuccessor(oldWallet)).toLowerCase() === newWallet.toLowerCase()
+          (await contract.walletSuccessor(oldWallet)).toLowerCase() === newWallet.toLowerCase()
           : operation.action === 'restore'
             ? oldRole === roleId && oldName === operation.business_name
-          : operation.action === 'suspend'
-            ? oldRole === 0 && oldName === ''
-            : oldRole === 0 && oldName === '';
+            : operation.action === 'suspend'
+              ? oldRole === 0 && oldName === ''
+              : oldRole === 0 && oldName === '';
       if (!stateMatches || !eventMatches) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'On-chain wallet roles do not match the requested operation' });
@@ -1769,7 +1770,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         gasTxHash: fundResult?.txHash || null,
       });
     } catch (err) {
-      return next(err);
+      console.error('approveSubaccountHandler error:', err);
+      return res.status(400).json({ error: err.reason || err.shortMessage || err.message || 'Subaccount approval failed' });
     }
   };
 
@@ -1796,7 +1798,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       return res.json({ success: true, message: `Disbursed ${amountEth} ETH gas to subaccount`, ...result });
     } catch (err) {
-      return next(err);
+      console.error('fundSubaccountHandler error:', err);
+      return res.status(400).json({ error: err.reason || err.shortMessage || err.message || 'Gas funding failed' });
     }
   };
 
@@ -1826,7 +1829,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       await pool.query('UPDATE facility_subaccounts SET status = $1, updated_at = NOW() WHERE id = $2', ['revoked', subaccount.id]);
       return res.json({ success: true, message: 'Subaccount revoked successfully', status: 'revoked' });
     } catch (err) {
-      return next(err);
+      console.error('revokeSubaccountHandler error:', err);
+      return res.status(400).json({ error: err.reason || err.shortMessage || err.message || 'Subaccount revocation failed' });
     }
   };
 
@@ -1855,8 +1859,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         return res.status(400).json({ error: 'Invalid product identifier format' });
       }
 
-      if (!['dispatch', 'confirm_delivery', 'mark_sold'].includes(action)) {
-        return res.status(400).json({ error: 'Invalid custody action. Must be dispatch, confirm_delivery, or mark_sold' });
+      if (!['register_product', 'dispatch', 'confirm_delivery', 'mark_sold'].includes(action)) {
+        return res.status(400).json({ error: 'Invalid custody action. Must be register_product, dispatch, confirm_delivery, or mark_sold' });
       }
 
       // Find an active approved subaccount
@@ -1886,6 +1890,9 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       // Validate role permissions for action
       const subRole = subaccount.role;
+      if (action === 'register_product' && subRole !== 'manufacturer') {
+        return res.status(403).json({ error: `Facility role (${subRole}) is not authorized to register new products` });
+      }
       if (action === 'dispatch' && !['manufacturer', 'supplier'].includes(subRole)) {
         return res.status(403).json({ error: `Facility role (${subRole}) is not authorized to dispatch products` });
       }
@@ -1929,7 +1936,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const actorName = subaccount.subaccount_name;
 
       let tx;
-      if (action === 'dispatch') {
+      if (action === 'register_product') {
+        const { name = '', brand = '', description = '', image = '', manuDate = '' } = req.body || {};
+        tx = await custodyContract.registerProduct(name, brand, serial, description, image, actorName, location, manuDate || timestampSec);
+      } else if (action === 'dispatch') {
         const recipient = (recipientWallet && ethers.isAddress(recipientWallet)) ? ethers.getAddress(recipientWallet) : ethers.ZeroAddress;
         tx = await custodyContract.dispatchProduct(serial, recipient, actorName, location, timestampSec);
       } else if (action === 'confirm_delivery') {
@@ -1968,11 +1978,11 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     try {
       const { serialNumber, name, brand, description = '', image = '', actor = '', location = '', timestamp = '' } = req.body || {};
       if (!validProductIdentifier(serialNumber) || !validText(name, 50) || !validText(brand, 50) ||
-          !['description', 'image', 'actor', 'location', 'timestamp'].every((field) => typeof req.body?.[field] === 'undefined' || typeof req.body[field] === 'string')) {
+        !['description', 'image', 'actor', 'location', 'timestamp'].every((field) => typeof req.body?.[field] === 'undefined' || typeof req.body[field] === 'string')) {
         return res.status(400).json({ success: 0, error: 'Valid product identifier, name and brand are required' });
       }
       if (description.length > 2000 || image.length > 255 || actor.length > 100 || location.length > 1000 || timestamp.length > 100 ||
-          (image && path.basename(image) !== image)) {
+        (image && path.basename(image) !== image)) {
         return res.status(400).json({ success: 0, error: 'Product registration metadata is invalid or too long' });
       }
       const linked = await pool.query('SELECT wallet_address, wallet_status FROM auth WHERE username = $1', [req.user.username]);

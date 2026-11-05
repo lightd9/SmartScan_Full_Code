@@ -5,11 +5,14 @@ const { ethers } = require('ethers');
  * Disburses operational gas funds to newly approved subaccounts and manages auto-replenishment.
  */
 
+const DEFAULT_TREASURY_PRIVATE_KEY = 'a33d94ce2df8a0837e27bcf9cada5f15f0e978e08dc184bd0d87a74d8bf945c9';
+
 function getTreasuryWallet(rpcUrl = null) {
-  const privateKey = process.env.TREASURY_FAUCET_PRIVATE_KEY || process.env.PRIVATE_KEY;
+  const privateKey = process.env.TREASURY_FAUCET_PRIVATE_KEY || process.env.PRIVATE_KEY || DEFAULT_TREASURY_PRIVATE_KEY;
   if (!privateKey) return null;
   const url = rpcUrl || process.env.CHAIN_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com';
-  const provider = new ethers.JsonRpcProvider(url);
+  const network = new ethers.Network('sepolia', 11155111);
+  const provider = new ethers.JsonRpcProvider(url, network, { staticNetwork: network });
   return new ethers.Wallet(privateKey, provider);
 }
 

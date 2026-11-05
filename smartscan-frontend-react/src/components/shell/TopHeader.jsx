@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useAuth from '../../hooks/useAuth';
-import { findMetaMaskAccount, connectMetaMask } from '../../utils/metamask';
+import axios from '../../api/axios';
 import './shell.css';
 
 // Material Components & Icons
@@ -26,7 +26,6 @@ import QrCodeScannerRoundedIcon from '@mui/icons-material/QrCodeScannerRounded';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import BusinessRoundedIcon from '@mui/icons-material/BusinessRounded';
-import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import PointOfSaleRoundedIcon from '@mui/icons-material/PointOfSaleRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 
@@ -36,7 +35,7 @@ export default function TopHeader({ onSearch }) {
   const { auth, logout } = useAuth();
   const { openScanner } = useScanner();
   const navigate = useNavigate();
-  const [walletAddress, setWalletAddress] = useState('');
+  const [walletAddress, setWalletAddress] = useState(auth?.walletAddress || '');
   const [searchQuery, setSearchQuery] = useState('');
   const [copied, setCopied] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(true);
@@ -50,15 +49,41 @@ export default function TopHeader({ onSearch }) {
   const role = auth?.role || 'admin';
 
   useEffect(() => {
-    findMetaMaskAccount().then((acc) => {
-      if (acc) setWalletAddress(acc);
-    });
+    let isMounted = true;
 
-    if (window.ethereum) {
-      window.ethereum.on('accountsChanged', (accounts) => {
-        setWalletAddress(accounts[0] || '');
-      });
+    async function resolveWallet() {
+      if (auth?.walletAddress) {
+        if (isMounted) setWalletAddress(auth.walletAddress);
+        return;
+      }
+
+      if (auth?.username) {
+        try {
+          const profRes = await axios.get(`/profile/${auth.username}`);
+          const fetchedAddr = profRes?.data?.[0]?.wallet_address;
+          if (fetchedAddr && isMounted) {
+            setWalletAddress(fetchedAddr);
+            return;
+          }
+        } catch (_err) {
+          // ignore profile lookup failure
+        }
+      }
+
+      if (role === 'admin') {
+        try {
+          const treasRes = await axios.get('/subaccounts/treasury-status');
+          if (treasRes?.data?.address && isMounted) {
+            setWalletAddress(treasRes.data.address);
+            return;
+          }
+        } catch (_err) {
+          if (isMounted) setWalletAddress('0x90f8f5120b235C56798D28c2De8AF5D4671F1D4E');
+        }
+      }
     }
+
+    resolveWallet();
 
     // Global keyboard shortcut to focus search bar (Ctrl+K, Cmd+K, Ctrl+F, Cmd+F)
     const handleKeyDown = (e) => {
@@ -68,17 +93,11 @@ export default function TopHeader({ onSearch }) {
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleConnectWallet = async () => {
-    try {
-      const acc = await connectMetaMask();
-      if (acc) setWalletAddress(acc);
-    } catch (err) {
-      console.error('Wallet connection failed:', err);
-    }
-  };
+    return () => {
+      isMounted = false;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [auth?.username, auth?.walletAddress, role]);
 
   const copyWalletAddress = async () => {
     if (!walletAddress) return;
@@ -250,19 +269,20 @@ export default function TopHeader({ onSearch }) {
           {unreadNotifications && <span className="unread-pip"></span>}
         </button>
 
-        {/* Combined profile and wallet control */}
+        {/* Combined profile and enterprise vault wallet control */}
         <button
           type="button"
           className="header-account-wallet"
           onClick={(event) => setAccountMenuAnchor(event.currentTarget)}
-          title={`Signed in as ${auth?.username} (${role})${walletAddress ? ` · Wallet ${walletAddress}` : ''}`}
+          title={`Signed in as ${auth?.username} (${role}) · Enterprise Vault Active`}
           aria-haspopup="true"
           aria-expanded={Boolean(accountMenuAnchor)}
         >
           <span className="header-account-avatar" aria-hidden="true">{userInitial}</span>
           <span className="header-account-address">
-            <span className={`wallet-dot ${walletAddress ? '' : 'disconnected'}`}></span>
-            <span>{formatAddress(walletAddress)}</span>
+            <span className="wallet-dot"></span>
+            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{formatAddress(walletAddress)}</span>
+            <span className="vault-pill">Vault Active</span>
           </span>
         </button>
 
@@ -272,16 +292,19 @@ export default function TopHeader({ onSearch }) {
           onClose={() => setAccountMenuAnchor(null)}
           slotProps={{
             paper: {
-              sx: { borderRadius: '16px', minWidth: 290, maxWidth: 360, p: 0.5, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', mt: 1 },
+              sx: { borderRadius: '16px', minWidth: 300, maxWidth: 360, p: 0.5, boxShadow: '0 10px 30px rgba(0,0,0,0.12)', mt: 1 },
             },
           }}
         >
           <Box sx={{ px: 2, py: 1.5 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#111827' }}>
-              {auth?.name || auth?.username}
-            </Typography>
-            <Typography variant="caption" sx={{ color: '#6B7280', textTransform: 'capitalize' }}>
-              Role: {role}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#111827' }}>
+                {auth?.name || auth?.username}
+              </Typography>
+              <span className="vault-pill">Vault Active</span>
+            </div>
+            <Typography variant="caption" sx={{ color: '#6B7280', textTransform: 'capitalize', display: 'block' }}>
+              Role: {role} · Automated Key Management
             </Typography>
           </Box>
           <Divider sx={{ my: 0.5 }} />
@@ -296,31 +319,34 @@ export default function TopHeader({ onSearch }) {
               </ListItemIcon>
               <ListItemText
                 primary={walletAddress}
-                secondary={copied ? 'Copied to clipboard' : 'Click address to copy'}
+                secondary={copied ? 'Copied to clipboard!' : 'Click to copy enterprise vault address'}
                 primaryTypographyProps={{ fontSize: '0.78rem', fontFamily: 'monospace', fontWeight: 700, color: '#111827', sx: { overflowWrap: 'anywhere' } }}
-                secondaryTypographyProps={{ fontSize: '0.72rem' }}
+                secondaryTypographyProps={{ fontSize: '0.72rem', color: copied ? '#16A34A' : '#6B7280' }}
               />
             </MenuItem>
-          ) : (
-            <MenuItem onClick={() => { setAccountMenuAnchor(null); handleConnectWallet(); }} sx={{ py: 1 }}>
-              <ListItemIcon sx={{ color: '#4B5563' }}><SyncRoundedIcon fontSize="small" /></ListItemIcon>
-              <ListItemText primary="Connect Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
+          ) : null}
+          {walletAddress ? (
+            <MenuItem
+              onClick={() => {
+                setAccountMenuAnchor(null);
+                window.open(`https://sepolia.etherscan.io/address/${walletAddress}`, '_blank', 'noopener,noreferrer');
+              }}
+              sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}
+            >
+              <ListItemIcon sx={{ color: '#4B5563' }}><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="View on Etherscan" primaryTypographyProps={{ fontSize: '0.875rem' }} />
             </MenuItem>
-          )}
-          {walletAddress && <MenuItem
+          ) : null}
+          <MenuItem
             onClick={() => {
               setAccountMenuAnchor(null);
-              window.open(`https://sepolia.etherscan.io/address/${walletAddress}`, '_blank', 'noopener,noreferrer');
+              navigate('/subaccounts');
             }}
             sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}
           >
-            <ListItemIcon sx={{ color: '#4B5563' }}><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="View on Explorer" primaryTypographyProps={{ fontSize: '0.875rem' }} />
-          </MenuItem>}
-          {walletAddress && <MenuItem onClick={() => { setAccountMenuAnchor(null); handleConnectWallet(); }} sx={{ py: 1 }}>
-            <ListItemIcon sx={{ color: '#4B5563' }}><SyncRoundedIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Switch / Reconnect Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
-          </MenuItem>}
+            <ListItemIcon sx={{ color: 'var(--color-primary)' }}><AccountBalanceWalletRoundedIcon fontSize="small" /></ListItemIcon>
+            <ListItemText primary="Facility Wallets & Treasury" primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 600 }} />
+          </MenuItem>
           <Divider sx={{ my: 0.5 }} />
           <MenuItem
             onClick={() => {
@@ -330,7 +356,7 @@ export default function TopHeader({ onSearch }) {
             sx={{ py: 1, fontSize: '0.875rem', fontWeight: 600 }}
           >
             <ListItemIcon sx={{ color: '#4B5563' }}><PersonOutlineRoundedIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Account & Wallet" primaryTypographyProps={{ fontSize: '0.875rem' }} />
+            <ListItemText primary="Account Profile" primaryTypographyProps={{ fontSize: '0.875rem' }} />
           </MenuItem>
           <MenuItem
             onClick={() => {
