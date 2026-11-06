@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
 import { useScanner } from '../../context/ScannerContext';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import DashboardWorkflowCard from '../shell/DashboardWorkflowCard';
+import PrimaryDataCard from '../shell/PrimaryDataCard';
 
 // Material Icons
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
@@ -14,29 +17,90 @@ import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
+import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 
 export default function Supplier() {
   const { auth } = useAuth();
   const { openScanner } = useScanner();
+  const navigate = useNavigate();
+
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    axios.get('/product/chain-status')
+      .then((res) => {
+        if (active && Array.isArray(res.data)) {
+          setProducts(res.data);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load supplier custody records:', err);
+        if (active) setLoadError(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const confirmedCount = products.filter((p) => p.chain_status === 'confirmed').length;
+  const transitCount = products.filter((p) => p.chain_status !== 'confirmed').length;
 
   const supplierMetrics = [
     {
-      icon: <CheckCircleRoundedIcon sx={{ fontSize: 16, color: '#16A34A' }} />,
+      icon: <Inventory2OutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
+      value: loading ? '—' : String(products.length),
+      label: 'Cargo Manifest',
+    },
+    {
+      icon: <CheckCircleRoundedIcon sx={{ fontSize: 17, color: '#16A34A' }} />,
+      value: loading ? '—' : String(confirmedCount),
+      label: 'Chain Verified',
+    },
+    {
+      icon: <SecurityRoundedIcon sx={{ fontSize: 17, color: '#9333EA' }} />,
       value: 'Active',
-      label: 'Custody Node',
-    },
-    {
-      icon: <SecurityRoundedIcon sx={{ fontSize: 16, color: 'var(--color-primary)' }} />,
-      value: 'Headless',
-      label: 'Gasless Relay',
-    },
-    {
-      icon: <QrCodeScannerOutlinedIcon sx={{ fontSize: 16, color: '#D97706' }} />,
-      value: 'Ready',
-      label: 'Scan Facility',
-      onClick: () => openScanner(),
+      label: 'Gasless Custody Relay',
     },
   ];
+
+  const tableRows = products.map((item) => {
+    const isConfirmed = item.chain_status === 'confirmed';
+    const isNeedsRetry = item.chain_status === 'needs_retry';
+    const isFailed = item.chain_status === 'failed';
+    const isDraft = item.chain_status === 'pending_wallet';
+    const statusColor = isConfirmed ? 'green' : isFailed ? 'red' : isNeedsRetry || isDraft ? 'amber' : 'purple';
+    const statusLabel = isConfirmed
+      ? 'Confirmed'
+      : isFailed
+        ? 'Flagged'
+        : isNeedsRetry
+          ? 'Needs Review'
+          : isDraft
+            ? 'Draft'
+            : 'In Transit';
+
+    return {
+      id: item.serialnumber,
+      icon: <QrCode2OutlinedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
+      title: `${item.name || 'Cargo Item'} (${String(item.serialnumber || '').slice(0, 14)}…)`,
+      assigneeName: item.chain_actor || item.chain_location || 'Logistics Depot',
+      statusLabel,
+      statusColor,
+      onClick: () => navigate(`/product-details/${encodeURIComponent(item.serialnumber)}`),
+    };
+  });
+
+  const handleScrollToManifest = () => {
+    const element = document.getElementById('custody-manifest');
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   return (
     <DashboardShell>
@@ -58,30 +122,59 @@ export default function Supplier() {
         }
       />
 
-      {/* Primary Workflow Cards */}
+      {/* Primary Workflow Cards with Distinct Actions */}
       <section className="workflow-card-grid" aria-label="Supplier workflows">
         <DashboardWorkflowCard
           icon={<WarehouseOutlinedIcon />}
           title="Receive Inbound Delivery"
           description="Scan physical packaging QR codes upon cargo arrival to verify cryptographic origin, validate batch proof, and accept custody on-chain."
-          actionLabel="Receive Delivery"
+          actionLabel="Scan Inbound QR"
           onAction={() => openScanner()}
         />
         <DashboardWorkflowCard
           icon={<LocalShippingOutlinedIcon />}
           title="Dispatch Outbound Shipment"
-          description="Scan inventory in your warehouse custody to assign freight shipments to downstream retail partners or distribution facilities."
-          actionLabel="Dispatch Freight"
-          onAction={() => openScanner()}
+          description="Select verified inventory from your warehouse custody manifest below to dispatch freight to authorized downstream retail partners."
+          actionLabel="Select from Manifest"
+          onAction={handleScrollToManifest}
         />
         <DashboardWorkflowCard
           icon={<VerifiedUserOutlinedIcon />}
           title="Field Provenance Audit"
-          description="Inspect digital passport, sensor and packaging tamper data, and verify cryptographic authenticity before clearing cargo for dispatch."
-          actionLabel="Verify Passport"
-          onAction={() => openScanner()}
+          description="Inspect digital passport, sensor logs, and cryptographic authenticity trail before clearing consignments for distribution."
+          actionLabel="Open Scanner Audit"
+          onAction={() => navigate('/scanner')}
         />
       </section>
+
+      {loadError && (
+        <p className="dashboard-error" role="alert">
+          Custody records could not be refreshed. Check network connectivity or retry.
+        </p>
+      )}
+
+      {/* Primary Custody & Inventory Manifest Data Table */}
+      <div id="custody-manifest" style={{ marginTop: '24px', scrollMarginTop: '80px' }}>
+        <PrimaryDataCard
+          title="Inbound Cargo & Inventory Manifest"
+          titleIcon={<LocalShippingOutlinedIcon className="card-title-icon" />}
+          filterLabel="All Items"
+          filterOptions={['All Items', 'Confirmed', 'In Transit', 'Needs Review']}
+          columns={[
+            { label: 'Product & Serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
+            { label: 'Depot / Facility Location', icon: <WarehouseOutlinedIcon sx={{ fontSize: 16 }} /> },
+            { label: 'Chain Status', icon: <CheckCircleRoundedIcon sx={{ fontSize: 16 }} /> },
+          ]}
+          rows={tableRows}
+          emptyMessage={
+            loading
+              ? 'Loading cargo records…'
+              : loadError
+                ? 'Manifest data is temporarily unavailable.'
+                : 'No consignments currently in custody manifest. Scan inbound QR to accept custody.'
+          }
+        />
+      </div>
 
       {/* Protocol Checklist & Custody Guidelines */}
       <div className="dashboard-grid-split" style={{ marginTop: '24px' }}>
@@ -186,7 +279,7 @@ export default function Supplier() {
             <div style={{
               padding: '14px',
               borderRadius: '12px',
-              backgroundColor: 'var(--color-bg-subtle)',
+              backgroundColor: 'var(--color-surface-subtle)',
               border: '1px solid var(--color-border)',
             }}>
               <strong style={{ fontSize: '13px', color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
@@ -199,7 +292,7 @@ export default function Supplier() {
             <div style={{
               padding: '14px',
               borderRadius: '12px',
-              backgroundColor: 'var(--color-bg-subtle)',
+              backgroundColor: 'var(--color-surface-subtle)',
               border: '1px solid var(--color-border)',
             }}>
               <strong style={{ fontSize: '13px', color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>

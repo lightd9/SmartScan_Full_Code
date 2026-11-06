@@ -630,29 +630,30 @@ export default function POSCheckoutPage() {
                                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
                                     <Chip
                                         size="small"
-                                        label={`Product: ${currentResult.productName}`}
-                                        sx={{ fontWeight: 700, backgroundColor: '#FFFFFF' }}
+                                        label={currentResult.productName}
+                                        sx={{ fontWeight: 700, backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}
                                     />
                                     {currentResult.brand && (
                                         <Chip
                                             size="small"
-                                            label={`Brand: ${currentResult.brand}`}
-                                            sx={{ fontWeight: 700, backgroundColor: '#FFFFFF' }}
+                                            label={currentResult.brand}
+                                            sx={{ fontWeight: 700, backgroundColor: '#FFFFFF', border: '1px solid #E2E8F0' }}
                                         />
                                     )}
                                     <Chip
                                         size="small"
-                                        label={`Stage: ${currentResult.stage}`}
+                                        label={currentResult.stage}
                                         sx={{
                                             fontWeight: 700,
                                             backgroundColor: currentResult.canSell ? '#DCFCE7' : '#FEE2E2',
                                             color: currentResult.canSell ? '#15803D' : '#B91C1C',
+                                            border: currentResult.canSell ? '1px solid #BBF7D0' : '1px solid #FECACA',
                                         }}
                                     />
                                 </Box>
 
                                 <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#64748B', display: 'block' }}>
-                                    SERIAL: {currentResult.serialNumber}
+                                    {currentResult.serialNumber}
                                 </Typography>
                             </div>
                         </Box>

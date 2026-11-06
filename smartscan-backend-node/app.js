@@ -2424,7 +2424,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     } catch (err) { return next(err); }
   });
 
-  app.get('/product/chain-status', authenticate, authorize('admin', 'manufacturer'), async (req, res, next) => {
+  app.get('/product/chain-status', authenticate, authorize('admin', 'manufacturer', 'supplier', 'retailer'), async (req, res, next) => {
     try {
       const requestedStatus = req.query.status;
       const allowedStatuses = ['pending_wallet', 'submitted', 'confirmed', 'failed', 'needs_retry'];
@@ -2434,8 +2434,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const params = requestedStatus ? [requestedStatus, req.user.role, req.user.username] : [req.user.role, req.user.username];
       const fields = 'serialnumber, name, brand, chain_description, chain_image, chain_actor, chain_location, chain_timestamp, chain_status, chain_tx_hash, chain_id, chain_expected_id, chain_attempt, chain_sender, chain_contract_address, failure_reason, chain_submitted_at, chain_updated_at, chain_reconciled_at, created_at';
       const query = requestedStatus
-        ? `SELECT ${fields} FROM product WHERE chain_status = $1 AND ($2 = 'admin' OR manufacturer_username = $3) ORDER BY created_at DESC`
-        : `SELECT ${fields} FROM product WHERE ($1 = 'admin' OR manufacturer_username = $2) ORDER BY created_at DESC`;
+        ? `SELECT ${fields} FROM product WHERE chain_status = $1 AND ($2 IN ('admin', 'supplier', 'retailer') OR manufacturer_username = $3) ORDER BY created_at DESC`
+        : `SELECT ${fields} FROM product WHERE ($1 IN ('admin', 'supplier', 'retailer') OR manufacturer_username = $2) ORDER BY created_at DESC`;
       const { rows } = await pool.query(query, params);
 
       if (scanContract && process.env.NODE_ENV !== 'test') {

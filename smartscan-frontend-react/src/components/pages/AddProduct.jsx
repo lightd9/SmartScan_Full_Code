@@ -529,7 +529,7 @@ const AddProduct = () => {
 
                         <div style={{ background: 'var(--color-surface-subtle)', padding: '14px', borderRadius: 10, border: '1px solid var(--color-border)' }}>
                             <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: 4 }}>
-                                Canonical Serial Number
+                                Serial Number
                             </span>
                             <code style={{ fontSize: '13px', color: 'var(--color-text-main)', wordBreak: 'break-all' }}>
                                 {serialNumber}

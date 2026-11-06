@@ -26,13 +26,6 @@ import { formatContractError } from '../../utils/contractErrors';
 
 const LOGIN_URL = '/auth';
 
-const DEMO_PRESETS = [
-  { role: 'Admin', username: 'admin' },
-  { role: 'Manufacturer', username: 'manu' },
-  { role: 'Supplier', username: 'supp' },
-  { role: 'Retailer', username: 'retailer' },
-];
-
 export default function Login() {
   const { setAuth } = useAuth();
   const navigate = useNavigate();
@@ -53,11 +46,6 @@ export default function Login() {
 
   const handleBack = () => {
     navigate('/');
-  };
-
-  const handlePresetSelect = (presetUser) => {
-    setUser(presetUser);
-    pwdInputRef.current?.focus();
   };
 
   const handleSubmit = async (e) => {
@@ -163,43 +151,6 @@ export default function Login() {
             <Typography variant="body2" sx={{ color: '#64748B' }}>
               Access your supply chain and custody records
             </Typography>
-          </Box>
-
-          {/* Quick Demo Credentials Bar */}
-          <Box
-            sx={{
-              p: 1.5,
-              mb: 3,
-              borderRadius: '12px',
-              backgroundColor: '#F1F5F9',
-              border: '1px solid #E2E8F0',
-            }}
-          >
-            <Typography
-              variant="caption"
-              sx={{ fontWeight: 700, color: '#475569', display: 'block', mb: 0.8, textTransform: 'uppercase', letterSpacing: 0.5 }}
-            >
-              Demo Accounts
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              {DEMO_PRESETS.map((p) => (
-                <Chip
-                  key={p.username}
-                  label={`${p.role} (@${p.username})`}
-                  size="small"
-                  onClick={() => handlePresetSelect(p.username)}
-                  sx={{
-                    fontWeight: 600,
-                    fontSize: '0.75rem',
-                    cursor: 'pointer',
-                    backgroundColor: user === p.username ? '#DBEAFE' : '#FFFFFF',
-                    color: user === p.username ? '#1E40AF' : '#334155',
-                    border: user === p.username ? '1px solid #3B82F6' : '1px solid #CBD5E1',
-                    '&:hover': { backgroundColor: '#E2E8F0' },
-                  }}
-                />
-              ))}
-            </Box>
           </Box>
 
           {/* Feedback Notices */}

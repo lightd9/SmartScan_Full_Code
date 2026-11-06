@@ -127,7 +127,7 @@ const AuthenticProduct = () => {
           }}
           onClick={viewPublicHistory}
         >
-          View Custody Chain
+          View Product Passport
         </Button>
       </Paper>
     </Box>

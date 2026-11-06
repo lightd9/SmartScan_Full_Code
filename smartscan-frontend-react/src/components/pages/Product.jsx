@@ -232,12 +232,16 @@ const Product = () => {
             <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: '#0F172A', mb: 0.5 }}>
               {item.actor || ROLE_NAMES[item.actorRole] || 'Verified Business'}
             </Typography>
-            <Typography sx={{ fontSize: '0.76rem', color: '#64748B', mb: 0.5 }}>
-              Location: <strong>{item.location || 'Not provided'}</strong>
-            </Typography>
-            <Typography sx={{ fontSize: '0.72rem', color: '#94A3B8', wordBreak: 'break-all' }}>
-              Wallet: {item.actorWallet}
-            </Typography>
+            {item.location && (
+              <Typography sx={{ fontSize: '0.76rem', color: '#64748B', mb: 0.5 }}>
+                {item.location}
+              </Typography>
+            )}
+            {item.actorWallet && (
+              <code style={{ fontSize: '0.72rem', color: '#94A3B8', display: 'block', wordBreak: 'break-all' }}>
+                {item.actorWallet.slice(0, 10)}...{item.actorWallet.slice(-8)}
+              </code>
+            )}
           </TimelineContent>
         </TimelineItem>
       );

@@ -266,20 +266,30 @@ const ManageAccount = () => {
                     </div>
                 </div>
 
-                <div style={{ height: 440, width: '100%', borderRadius: 12, overflow: 'auto', border: '1px solid var(--color-border)' }}>
+                <div style={{ width: '100%', borderRadius: 12, border: '1px solid var(--color-border)', backgroundColor: '#FFFFFF' }}>
                     <DataGrid
                         rows={rows}
                         columns={columns}
                         rowHeight={56}
+                        autoHeight
                         disableRowSelectionOnClick
-                        pageSize={5}
-                        rowsPerPageOptions={[5, 10, 25]}
+                        initialState={{
+                            pagination: { paginationModel: { pageSize: 5 } },
+                        }}
+                        pageSizeOptions={[5, 10, 25]}
                         loading={loading}
                         sx={{
                             border: 'none',
+                            fontFamily: "'Plus Jakarta Sans', sans-serif",
                             '& .MuiDataGrid-columnHeaders': {
                                 backgroundColor: 'var(--color-surface-subtle)',
                                 fontWeight: 700,
+                                fontSize: '0.8rem',
+                                color: 'var(--color-text-secondary)',
+                                borderBottom: '1px solid var(--color-border)',
+                            },
+                            '& .MuiDataGrid-cell': {
+                                borderBottom: '1px solid var(--color-border)',
                             },
                             '& .MuiDataGrid-row:hover': {
                                 backgroundColor: 'var(--color-surface-hover)',

@@ -174,7 +174,7 @@ export default function ProductDetails() {
     <DashboardShell>
       <GreetingBanner
         title={onchainProduct?.name || productDb?.name || 'Product Details'}
-        subtitle={`Canonical Serial Number: ${serialNumber}`}
+        subtitle={`Serial Number: ${serialNumber}`}
         metrics={[
           {
             icon: <Inventory2OutlinedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
@@ -350,7 +350,7 @@ export default function ProductDetails() {
                 )}
                 {onchainProduct?.custodian && onchainProduct.custodian !== ethers.ZeroAddress && (
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--color-text-secondary)' }}>Current Custodian:</span>
+                    <span style={{ color: 'var(--color-text-secondary)' }}>Custodian:</span>
                     <code style={{ fontSize: '11.5px' }}>{onchainProduct.custodian.slice(0, 10)}...{onchainProduct.custodian.slice(-8)}</code>
                   </div>
                 )}
@@ -490,7 +490,7 @@ export default function ProductDetails() {
                           </span>
                         </div>
                         <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
-                          Actor: {event.actor} {event.location ? `• ${event.location}` : ''}
+                          {event.actor} {event.location ? `• ${event.location}` : ''}
                         </span>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, fontSize: '11px', color: 'var(--color-text-muted)' }}>
                           <span>{formattedDate}</span>

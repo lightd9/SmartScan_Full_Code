@@ -257,7 +257,7 @@ const UpdateProduct = () => {
                     {
                         icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
                         value: serialNumber ? serialNumber.slice(0, 14) + '...' : 'Unknown',
-                        label: 'Canonical Serial',
+                        label: 'Serial Identifier',
                     },
                     {
                         icon: <span style={{ color: '#10B981', fontWeight: 700 }}>STATE</span>,

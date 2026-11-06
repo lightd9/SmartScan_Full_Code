@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
 import { useScanner } from '../../context/ScannerContext';
 import DashboardShell from '../shell/DashboardShell';
 import GreetingBanner from '../shell/GreetingBanner';
 import DashboardWorkflowCard from '../shell/DashboardWorkflowCard';
+import PrimaryDataCard from '../shell/PrimaryDataCard';
 
 // Material Icons
 import PointOfSaleOutlinedIcon from '@mui/icons-material/PointOfSaleOutlined';
@@ -14,11 +16,37 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
+import QrCode2OutlinedIcon from '@mui/icons-material/QrCode2Outlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 
 export default function Retailer() {
   const { auth } = useAuth();
   const { openScanner } = useScanner();
   const navigate = useNavigate();
+
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    axios.get('/product/chain-status')
+      .then((res) => {
+        if (active && Array.isArray(res.data)) {
+          setProducts(res.data);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load retailer stock records:', err);
+        if (active) setLoadError(true);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const confirmedCount = products.filter((p) => p.chain_status === 'confirmed').length;
 
   const retailerMetrics = [
     {
@@ -28,17 +56,50 @@ export default function Retailer() {
       onClick: () => navigate('/pos'),
     },
     {
-      icon: <SecurityRoundedIcon sx={{ fontSize: 16, color: 'var(--color-primary)' }} />,
-      value: 'Headless',
-      label: 'Relay Active',
+      icon: <Inventory2OutlinedIcon sx={{ fontSize: 16, color: 'var(--color-primary)' }} />,
+      value: loading ? '—' : String(products.length),
+      label: 'Shelf Inventory',
     },
     {
-      icon: <QrCodeScannerOutlinedIcon sx={{ fontSize: 16, color: '#D97706' }} />,
-      value: 'Ready',
-      label: 'Barcode & QR Scanner',
-      onClick: () => openScanner(),
+      icon: <SecurityRoundedIcon sx={{ fontSize: 16, color: '#9333EA' }} />,
+      value: loading ? '—' : String(confirmedCount),
+      label: 'Ledger Verified',
     },
   ];
+
+  const tableRows = products.map((item) => {
+    const isConfirmed = item.chain_status === 'confirmed';
+    const isNeedsRetry = item.chain_status === 'needs_retry';
+    const isFailed = item.chain_status === 'failed';
+    const isDraft = item.chain_status === 'pending_wallet';
+    const statusColor = isConfirmed ? 'green' : isFailed ? 'red' : isNeedsRetry || isDraft ? 'amber' : 'purple';
+    const statusLabel = isConfirmed
+      ? 'Available'
+      : isFailed
+        ? 'Flagged'
+        : isNeedsRetry
+          ? 'Needs Review'
+          : isDraft
+            ? 'Draft'
+            : 'In Transit';
+
+    return {
+      id: item.serialnumber,
+      icon: <QrCode2OutlinedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
+      title: `${item.name || 'Store Item'} (${String(item.serialnumber || '').slice(0, 14)}…)`,
+      assigneeName: item.chain_location || item.chain_actor || 'Retail Shelf',
+      statusLabel,
+      statusColor,
+      onClick: () => navigate(`/product-details/${encodeURIComponent(item.serialnumber)}`),
+    };
+  });
+
+  const handleScrollToInventory = () => {
+    const element = document.getElementById('retail-inventory');
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
 
   return (
     <DashboardShell>
@@ -71,13 +132,13 @@ export default function Retailer() {
         }
       />
 
-      {/* Primary Workflow Cards */}
+      {/* Primary Workflow Cards with Distinct Actions */}
       <section className="workflow-card-grid" aria-label="Retailer workflows">
         <DashboardWorkflowCard
           icon={<PointOfSaleOutlinedIcon />}
           title="Sell Verified Product (POS)"
           description="Authenticate item QR at counter, collect buyer warranty info, and register the permanent consumer sale on-chain with instant digital receipt."
-          actionLabel="Launch Checkout"
+          actionLabel="Launch POS Terminal"
           onAction={() => navigate('/pos')}
         />
         <DashboardWorkflowCard
@@ -88,13 +149,42 @@ export default function Retailer() {
           onAction={() => openScanner()}
         />
         <DashboardWorkflowCard
-          icon={<QrCodeScannerOutlinedIcon />}
-          title="Customer Item & Return Check"
-          description="Inspect digital passport, warranty registration, and recorded retailer proof before accepting customer returns or issuing replacements."
-          actionLabel="Inspect Passport"
-          onAction={() => openScanner()}
+          icon={<Inventory2OutlinedIcon />}
+          title="Shelf Inventory & Warranty Check"
+          description="Inspect live store stock, review warranty passports, and audit returned merchandise against blockchain origin records."
+          actionLabel="View Shelf Inventory"
+          onAction={handleScrollToInventory}
         />
       </section>
+
+      {loadError && (
+        <p className="dashboard-error" role="alert">
+          Inventory records could not be refreshed. Check network connectivity or retry.
+        </p>
+      )}
+
+      {/* Store Inventory & Shelf Stock Data Table */}
+      <div id="retail-inventory" style={{ marginTop: '24px', scrollMarginTop: '80px' }}>
+        <PrimaryDataCard
+          title="Store Stock & Shelf Inventory"
+          titleIcon={<StorefrontOutlinedIcon className="card-title-icon" />}
+          filterLabel="All Items"
+          filterOptions={['All Items', 'Available', 'In Transit', 'Needs Review']}
+          columns={[
+            { label: 'Product & Serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
+            { label: 'Store Custodian / Display', icon: <StorefrontOutlinedIcon sx={{ fontSize: 16 }} /> },
+            { label: 'Status & Verification', icon: <CheckCircleRoundedIcon sx={{ fontSize: 16 }} /> },
+          ]}
+          rows={tableRows}
+          emptyMessage={
+            loading
+              ? 'Loading store inventory records…'
+              : loadError
+                ? 'Store stock data is temporarily unavailable.'
+                : 'No store inventory recorded yet. Receive incoming shipments to stock shelves.'
+          }
+        />
+      </div>
 
       {/* Point-of-Sale Best Practices & Guidance */}
       <div className="dashboard-grid-split" style={{ marginTop: '24px' }}>
@@ -175,10 +265,10 @@ export default function Retailer() {
                 }}>3</span>
                 <div>
                   <strong style={{ fontSize: '13px', color: 'var(--color-text-main)', display: 'block', marginBottom: '2px' }}>
-                    Tamper Protection
+                    Return Clearance Verification
                   </strong>
                   <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                    Once sold, the blockchain ledger permanently locks the product stage as Sold to prevent counterfeit clone re-entry.
+                    Verify consumer receipt QR against original on-chain sale block before processing refunds or product exchanges.
                   </p>
                 </div>
               </li>
@@ -186,12 +276,12 @@ export default function Retailer() {
           </div>
         </article>
 
-        <article className="dashboard-card" aria-labelledby="terminal-shortcuts-title">
+        <article className="dashboard-card" aria-labelledby="retailer-tips-title">
           <header className="card-header-clean">
             <div className="card-title-group">
               <HelpOutlineRoundedIcon className="card-title-icon" sx={{ color: 'var(--color-primary)' }} />
-              <h2 id="terminal-shortcuts-title" className="card-title-text">
-                Terminal Quick Tools
+              <h2 id="retailer-tips-title" className="card-title-text">
+                Register Resources
               </h2>
             </div>
           </header>
@@ -199,27 +289,27 @@ export default function Retailer() {
             <div style={{
               padding: '14px',
               borderRadius: '12px',
-              backgroundColor: 'var(--color-bg-subtle)',
+              backgroundColor: 'var(--color-surface-subtle)',
               border: '1px solid var(--color-border)',
             }}>
               <strong style={{ fontSize: '13px', color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
-                Hardware barcode scanner support
+                Hardware barcode scanner mode
               </strong>
               <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                USB and Bluetooth HID scanners work automatically on the POS screen by typing the serial code into the scan field.
+                USB and Bluetooth HID barcode/QR wands work natively. Simply focus the POS or scanner page input and pull the trigger.
               </p>
             </div>
             <div style={{
               padding: '14px',
               borderRadius: '12px',
-              backgroundColor: 'var(--color-bg-subtle)',
+              backgroundColor: 'var(--color-surface-subtle)',
               border: '1px solid var(--color-border)',
             }}>
               <strong style={{ fontSize: '13px', color: 'var(--color-text-main)', display: 'block', marginBottom: '4px' }}>
-                Thermal label printer integration
+                Cashier subaccounts
               </strong>
               <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
-                Use the thermal packaging modal to print standardized 4x6" shipping and counter QR labels for customer packages.
+                Shift cashiers can sign sales using role-delegated operator accounts without administrative configuration permissions.
               </p>
             </div>
           </div>
