@@ -104,7 +104,8 @@ export default function Admin() {
     <DashboardShell>
       {/* Personalized Greeting & Metric Strip */}
       <GreetingBanner
-        title={`Governance Hub, ${auth?.name || 'Administrator'}`}
+        title="Governance & Oversight"
+        subtitle={`Welcome back, ${auth?.name || 'Administrator'} · System Overview`}
         metrics={adminMetrics}
       />
 
@@ -116,13 +117,13 @@ export default function Admin() {
 
       {/* Latest business accounts and their wallet states */}
       <PrimaryDataCard
-        title="Business accounts and wallets"
+        title="Registered Organizations"
         titleIcon={<BusinessRoundedIcon className="card-title-icon" />}
         onSeeAllClick={() => navigate('/manage-account')}
         columns={[
-          { label: 'Organization / Company', icon: <BusinessRoundedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Account username', icon: <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Wallet status', icon: <SecurityRoundedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Organization', icon: <BusinessRoundedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Username', icon: <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Wallet Status', icon: <SecurityRoundedIcon sx={{ fontSize: 16 }} /> },
         ]}
         rows={tableRows}
         emptyMessage={loading ? 'Loading business directory...' : loadError ? 'Account data is temporarily unavailable.' : 'No business accounts yet.'}

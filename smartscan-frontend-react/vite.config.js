@@ -43,6 +43,21 @@ export default defineConfig(({ mode }) => {
     ),
     // The existing CRA app contains JSX in .js files; preserve that source layout.
     esbuild: { loader: 'jsx', include: /src\/.*\.[jt]sx?$/, exclude: [] },
+    resolve: {
+      alias: {
+        '@mui/system': '@mui/system/esm',
+      },
+    },
+    optimizeDeps: {
+      include: [
+        '@mui/material',
+        '@mui/material/styles',
+        '@mui/material/Box',
+        '@mui/system',
+        '@emotion/react',
+        '@emotion/styled',
+      ],
+    },
     build: { outDir: 'build', sourcemap: false },
     test: { globals: true, environment: 'jsdom', setupFiles: ['./src/setupTests.js'] },
   };

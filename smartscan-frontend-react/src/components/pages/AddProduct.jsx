@@ -24,7 +24,7 @@ function createProductIdentifier() {
     return `SS-${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-const AddProduct = () => {    
+const AddProduct = () => {
 
     const [serialNumber, setSerialNumber] = useState(createProductIdentifier);
     const [name, setName] = useState("");
@@ -58,7 +58,7 @@ const AddProduct = () => {
     const { auth } = useAuth();
     const navigate = useNavigate();
     const location = useLocation();
-    
+
     useEffect(() => {
         setManuDate(dayjs().unix());
         getUsername();
@@ -197,8 +197,8 @@ const AddProduct = () => {
     const downloadQR = () => {
         const canvas = document.getElementById("QRCode");
         const pngUrl = canvas
-          .toDataURL("image/png")
-          .replace("image/png", "image/octet-stream");
+            .toDataURL("image/png")
+            .replace("image/png", "image/octet-stream");
         let downloadLink = document.createElement("a");
         downloadLink.href = pngUrl;
         downloadLink.download = `${serialNumber}.png`;
@@ -238,7 +238,7 @@ const AddProduct = () => {
         }
     };
 
-    
+
     const handleBack = () => {
         navigate(-1)
     }
@@ -279,80 +279,80 @@ const AddProduct = () => {
         return res.data.fileName;
     }
 
-const registerProduct = async (retry = false) => {
-    setLoading("1/3: Preparing product passport and digital asset...");
-    setSubmitError("");
-    try {
-        let imageName = savedImageName;
-        if (retry) {
-            await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
-        } else {
-            imageName = await uploadImage(image);
-            setSavedImageName(imageName);
-            await addProductDB(imageName);
-            setProductCreated(true);
-        }
-
-        setLoading("2/3: Signing registration via automated facility wallet...");
-        const autoRes = await axios.post('/api/custody/auto-execute', {
-            serialNumber,
-            action: 'register_product',
-            name,
-            brand,
-            description: description.replace(/,/g, ';'),
-            image: imageName,
-            location: manuLocation,
-            manuDate: manuDate.toString(),
-        });
-
-        const txHash = autoRes.data?.txHash;
-        if (txHash) {
-            setLoading("3/3: Finalizing passport record...");
-            try {
-                await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash });
-                setUnpersistedTxHash("");
-            } catch (_persistenceError) {
-                setUnpersistedTxHash(txHash);
+    const registerProduct = async (retry = false) => {
+        setLoading("1/3: Preparing product passport and digital asset...");
+        setSubmitError("");
+        try {
+            let imageName = savedImageName;
+            if (retry) {
+                await axios.post(`/product/${encodeURIComponent(serialNumber)}/retry`);
+            } else {
+                imageName = await uploadImage(image);
+                setSavedImageName(imageName);
+                await addProductDB(imageName);
+                setProductCreated(true);
             }
 
-            setLoading("");
-            generateQRCode(serialNumber);
-            setProductCreated(true);
-            setRetryAvailable(false);
-            setChainNotice(`Product registered and confirmed on ${CHAIN_NAME} via the facility wallet. Packaging QR code generated.`);
+            setLoading("2/3: Signing registration via automated facility wallet...");
+            const autoRes = await axios.post('/api/custody/auto-execute', {
+                serialNumber,
+                action: 'register_product',
+                name,
+                brand,
+                description: description.replace(/,/g, ';'),
+                image: imageName,
+                location: manuLocation,
+                manuDate: manuDate.toString(),
+            });
 
-            if (autoDispatchOnCreate) {
-                setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");
+            const txHash = autoRes.data?.txHash;
+            if (txHash) {
+                setLoading("3/3: Finalizing passport record...");
                 try {
-                    await axios.post('/api/custody/auto-execute', {
-                        serialNumber,
-                        action: 'dispatch',
-                        location: manuLocation,
-                        recipientWallet: ethers.ZeroAddress,
-                    });
-                    setIsDispatched(true);
-                    setChainNotice("✅ Product successfully registered AND dispatched to distribution network! Packaging QR tag generated.");
-                } catch (_dispatchErr) {
-                    console.warn("Auto-dispatch warning:", _dispatchErr.message);
-                    setChainNotice("Product registered on blockchain! Automatic dispatch could not complete; you can click '1-Click Dispatch' below.");
+                    await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash });
+                    setUnpersistedTxHash("");
+                } catch (_persistenceError) {
+                    setUnpersistedTxHash(txHash);
                 }
+
                 setLoading("");
+                generateQRCode(serialNumber);
+                setProductCreated(true);
+                setRetryAvailable(false);
+                setChainNotice(`Product registered and confirmed on ${CHAIN_NAME} via the facility wallet. Packaging QR code generated.`);
+
+                if (autoDispatchOnCreate) {
+                    setLoading("Auto-dispatching product into distribution transit (Open Dispatch)...");
+                    try {
+                        await axios.post('/api/custody/auto-execute', {
+                            serialNumber,
+                            action: 'dispatch',
+                            location: manuLocation,
+                            recipientWallet: ethers.ZeroAddress,
+                        });
+                        setIsDispatched(true);
+                        setChainNotice("✅ Product successfully registered AND dispatched to distribution network! Packaging QR tag generated.");
+                    } catch (_dispatchErr) {
+                        console.warn("Auto-dispatch warning:", _dispatchErr.message);
+                        setChainNotice("Product registered on blockchain! Automatic dispatch could not complete; you can click '1-Click Dispatch' below.");
+                    }
+                    setLoading("");
+                }
+                return txHash;
+            } else {
+                throw new Error(autoRes.data?.error || "Registration could not be completed by facility wallet.");
             }
-            return txHash;
-        } else {
-            throw new Error(autoRes.data?.error || "Registration could not be completed by facility wallet.");
+        } catch (err) {
+            console.error("Product registration error:", err);
+            const errMsg = err.response?.data?.error || err.message || "Product registration failed.";
+            setSubmitError(errMsg);
+            setChainNotice(errMsg);
+            setRetryAvailable(true);
+            throw err;
+        } finally {
+            setLoading("");
         }
-    } catch (err) {
-        console.error("Product registration error:", err);
-        const errMsg = err.response?.data?.error || err.message || "Product registration failed.";
-        setSubmitError(errMsg);
-        setChainNotice(errMsg);
-        setRetryAvailable(true);
-        throw err;
-    } finally {
-        setLoading("");
-    }
-};
+    };
 
     const addProductDB = async (imageName) => {
         const profileData = JSON.stringify({
@@ -364,110 +364,110 @@ const registerProduct = async (retry = false) => {
             "actor": manuName,
             "location": manuLocation,
             "timestamp": manuDate.toString(),
-          });
+        });
         const res = await axios.post('/addproduct', profileData, {
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
         });
         return res.data;
     }
 
-const checkUnique = async () => {
-    try {
-        const res = await axios.get("/product/serialNumber");
+    const checkUnique = async () => {
+        try {
+            const res = await axios.get("/product/serialNumber");
 
-        const existingSerialNumbers = res.data.map((product) => product.serialnumber);
-        const isDuplicate = existingSerialNumbers.includes(serialNumber);
+            const existingSerialNumbers = res.data.map((product) => product.serialnumber);
+            const isDuplicate = existingSerialNumbers.includes(serialNumber);
 
-        setIsUnique(!isDuplicate);
-        return !isDuplicate; // return result to be used in handleSubmit
-    } catch (_err) {
-        setSubmitError("Unable to verify the serial number uniqueness. Please check your network connection and try again.");
-        return false;
-    }
-};
+            setIsUnique(!isDuplicate);
+            return !isDuplicate; // return result to be used in handleSubmit
+        } catch (_err) {
+            setSubmitError("Unable to verify the serial number uniqueness. Please check your network connection and try again.");
+            return false;
+        }
+    };
 
-const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitError("");
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSubmitError("");
 
-    if (!serialNumber || !name || !brand) {
-        setSubmitError("Please fill in the product serial number, name, and brand.");
-        return;
-    }
-
-    try {
-        if (productCreated && !retryAvailable) {
-            await refreshChainStatus();
+        if (!serialNumber || !name || !brand) {
+            setSubmitError("Please fill in the product serial number, name, and brand.");
             return;
         }
-        if (!retryAvailable) {
-            const unique = await checkUnique();
-            if (!unique) {
-                setSubmitError("This product serial number already exists on the registry. Please enter or generate a unique one.");
+
+        try {
+            if (productCreated && !retryAvailable) {
+                await refreshChainStatus();
                 return;
             }
-        }
-        setLoading(retryAvailable ? "Retrying product registration..." : "Registering product on blockchain...");
-        await registerProduct(retryAvailable);
-    } catch (err) {
-        const friendlyMessage = formatContractError(err, "Registration did not complete. The transaction was either rejected or failed on the blockchain.");
-        try {
-            if (productCreated && !qrData) {
-                await axios.post(`/product/${encodeURIComponent(serialNumber)}/failed`, {
-                    reason: friendlyMessage
-                }).catch(() => {});
-                await refreshChainStatus();
+            if (!retryAvailable) {
+                const unique = await checkUnique();
+                if (!unique) {
+                    setSubmitError("This product serial number already exists on the registry. Please enter or generate a unique one.");
+                    return;
+                }
             }
-        } catch (_statusError) { setChainNotice('Unable to read the latest registration status. Please refresh before retrying.'); }
-        setLoading("");
-        setSubmitError(friendlyMessage);
-        setChainNotice(friendlyMessage);
-        setRetryAvailable(true);
-    }
-};
+            setLoading(retryAvailable ? "Retrying product registration..." : "Registering product on blockchain...");
+            await registerProduct(retryAvailable);
+        } catch (err) {
+            const friendlyMessage = formatContractError(err, "Registration did not complete. The transaction was either rejected or failed on the blockchain.");
+            try {
+                if (productCreated && !qrData) {
+                    await axios.post(`/product/${encodeURIComponent(serialNumber)}/failed`, {
+                        reason: friendlyMessage
+                    }).catch(() => { });
+                    await refreshChainStatus();
+                }
+            } catch (_statusError) { setChainNotice('Unable to read the latest registration status. Please refresh before retrying.'); }
+            setLoading("");
+            setSubmitError(friendlyMessage);
+            setChainNotice(friendlyMessage);
+            setRetryAvailable(true);
+        }
+    };
 
-const refreshChainStatus = async () => {
-    const response = await axios.get(`/product/${encodeURIComponent(serialNumber)}/chain-status`);
-    const status = response.data.chain_status;
-    setChainNotice(`Registration status: ${status}${response.data.failure_reason ? ` — ${response.data.failure_reason}` : ''}`);
-    setRetryAvailable(status === 'needs_retry' || status === 'failed');
-    setProductCreated(true);
-    await loadRetryableProducts();
-    return status;
-};
+    const refreshChainStatus = async () => {
+        const response = await axios.get(`/product/${encodeURIComponent(serialNumber)}/chain-status`);
+        const status = response.data.chain_status;
+        setChainNotice(`Registration status: ${status}${response.data.failure_reason ? ` — ${response.data.failure_reason}` : ''}`);
+        setRetryAvailable(status === 'needs_retry' || status === 'failed');
+        setProductCreated(true);
+        await loadRetryableProducts();
+        return status;
+    };
 
-const persistTransactionHash = async () => {
-    if (!unpersistedTxHash) return;
-    try {
-        await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash: unpersistedTxHash });
-        setUnpersistedTxHash("");
-        setChainNotice("Transaction hash saved. The server will verify its receipt and registration event.");
-    } catch (error) {
-        setChainNotice(`Hash is still not saved: ${error.response?.data?.error || error.message}`);
-    }
-};
+    const persistTransactionHash = async () => {
+        if (!unpersistedTxHash) return;
+        try {
+            await axios.post(`/product/${encodeURIComponent(serialNumber)}/chain-transaction`, { txHash: unpersistedTxHash });
+            setUnpersistedTxHash("");
+            setChainNotice("Transaction hash saved. The server will verify its receipt and registration event.");
+        } catch (error) {
+            setChainNotice(`Hash is still not saved: ${error.response?.data?.error || error.message}`);
+        }
+    };
 
 
     return (
         <DashboardShell>
             <GreetingBanner
-                title="Product Minting & Packaging Studio"
-                subtitle="Register physical assets to the IdenteefiV2 smart contract"
+                title="Register Product"
+                subtitle="Create a verified on-chain product record and generate packaging QR passport"
                 metrics={[
                     {
-                        icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>SS</span>,
-                        value: serialNumber.slice(0, 15) + '...',
-                        label: 'Active Identifier',
+                        icon: <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>ID</span>,
+                        value: serialNumber ? `${serialNumber.slice(0, 18)}…` : 'Generating…',
+                        label: 'Serial Identifier',
                     },
                     {
                         icon: <span style={{ color: '#10B981', fontWeight: 700 }}>EVM</span>,
-                        value: 'IdenteefiV2',
-                        label: 'Smart Contract',
+                        value: 'Sepolia',
+                        label: 'Target Ledger',
                     },
                     {
                         icon: <span style={{ color: '#9333EA', fontWeight: 700 }}>GPS</span>,
-                        value: manuLocation ? 'Resolved' : 'Manual',
-                        label: 'Location Audit',
+                        value: manuLocation ? 'Detected' : 'Manual',
+                        label: 'Factory Location',
                     },
                 ]}
             />
@@ -622,13 +622,13 @@ const persistTransactionHash = async () => {
                                     '&:hover': { borderColor: '#1D4ED8', backgroundColor: '#EFF6FF' }
                                 }}
                             >
-                                🖨️ Print 4×6″ Packaging Label (Thermal / Sticker)
+                                Print 4×6″ Packaging Label
                             </Button>
 
                             {!isDispatched ? (
                                 <div style={{ marginTop: 10 }}>
                                     <div style={{ padding: '10px 12px', borderRadius: 8, backgroundColor: '#FEF3C7', border: '1px solid #FCD34D', color: '#92400E', fontSize: '12.5px', marginBottom: 10, textAlign: 'left' }}>
-                                        📦 <strong>Ready for Logistics:</strong> Click below to dispatch this item into the distribution network. Downstream partners will be able to confirm receipt.
+                                        <strong>Ready for Logistics:</strong> Dispatch this item into the distribution network for downstream partner receipt.
                                     </div>
                                     <Button
                                         variant="contained"
@@ -647,16 +647,16 @@ const persistTransactionHash = async () => {
                                         {dispatchLoading ? (
                                             <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                                 <CircularProgress size={16} color="inherit" />
-                                                Signing Outbound Dispatch via Facility Wallet...
+                                                Signing Outbound Dispatch…
                                             </span>
                                         ) : (
-                                            '🚀 1-Click Dispatch to Distribution Network'
+                                            'Dispatch to Distribution Network'
                                         )}
                                     </Button>
                                 </div>
                             ) : (
                                 <div style={{ padding: '12px 14px', borderRadius: 8, backgroundColor: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1E40AF', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10 }}>
-                                    <span>🚀 Consignment Dispatched & In Transit to Partners</span>
+                                    <span>Consignment Dispatched & In Transit</span>
                                 </div>
                             )}
                         </div>
@@ -668,7 +668,7 @@ const persistTransactionHash = async () => {
                         {/* Left Column: Product Metadata */}
                         <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
                             <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                                Product Specifications
+                                Product Details
                             </h2>
 
                             <TextField
@@ -676,7 +676,7 @@ const persistTransactionHash = async () => {
                                 error={!isUnique}
                                 helperText={!isUnique ? "Serial Number already exists" : ""}
                                 id="outlined-basic"
-                                label="Canonical Serial Number (Immutable)"
+                                label="Serial Number"
                                 variant="outlined"
                                 InputProps={{ readOnly: true }}
                                 value={serialNumber}
@@ -732,18 +732,18 @@ const persistTransactionHash = async () => {
                         {/* Right Column: Location, Packaging QR & Minting */}
                         <div className="dashboard-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
                             <h2 style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                                Provenance & Ledger Signer
+                                Manufacturing Details
                             </h2>
 
                             <TextField
                                 fullWidth
-                                label="Business / Factory Location"
+                                label="Facility Location"
                                 value={manuLocation.replace(/;/g, ',')}
                                 onChange={(event) => {
                                     isLocationManuallyEditedRef.current = true;
                                     setManuLocation(event.target.value.replace(/,/g, ';'));
                                 }}
-                                helperText={chainNotice && chainNotice.includes('Location') ? chainNotice : "Automatically detected. Recorded with this on-chain registration."}
+                                helperText={chainNotice && chainNotice.includes('Location') ? chainNotice : "Recorded with this on-chain registration"}
                             />
 
                             <Button
@@ -751,16 +751,16 @@ const persistTransactionHash = async () => {
                                 variant="text"
                                 fullWidth
                                 onClick={handleDetectLocation}
-                                sx={{ textTransform: 'none' }}
+                                sx={{ textTransform: 'none', fontWeight: 600, color: 'var(--color-primary)' }}
                                 disabled={isDetectingLocation}
                             >
                                 {isDetectingLocation ? (
                                     <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <CircularProgress size={14} color="inherit" />
-                                        Resolving Location (Device & Network)...
+                                        Detecting Location…
                                     </span>
                                 ) : (
-                                    '📍 Refresh Location'
+                                    'Detect Location'
                                 )}
                             </Button>
 
@@ -814,7 +814,7 @@ const persistTransactionHash = async () => {
                                     style={{ width: '100%', justifyContent: 'center', padding: '12px', fontSize: '14px' }}
                                     disabled={loading !== ""}
                                 >
-                                    {retryAvailable ? "Retry Blockchain Registration" : "Sign & Register on Blockchain"}
+                                    {retryAvailable ? "Retry Registration" : "Register Product"}
                                 </button>
 
                                 {productCreated && !qrData && (
@@ -825,7 +825,7 @@ const persistTransactionHash = async () => {
                                         onClick={handleDiscardDraft}
                                         disabled={loading !== ""}
                                     >
-                                        🗑️ Discard Draft Registration
+                                        Discard Draft Registration
                                     </button>
                                 )}
 
@@ -835,7 +835,7 @@ const persistTransactionHash = async () => {
                                     style={{ width: '100%', justifyContent: 'center' }}
                                     onClick={handleBack}
                                 >
-                                    Cancel & Return to Dashboard
+                                    Cancel
                                 </button>
                             </div>
                         </div>

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Chip, CircularProgress, FormControlLabel, MenuItem, Paper, Stack, TextField, Typography } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
+import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded';
 import axios from '../../api/axios';
 import useAuth from '../../hooks/useAuth';
 import DashboardShell from '../shell/DashboardShell';
@@ -270,22 +273,22 @@ export default function AdminOperations() {
                 subtitle="Live telemetry on scan anomalies, chain reconciliation, and access control"
                 actions={
                     <button type="button" className="btn-primary-action" onClick={load} disabled={loading}>
-                        <span>{loading ? 'Refreshing…' : 'Refresh Telemetry'}</span>
+                        <span>{loading ? 'Refreshing…' : 'Refresh'}</span>
                     </button>
                 }
                 metrics={[
                     {
-                        icon: <span style={{ color: '#F59E0B', fontWeight: 700 }}>ALERTS</span>,
+                        icon: <WarningAmberRoundedIcon sx={{ fontSize: 18, color: '#F59E0B' }} />,
                         value: `${alerts.length}`,
                         label: 'Threat Scans',
                     },
                     {
-                        icon: <span style={{ color: '#10B981', fontWeight: 700 }}>CHAIN</span>,
+                        icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 18, color: '#10B981' }} />,
                         value: `${counts['confirmed'] || 0}`,
                         label: 'Confirmed Products',
                     },
                     {
-                        icon: <span style={{ color: counts['needs_retry'] || counts['failed'] ? '#DC2626' : '#8A92A6', fontWeight: 700 }}>RETRY</span>,
+                        icon: <ReplayRoundedIcon sx={{ fontSize: 18, color: counts['needs_retry'] || counts['failed'] ? '#DC2626' : '#8A92A6' }} />,
                         value: `${(counts['needs_retry'] || 0) + (counts['failed'] || 0)}`,
                         label: 'Recoverable Items',
                     },

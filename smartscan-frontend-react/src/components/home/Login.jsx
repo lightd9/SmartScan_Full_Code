@@ -158,10 +158,10 @@ export default function Login() {
               <img src={logoImg} alt="SmartScan" style={{ height: 36, objectFit: 'contain' }} />
             </Link>
             <Typography variant="h5" sx={{ fontWeight: 800, color: '#0F172A', mb: 0.5 }}>
-              Enterprise Portal Login
+              Sign In
             </Typography>
             <Typography variant="body2" sx={{ color: '#64748B' }}>
-              Access your supply chain nodes, custody hubs & blockchain records
+              Access your supply chain and custody records
             </Typography>
           </Box>
 
@@ -179,7 +179,7 @@ export default function Login() {
               variant="caption"
               sx={{ fontWeight: 700, color: '#475569', display: 'block', mb: 0.8, textTransform: 'uppercase', letterSpacing: 0.5 }}
             >
-              Quick Test Accounts
+              Demo Accounts
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               {DEMO_PRESETS.map((p) => (
@@ -278,12 +278,12 @@ export default function Login() {
                 },
               }}
             >
-              {isSubmitting ? 'Authenticating Credentials...' : 'Sign In to SmartScan'}
+              {isSubmitting ? 'Authenticating…' : 'Sign In'}
             </Button>
 
             <Divider sx={{ my: 2 }}>
-              <Typography variant="caption" sx={{ color: '#94A3B8', textTransform: 'uppercase', letterSpacing: 0.8 }}>
-                Or Secure Authentication
+              <Typography variant="caption" sx={{ color: '#94A3B8', textTransform: 'lowercase', letterSpacing: 0.5 }}>
+                or
               </Typography>
             </Divider>
 
@@ -308,7 +308,7 @@ export default function Login() {
                 },
               }}
             >
-              {walletBusy ? 'Verifying EIP-191 Signature...' : 'Sign in with Linked Corporate Wallet'}
+              {walletBusy ? 'Verifying EIP-191 Signature...' : 'Sign in with Wallet'}
             </Button>
 
             <Box sx={{ mt: 3, textAlign: 'center' }}>
@@ -323,7 +323,7 @@ export default function Login() {
                   '&:hover': { color: '#0F172A', backgroundColor: 'transparent' },
                 }}
               >
-                Back to Public Portal
+                Back to Home
               </Button>
             </Box>
           </form>

@@ -32,7 +32,7 @@ describe('public product verification route', () => {
     expect(container.textContent).toContain('No wallet is needed to read this record');
     expect(container.textContent).not.toContain('Connect Wallet');
     const button = container.querySelector('button');
-    expect(button?.textContent).toContain('View public product history');
+    expect(button?.textContent).toContain('View Product Passport');
 
     await act(async () => button.click());
 

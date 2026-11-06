@@ -38,8 +38,7 @@ export default function PrimaryDataCard({
     }
   };
 
-  // Internal filtering if onFilterSelect is not overriding
-  const displayedRows = filterOptions.length && currentFilter
+  const displayedRows = filterOptions.length && currentFilter && currentFilter !== 'All Items'
     ? rows.filter((row) => row.statusLabel === currentFilter)
     : rows;
 
@@ -69,7 +68,7 @@ export default function PrimaryDataCard({
                 onClose={() => setFilterMenuAnchor(null)}
                 slotProps={{
                   paper: {
-                    sx: { borderRadius: '12px', minWidth: 160, boxShadow: '0 8px 24px rgba(0,0,0,0.1)' },
+                    sx: { borderRadius: '12px', minWidth: 160, boxShadow: '0 8px 24px rgba(15,23,42,0.1)' },
                   },
                 }}
               >
@@ -93,7 +92,6 @@ export default function PrimaryDataCard({
             type="button"
             className="card-header-action-link"
             onClick={onSeeAllClick}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
           >
             See All
           </button>
@@ -118,24 +116,29 @@ export default function PrimaryDataCard({
           <tbody>
             {displayedRows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length} style={{ textAlign: 'center', padding: '32px', color: 'var(--color-text-muted)' }}>
+                <td colSpan={columns.length} style={{ textAlign: 'center', padding: '36px 20px', color: 'var(--color-text-muted)' }}>
                   {emptyMessage}
                 </td>
               </tr>
             ) : (
               displayedRows.map((row, index) => (
-                <tr key={row.id || index}>
+                <tr
+                  key={row.id || index}
+                  role={row.onClick ? 'button' : undefined}
+                  tabIndex={row.onClick ? 0 : undefined}
+                  onClick={row.onClick}
+                  onKeyDown={(e) => {
+                    if (row.onClick && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      row.onClick();
+                    }
+                  }}
+                >
                   {/* Item / Task Name Column */}
                   <td>
                     <div className="row-item-cell">
                       {row.icon}
-                      {row.onClick ? (
-                        <button type="button" className="row-title-action" onClick={row.onClick}>
-                          {row.title}
-                        </button>
-                      ) : (
-                        <span className="row-item-title">{row.title}</span>
-                      )}
+                      <span className="row-item-title">{row.title}</span>
                     </div>
                   </td>
 
@@ -152,8 +155,8 @@ export default function PrimaryDataCard({
                         <div
                           className="assignee-avatar"
                           style={{
-                            background: '#EBF1FE',
-                            color: '#2F66EE',
+                            background: 'var(--color-primary-subtle)',
+                            color: 'var(--color-primary)',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',

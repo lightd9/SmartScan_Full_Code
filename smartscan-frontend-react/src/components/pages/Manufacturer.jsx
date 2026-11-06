@@ -87,12 +87,13 @@ export default function Manufacturer() {
   return (
     <DashboardShell>
       <GreetingBanner
-        title={`Products, ${auth?.name || auth?.username || 'Manufacturer'}`}
+        title="Manufacturing Hub"
+        subtitle={`Welcome back, ${auth?.name || auth?.username || 'Manufacturer'} · Production & Serialization`}
         metrics={manufacturerMetrics}
         actions={
           <button type="button" className="btn-primary-action" onClick={() => navigate('/add-product')}>
             <AddRoundedIcon sx={{ fontSize: 18 }} />
-            <span>Register product</span>
+            <span>Register Product</span>
           </button>
         }
       />
@@ -104,12 +105,14 @@ export default function Manufacturer() {
       )}
 
       <PrimaryDataCard
-        title="Product registration queue"
+        title="Registered Products"
         titleIcon={<Inventory2OutlinedIcon className="card-title-icon" />}
+        filterLabel="All Items"
+        filterOptions={['All Items', 'Confirmed', 'Needs Retry', 'Failed', 'Draft']}
         columns={[
-          { label: 'Product and serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Registered actor', icon: <LocalShippingOutlinedIcon sx={{ fontSize: 16 }} /> },
-          { label: 'Chain status', icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Product & Serial', icon: <QrCode2OutlinedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Registered Custodian', icon: <LocalShippingOutlinedIcon sx={{ fontSize: 16 }} /> },
+          { label: 'Chain Status', icon: <CheckCircleOutlineRoundedIcon sx={{ fontSize: 16 }} /> },
         ]}
         rows={tableRows}
         emptyMessage={loading ? 'Loading product records…' : loadError ? 'Product data is temporarily unavailable.' : 'No products registered yet. Register a product to start its provenance record.'}

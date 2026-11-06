@@ -406,7 +406,7 @@ export default function POSCheckoutPage() {
                         </Box>
                         <div>
                             <Typography component="h1" variant="h4" sx={{ fontSize: { xs: 24, sm: 28 }, fontWeight: 700, color: '#0F172A', letterSpacing: '-0.035em', lineHeight: 1.2 }}>
-                                Retail checkout
+                                Retail Checkout
                             </Typography>
                             <Typography variant="caption" sx={{ color: '#64748B', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 1, rowGap: 0.5 }}>
                                 <span>Store #01 · Register 02</span>
@@ -476,7 +476,7 @@ export default function POSCheckoutPage() {
                             whiteSpace: 'nowrap',
                         }}
                     >
-                        {cameraOpen ? 'Close camera' : 'Use camera'}
+                        {cameraOpen ? 'Close Camera' : 'Use Camera'}
                     </Button>
                 </Box>
             </Box>
@@ -497,7 +497,7 @@ export default function POSCheckoutPage() {
                     }}
                 >
                     <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1, color: '#1E40AF' }}>
-                        📷 Point Camera at Product QR Code or Packaging Barcode
+                        Point camera at QR code or packaging barcode
                     </Typography>
                     <Box sx={{ width: '100%', maxWidth: 360, borderRadius: '12px', overflow: 'hidden' }}>
                         <QrScanner onScan={(data) => {
@@ -523,7 +523,7 @@ export default function POSCheckoutPage() {
                 }}
             >
                 <Typography variant="h6" sx={{ fontSize: 18, fontWeight: 700, color: '#0F172A', mb: 0.4 }}>
-                    Scan to verify
+                    Scan to Verify
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#64748B', mb: 1.75 }}>
                     Use the camera, a barcode scanner, or enter the serial number.

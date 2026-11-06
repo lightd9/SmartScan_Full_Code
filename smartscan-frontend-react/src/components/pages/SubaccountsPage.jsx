@@ -213,8 +213,8 @@ export default function SubaccountsPage() {
   return (
     <DashboardShell>
       <GreetingBanner
-        title="Enterprise Facility Subaccounts & Autonomous Wallets"
-        subtitle="Manage zero-friction operational subaccounts with encapsulated AES-256-GCM keystores and automated gas faucet treasury."
+        title="Facility Subaccounts & Gas Treasury"
+        subtitle="Manage operational facility wallets, automated gas funding, and access permissions"
       />
 
       {/* Global Alerts */}
@@ -262,7 +262,7 @@ export default function SubaccountsPage() {
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography variant="h6" sx={{ fontWeight: 700, color: '#f8fafc' }}>
-                    SmartScan Gas Treasury Engine
+                    Gas Treasury Engine
                   </Typography>
                   <Chip
                     size="small"

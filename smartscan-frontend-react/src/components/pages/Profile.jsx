@@ -110,23 +110,23 @@ export default function Profile() {
     <DashboardShell>
       {/* Header Greeting */}
       <GreetingBanner
-        title={`Profile & Security, ${name || auth?.username || 'Partner'}`}
-        subtitle="Account Configuration & Enterprise Cryptographic Vault"
+        title="Profile & Security"
+        subtitle={`Account details, credentials, and wallet security for ${name || auth?.username || 'your account'}`}
         metrics={[
           {
             icon: <BusinessRoundedIcon sx={{ fontSize: 17, color: 'var(--color-primary)' }} />,
-            value: (role || auth?.role || 'PARTNER').toUpperCase(),
-            label: 'Assigned Role',
+            value: (role || auth?.role || 'Partner').charAt(0).toUpperCase() + (role || auth?.role || 'partner').slice(1).toLowerCase(),
+            label: 'Role',
           },
           {
             icon: <CheckCircleRoundedIcon sx={{ fontSize: 17, color: '#10B981' }} />,
-            value: 'Vault Active',
-            label: 'Automated Signing',
+            value: 'Active',
+            label: 'Facility Keystore',
           },
           {
             icon: <SecurityRoundedIcon sx={{ fontSize: 17, color: '#2563EB' }} />,
-            value: 'AES-256-GCM',
-            label: 'Keystore Protection',
+            value: 'Encrypted',
+            label: 'Key Storage',
           },
         ]}
       />

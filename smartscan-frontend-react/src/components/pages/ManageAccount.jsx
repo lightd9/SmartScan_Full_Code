@@ -206,8 +206,8 @@ const ManageAccount = () => {
     return (
         <DashboardShell>
             <GreetingBanner
-                title="Enterprise Account Directory"
-                subtitle="Manage corporate partner organizations, active wallets, and role authorizations"
+                title="Partner Organizations"
+                subtitle="Manage business accounts, wallet authorizations, and facility keystores"
                 metrics={[
                     {
                         icon: <BusinessRoundedIcon sx={{ fontSize: 18, color: 'var(--color-primary)' }} />,
@@ -238,7 +238,7 @@ const ManageAccount = () => {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
                     <div>
                         <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--color-text-main)' }}>
-                            Registered Business Directory
+                            Registered Businesses
                         </h2>
                         <span style={{ fontSize: '12.5px', color: 'var(--color-text-secondary)' }}>
                             Review account roles, wallet links, and on-chain approval status.
@@ -263,7 +263,7 @@ const ManageAccount = () => {
                             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                         >
                             <AddRoundedIcon sx={{ fontSize: 18 }} />
-                            <span>Provision New Account</span>
+                            <span>Provision Account</span>
                         </button>
                     </div>
                 </div>
@@ -309,11 +309,11 @@ const ManageAccount = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                         <SecurityRoundedIcon sx={{ color: 'var(--color-primary)', fontSize: 22 }} />
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 800, color: 'var(--color-text-main)' }}>
-                            Automated Enterprise Key Architecture
+                            Automated Key Management & Treasury
                         </h3>
                     </div>
                     <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
-                        Users never need to install third-party wallet extensions or manage private keys. Each enterprise partner operates through dedicated encrypted facility subaccounts with automated {CHAIN_NAME} gas disbursement and on-chain execution.
+                        Partners operate through encrypted facility wallets with automated {CHAIN_NAME} gas funding and seamless custody verification.
                     </p>
                 </div>
 
@@ -324,7 +324,7 @@ const ManageAccount = () => {
                         onClick={() => navigate('/subaccounts')}
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 18px' }}
                     >
-                        <span>Open Facility Wallets & Gas Treasury</span>
+                        <span>Manage Facility Wallets</span>
                         <ArrowForwardRoundedIcon sx={{ fontSize: 16 }} />
                     </button>
                 </div>

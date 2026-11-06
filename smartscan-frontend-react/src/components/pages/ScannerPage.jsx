@@ -369,10 +369,10 @@ const ScannerPage = () => {
                         </Box>
                         <Box>
                             <Typography variant="h6" sx={{ fontWeight: 800, color: '#111827', fontSize: '1.2rem', lineHeight: 1.2 }}>
-                                Smart Custody & Verification Scanner
+                                Custody Scanner
                             </Typography>
                             <Typography variant="caption" sx={{ color: '#6B7280', fontWeight: 500 }}>
-                                Auto-detects inbound receipt, outbound dispatch, or retail sale on {CHAIN_NAME}
+                                Verify authenticity and record custody transfers on {CHAIN_NAME}
                             </Typography>
                         </Box>
                     </Box>
@@ -441,7 +441,14 @@ const ScannerPage = () => {
                             gap: 4
                         }}
                     >
-                        {isBatchMode ? 'Switch to Single' : '⚡ Enable Batch Scan'}
+                        {isBatchMode ? (
+                            'Single Scan'
+                        ) : (
+                            <>
+                                <FlashOnRoundedIcon sx={{ fontSize: 14 }} />
+                                <span>Batch Mode</span>
+                            </>
+                        )}
                     </button>
                 </div>
 
@@ -699,7 +706,7 @@ const ScannerPage = () => {
                             }
                             label={
                                 <Typography variant="caption" sx={{ color: '#4B5563', lineHeight: 1.3, display: 'block' }}>
-                                    <strong>Attach telemetry location:</strong> Supplies browser coordinates to detect suspicious duplicate scans across regions.
+                                    <strong>Attach scan location:</strong> Record coordinates to detect counterfeit and multi-region scan anomalies.
                                 </Typography>
                             }
                             sx={{ m: 0, alignItems: 'flex-start' }}
