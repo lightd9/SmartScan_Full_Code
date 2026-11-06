@@ -33,11 +33,13 @@ smartscan-backend-node/public/uploads/product/*
 !smartscan-backend-node/public/uploads/**/.gitkeep
 
 # Android / Capacitor build artifacts
-smartscan-frontend-react/android/.gradle/
-smartscan-frontend-react/android/**/build/
-smartscan-frontend-react/android/.idea/
-smartscan-frontend-react/android/local.properties
-smartscan-frontend-react/android/app/release/
+**/android/.gradle/
+**/android/**/build/
+**/android/.idea/
+**/android/local.properties
+**/android/app/release/
+**/ios/App/Pods/
+**/ios/App/.build/
 *.apk
 *.aab
 

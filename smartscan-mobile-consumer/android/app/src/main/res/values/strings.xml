@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SmartScan Verify</string>
+    <string name="title_activity_main">SmartScan Verify</string>
+    <string name="package_name">com.smartscan.consumer</string>
+    <string name="custom_url_scheme">com.smartscan.consumer</string>
+</resources>
