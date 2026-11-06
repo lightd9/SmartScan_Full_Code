@@ -49,9 +49,6 @@ const Footer = () => {
           <span onClick={() => openScanner()} style={{ cursor: 'pointer' }}>
             <Typography sx={footerLinkSx}>Verify a Product</Typography>
           </span>
-          <Link to="/pos" style={{ textDecoration: 'none' }}>
-            <Typography sx={footerLinkSx}>POS Checkout Terminal</Typography>
-          </Link>
           <Link to="/login" style={{ textDecoration: 'none' }}>
             <Typography sx={footerLinkSx}>Enterprise Login</Typography>
           </Link>

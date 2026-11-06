@@ -158,8 +158,6 @@ const columns = [
             );
         },
     },
-    { field: 'location', headerName: 'Headquarters', width: 160 },
-    { field: 'website', headerName: 'Website', width: 160 },
 ];
 
 const ManageAccount = () => {

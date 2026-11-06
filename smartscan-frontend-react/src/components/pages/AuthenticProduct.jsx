@@ -95,9 +95,7 @@ const AuthenticProduct = () => {
             fontSize: '0.92rem',
           }}
         >
-          Review the public custody history, current custodian, and listed retailer. No wallet is needed to read this record.
-        </Typography>
-
+          Review the public custody history, and listed retailer.
         {scanWarnings.map((warning) => (
           <Alert
             key={warning}
@@ -128,7 +126,7 @@ const AuthenticProduct = () => {
           }}
           onClick={viewPublicHistory}
         >
-          View Product Passport
+          View Custody Chain
         </Button>
       </Paper>
     </Box>

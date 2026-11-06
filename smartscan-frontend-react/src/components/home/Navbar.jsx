@@ -23,7 +23,6 @@ import { useScanner } from "../../context/ScannerContext";
 const navLinks = [
   { text: "Home", to: "/", icon: <HomeIcon /> },
   { text: "Verify Product", to: "/scanner", icon: <QrCodeScannerIcon /> },
-  { text: "POS Register", to: "/pos", icon: <QrCodeScannerIcon /> },
   { text: "Login", to: "/login", icon: <LoginIcon /> },
 ];
 
@@ -161,20 +160,6 @@ export const Navbar = () => {
           >
             Verify Product
           </button>
-          <Link
-            to="/pos"
-            style={{
-              textDecoration: "none",
-              color: "#334155",
-              fontWeight: 600,
-              fontSize: "14.5px",
-              transition: "color 0.2s",
-            }}
-            onMouseOver={(e) => (e.currentTarget.style.color = "#2563EB")}
-            onMouseOut={(e) => (e.currentTarget.style.color = "#334155")}
-          >
-            POS Register
-          </Link>
         </Box>
       </Box>
 

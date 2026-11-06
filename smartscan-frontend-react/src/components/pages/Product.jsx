@@ -49,12 +49,11 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded';
 import PrecisionManufacturingRoundedIcon from '@mui/icons-material/PrecisionManufacturingRounded';
-import LocalShippingRoundedIcon from '@mui/icons-material/LocalShippingRounded';
 import SellRoundedIcon from '@mui/icons-material/SellRounded';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 
 const ROLE_NAMES = ['Unregistered', 'Admin', 'Manufacturer', 'Supplier', 'Retailer'];
-const STAGE_NAMES = ['Unknown', 'Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'];
+const STAGE_NAMES = ['Unknown', 'Manufactured', 'In Transit', 'Delivered', 'Sold', 'Recalled'];
 
 const Product = () => {
   const [serialNumber, setSerialNumber] = useState('');
@@ -67,7 +66,6 @@ const Product = () => {
   const [custodian, setCustodian] = useState('');
   const [custodianName, setCustodianName] = useState('');
   const [custodianRole, setCustodianRole] = useState(0);
-  const [pendingRecipient, setPendingRecipient] = useState(ethers.ZeroAddress);
   const [recordedRetailer, setRecordedRetailer] = useState('');
   const [observedSeller, setObservedSeller] = useState('');
   const [sellerMismatch, setSellerMismatch] = useState(false);
@@ -147,20 +145,17 @@ const Product = () => {
     setIsSold(Boolean(product[9]));
     setStage(Number(product[6]));
     setCustodian(product[7]);
-    setPendingRecipient(product[8]);
     setCustodianRole(currentRole);
     setCustodianName(registeredName);
     setRecordedRetailer(currentRole === 4 ? registeredName : '');
     setHistory(
       product[5].map((event) => ({
-        id: event.id.toString(),
         actor: event.actor,
         actorWallet: event.actorWallet,
         actorRole: Number(event.actorRole),
         location: event.location.replace(/;/g, ','),
         timestamp: parseHistoryTimestamp(event.timestamp),
         action: Number(event.action),
-        recipientWallet: event.recipientWallet,
       }))
     );
   };
@@ -184,8 +179,6 @@ const Product = () => {
     switch (actionNum) {
       case 0:
         return <PrecisionManufacturingRoundedIcon sx={{ fontSize: 16, color: '#2563EB' }} />;
-      case 1:
-        return <LocalShippingRoundedIcon sx={{ fontSize: 16, color: '#D97706' }} />;
       case 2:
         return <StorefrontRoundedIcon sx={{ fontSize: 16, color: '#16A34A' }} />;
       case 3:
@@ -196,13 +189,19 @@ const Product = () => {
   };
 
   const getHistory = () => {
-    return history.map((item, index) => {
+    const publicHistory = history.filter((item) => item.action !== 1);
+    return publicHistory.map((item) => {
       const date =
         item.timestamp === null ? 'Unknown date' : dayjs(item.timestamp * 1000).format('MM/DD/YYYY');
       const time =
         item.timestamp === null ? '' : dayjs(item.timestamp * 1000).format('HH:mm a');
 
-      const actionLabels = ['Manufactured', 'Dispatched', 'Delivered', 'Sold', 'Recalled'];
+      const actionLabels = {
+        0: 'Manufactured',
+        2: 'Delivered',
+        3: 'Sold',
+        4: 'Recalled',
+      };
       const actionName = actionLabels[item.action] || 'Unknown';
 
       return (
@@ -222,14 +221,13 @@ const Product = () => {
             >
               {renderStageIcon(item.action)}
             </TimelineDot>
-            {index < history.length - 1 && <TimelineConnector sx={{ backgroundColor: '#E2E8F0' }} />}
+            {index < publicHistory.length - 1 && <TimelineConnector sx={{ backgroundColor: '#E2E8F0' }} />}
           </TimelineSeparator>
           <TimelineContent sx={{ py: '10px', px: 2 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
               <span className="status-pill blue" style={{ fontSize: '0.72rem', padding: '2px 8px' }}>
                 {actionName}
               </span>
-              <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Event #{item.id}</span>
             </div>
             <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: '#0F172A', mb: 0.5 }}>
               {item.actor || ROLE_NAMES[item.actorRole] || 'Verified Business'}
@@ -240,13 +238,6 @@ const Product = () => {
             <Typography sx={{ fontSize: '0.72rem', color: '#94A3B8', wordBreak: 'break-all' }}>
               Wallet: {item.actorWallet}
             </Typography>
-            {item.action === 1 && (
-              <Typography sx={{ fontSize: '0.74rem', color: '#B45309', mt: 0.5 }}>
-                {item.recipientWallet === ethers.ZeroAddress
-                  ? 'Awaiting receipt confirmation by an eligible registered receiver.'
-                  : `Dispatched to wallet: ${item.recipientWallet}`}
-              </Typography>
-            )}
           </TimelineContent>
         </TimelineItem>
       );
@@ -443,9 +434,7 @@ const Product = () => {
           )}
           {stage === 2 && (
             <Alert severity="info" sx={{ mb: 2, borderRadius: '12px' }}>
-              {pendingRecipient !== ethers.ZeroAddress
-                ? `In transit to registered recipient: ${pendingRecipient}`
-                : 'Dispatched and awaiting custody receipt confirmation by registered partner.'}
+              Product is in transit through the verified supply chain and awaiting receipt confirmation by a registered partner.
             </Alert>
           )}
 

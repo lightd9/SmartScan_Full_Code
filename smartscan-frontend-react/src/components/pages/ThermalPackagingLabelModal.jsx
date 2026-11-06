@@ -21,7 +21,9 @@ const ThermalPackagingLabelModal = ({
     qrData,
     contractAddress,
 }) => {
-    if (!serialNumber) return null;
+    // The label is only useful when it is open and has the canonical verification URL.
+    // Never generate a QR from the serial number alone: it is not a valid verification link.
+    if (!open || !serialNumber || !qrData) return null;
 
     const formattedDate = date ? dayjs(Number(date) * 1000).format('MMMM D, YYYY · h:mm A') : dayjs().format('MMMM D, YYYY');
     const cleanLocation = (location || 'Factory Floor, Verified Origin').replace(/;/g, ', ');
@@ -185,7 +187,7 @@ const ThermalPackagingLabelModal = ({
                         backgroundColor: '#FFFFFF',
                     }}>
                         <QRCode
-                            value={qrData || serialNumber}
+                            value={qrData}
                             id="thermal-label-qrcode-canvas"
                             size={185}
                             level="H"
@@ -284,4 +286,3 @@ const ThermalPackagingLabelModal = ({
 };
 
 export default ThermalPackagingLabelModal;
-
