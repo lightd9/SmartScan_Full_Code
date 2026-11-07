@@ -124,6 +124,10 @@ const server = app.listen(port, '0.0.0.0', () => {
   console.log(`Server running on http://localhost:${port}`);
 });
 
+// Durable recovery also runs without an open mobile session and after restarts.
+const enterpriseRecovery = setInterval(() => void app.locals.enterprise.tick(), 5000);
+enterpriseRecovery.unref();
+
 let shutdownStarted = false;
 async function closeRedis() {
   if (!redisClient) return;
@@ -139,6 +143,7 @@ async function closeRedis() {
 function shutdown(signal) {
   if (shutdownStarted) return;
   shutdownStarted = true;
+  clearInterval(enterpriseRecovery);
   console.log(`${signal} received; shutting down`);
   server.close(async (serverError) => {
     if (serverError) console.error('HTTP server close failed');
