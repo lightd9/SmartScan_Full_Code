@@ -27,7 +27,10 @@ test('PostgreSQL scan migration, concurrent retries, rollback and contract isola
     await assert.rejects(recordObservation(pool, { ...input, longitude: 4 }), error => error.status === 409);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_scans')).rows[0].n, 1);
     const observations = await Promise.all(Array.from({ length: 9 }, () => recordObservation(pool, { ...input, eventId: randomUUID() })));
-    assert.equal(observations.filter(r => r.flags.includes('unusual_frequency')).length, 1);
+    assert.equal(observations.filter(r => r.flags.includes('unusual_frequency')).length, 0,'Ordinary rescans from the same observer are not a frequency concern');
+    await recordObservation(pool,{...input,eventId:randomUUID(),visitorHash:'b'.repeat(64)});
+    const different=await recordObservation(pool,{...input,eventId:randomUUID(),visitorHash:'c'.repeat(64)});
+    assert.ok(different.flags.includes('unusual_frequency'));
     const otherContract = await recordObservation(pool, { ...input, eventId: randomUUID(), contractAddress: '0x0000000000000000000000000000000000000022', latitude: 51.5, longitude: 0 });
     assert.deepEqual(otherContract.flags, []);
     const distant = await recordObservation(pool, { ...input, eventId: randomUUID(), latitude: 51.5, longitude: 0 });

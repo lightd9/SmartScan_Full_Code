@@ -75,12 +75,17 @@ export default function SupplyMap({ product, mode, expanded }) {
     fitRef.current = () => {
       if (!points.length) return;
       const height = map.getSize().y;
-      const landscape = map.getSize().x > height * 1.5;
-      const top = landscape ? 100 : mode === 'carousel' ? height * 0.79 : expanded ? 80 : 120;
-      const bottom = landscape ? 50 : mode === 'list' ? height * (expanded ? 0.72 : 0.46) : 62;
-      const left = landscape && mode === 'carousel' ? map.getSize().x * 0.6 : 46;
-      const right = landscape && mode === 'list' ? map.getSize().x * 0.5 : 70;
-      map.fitBounds(L.latLngBounds(points.map(point => point.coordinates)), { paddingTopLeft: [left, top], paddingBottomRight: [right, bottom], maxZoom: 14, animate: false });
+      const screen = container.current.parentElement;
+      const split = getComputedStyle(screen).getPropertyValue('--history-layout').trim() === 'split';
+      const mapTop = container.current.getBoundingClientRect().top;
+      const headerBottom = screen.querySelector('.floating-header')?.getBoundingClientRect().bottom || mapTop + 80;
+      const cardBottom = screen.querySelector('.passport-carousel')?.getBoundingClientRect().bottom || mapTop + height * 0.72;
+      const top = split || mode === 'list' ? headerBottom - mapTop + 24 : cardBottom - mapTop + 40;
+      const bottom = !split && mode === 'list' ? height * (expanded ? 0.72 : 0.46) : 64;
+      // Leave actual map space even in a short landscape window.
+      const safeBottom = Math.min(bottom, Math.max(30, height - top - 60));
+      const safeTop = Math.min(top, Math.max(20, height - safeBottom - 60));
+      map.fitBounds(L.latLngBounds(points.map(point => point.coordinates)), { paddingTopLeft: [36, safeTop], paddingBottomRight: [64, safeBottom], maxZoom: 14, animate: false });
     };
     fitRef.current();
   }, [points, mode, expanded, retryKey]);

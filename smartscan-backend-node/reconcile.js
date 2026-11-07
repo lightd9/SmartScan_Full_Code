@@ -29,6 +29,9 @@ async function reconcile({ pool, provider, registrationContract, contractAddress
   );
 
   for (const product of rows) {
+    // Each worker owns only its configured authority. Receipt-protocol products
+    // are recovered by the durable Enterprise journal, never the V2 reconciler.
+    if (product.chain_contract_address && product.chain_contract_address.toLowerCase() !== address.toLowerCase()) continue;
     await pool.query('UPDATE product SET chain_reconciled_at = now() WHERE serialnumber = $1 AND chain_status <> \'confirmed\'', [product.serialnumber]);
     const sender = product.chain_sender || product.linked_wallet;
     if (!sender || !ethers.isAddress(sender)) continue;

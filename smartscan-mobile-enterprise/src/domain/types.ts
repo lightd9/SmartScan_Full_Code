@@ -61,6 +61,8 @@ export interface Movement {
   note?: string;
 }
 export interface Product {
+  protocol?: 'v2' | 'receipt-v3';
+  dispatchRecorded?: boolean;
   chainAvailable?: boolean;
   chainId?: string;
   contractAddress?: string;
@@ -81,12 +83,13 @@ export interface Product {
   failOnce?: boolean;
 }
 export interface OperationItem {
-  phase?: 'queued' | 'submitted' | 'confirmed' | 'failed';
+  phase?: 'waiting_approval' | 'queued' | 'submitted' | 'confirmed' | 'failed';
+  proofKind?: 'blockchain' | 'offchain';
   txHash?: string | null;
   blockNumber?: string | number | null;
   productId: string;
   expectedVersion: number;
-  status: "submitted" | "confirmed" | "failed";
+  status: "waiting_approval" | "submitted" | "confirmed" | "failed";
   message?: string;
   finishAt: number;
 }

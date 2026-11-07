@@ -3,20 +3,24 @@ import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight, Columns2, ListFilter,
 import ProductCard, { ProductRow } from './ProductCard';
 import Sheet from './Sheet';
 import SupplyMap from './SupplyMap';
-import { getScanHistory } from '../utils/storage';
+import { getScanHistory, saveScanToHistory } from '../utils/storage';
+import PurchaseChecks from './PurchaseChecks';
 import { productStatus, supplyChain } from '../utils/product';
 
 export default function PassportView({ product, onScanAgain, onReportProduct, onBack, title = 'History' }) {
+  const [updated,setUpdated]=useState({});
   const items = useMemo(() => {
     const history = getScanHistory();
-    return product ? [product, ...history.filter(item => item.serialNumber !== product.serialNumber)] : history;
-  }, [product]);
+    return (product ? [product, ...history.filter(item => item.serialNumber !== product.serialNumber)] : history).map(p=>updated[p.serialNumber] || p);
+  }, [product,updated]);
   const [mode, setMode] = useState('carousel');
   const [index, setIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState(false);
   const strip = useRef(null);
   const settleTimer = useRef(null);
+  const activeIndex = useRef(index);
+  activeIndex.current = index;
   const active = items[index] || items[0];
   const hasMultipleScans = items.length > 1;
   const journey = useMemo(() => supplyChain(active), [active]);
@@ -25,11 +29,18 @@ export default function PassportView({ product, onScanAgain, onReportProduct, on
     const el = strip.current;
     const boundedIndex = Math.max(0, Math.min(slideIndex, items.length - 1));
     const card = el?.children[boundedIndex];
-    if (card) el.scrollTo({ left: card.offsetLeft - 22, behavior: smooth && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
+    if (card) el.scrollTo({ left: card.offsetLeft - parseFloat(getComputedStyle(el).paddingLeft), behavior: smooth && !window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
   }
   useEffect(() => {
-    if (mode === 'carousel') scrollToSlide(index, false);
-    return () => clearTimeout(settleTimer.current);
+    if (mode !== 'carousel' || !strip.current) return;
+    // Folding, rotation and split view must not select a different saved scan.
+    const observer = new ResizeObserver(() => {
+      clearTimeout(settleTimer.current);
+      scrollToSlide(activeIndex.current, false);
+    });
+    observer.observe(strip.current);
+    scrollToSlide(activeIndex.current, false);
+    return () => { observer.disconnect(); clearTimeout(settleTimer.current); };
   }, [mode, items]);
 
   function onScroll() {
@@ -37,9 +48,10 @@ export default function PassportView({ product, onScanAgain, onReportProduct, on
     settleTimer.current = setTimeout(() => {
       const el = strip.current;
       if (!el?.children.length) return;
+      const inset = parseFloat(getComputedStyle(el).paddingLeft);
       let nearest = 0;
       [...el.children].forEach((child, i) => {
-        if (Math.abs(child.offsetLeft - 22 - el.scrollLeft) < Math.abs(el.children[nearest].offsetLeft - 22 - el.scrollLeft)) nearest = i;
+        if (Math.abs(child.offsetLeft - inset - el.scrollLeft) < Math.abs(el.children[nearest].offsetLeft - inset - el.scrollLeft)) nearest = i;
       });
       setIndex(nearest);
     }, 140);
@@ -85,9 +97,12 @@ export default function PassportView({ product, onScanAgain, onReportProduct, on
       <section className="verification-evidence" aria-label="Verification findings">
         <h4>Verification findings</h4>
         {active.assessment ? <>
-          <p className="supporting-copy">{active.assessment.coverage.assessed} of {active.assessment.coverage.expected} evidence areas assessed. This is not an authenticity score.</p>
+          {active.assessment.score && <p className="supporting-copy"><strong>Evidence score: {active.assessment.score.value}/100</strong>. {active.assessment.score.passed} of {active.assessment.score.total} scored checks passed. Unknown checks are not failures; this is not a probability of authenticity.</p>}
+          <p className="supporting-copy">{active.assessment.coverage.assessed} of {active.assessment.coverage.expected} evidence areas assessed.</p>
+          {active.exists && <PurchaseChecks key={active.serialNumber} product={active} onUpdated={p=>{saveScanToHistory(p);setUpdated(values=>({...values,[p.serialNumber]:p}));}}/>}
           <ul>{active.assessment.findings.map(finding => <li key={finding.code} data-state={finding.state}>
             <strong>{finding.domain.charAt(0).toUpperCase() + finding.domain.slice(1)}</strong>
+            <span className="check-state">{finding.state==='supported' ? 'Passed' : finding.state==='concern' ? 'Concern' : 'Unknown'}{active.assessment.score?.checks?.find(c=>c.domain===finding.domain) ? ` · ${active.assessment.score.checks.find(c=>c.domain===finding.domain).earned}/${active.assessment.score.checks.find(c=>c.domain===finding.domain).weight}` : ''}</span>
             <p>{finding.explanation}</p>
           </li>)}</ul>
           {active.assessment.custodian && <p className="supporting-copy">Last confirmed custodian: {active.assessment.custodian.name || active.assessment.custodian.wallet}. {active.assessment.custodian.recordedLocation || 'Location not recorded.'}</p>}

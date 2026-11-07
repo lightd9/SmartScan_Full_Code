@@ -69,6 +69,7 @@ function ReviewTask({
       : products;
   const allSelected =
     products.length > 0 && selected.length === products.length;
+  const receiptProtocol = selected.some(p=>p.protocol==='receipt-v3');
   const excluded = codes.length - products.length;
   const destinations = data.facilities.filter((r) => eligibleRecipient(f, r));
   const offline = data.scenario === "offline" || !navigator.onLine;
@@ -84,7 +85,7 @@ function ReviewTask({
         productIds: selected.map((p) => p.id),
         ...(task === "dispatch"
           ? {
-              recipientId: recipient === "__open__" ? null : recipient,
+              recipientId: receiptProtocol || recipient === "__open__" ? null : recipient,
             }
           : {}),
       });
@@ -120,7 +121,7 @@ function ReviewTask({
           {task === "receive"
             ? "Confirm these products have physically arrived at your facility."
             : task === "dispatch"
-              ? "Record the handover and the intended destination."
+              ? receiptProtocol ? "Record release for transport. Approve the actual receiver in Handovers." : "Record dispatch using this product's legacy workflow."
               : "Record the sale of items held by this store. Payment is handled separately."}
         </p>
       </div>
@@ -134,7 +135,7 @@ function ReviewTask({
           </span>
         </div>
       </div>
-      {task === "dispatch" && (
+      {task === "dispatch" && !receiptProtocol && (
         <div className="form destination-form">
           <label htmlFor="recipient">Destination</label>
           <select
@@ -237,6 +238,7 @@ function ReviewTask({
         </Empty>
       )}
       <ErrorNote>{error}</ErrorNote>
+      {receiptProtocol && task==='receive' && <p className="info-note">Confirm physical arrival to request receipt. The sender must approve your facility before custody can change. A missing dispatch stays visible in the record.</p>}
       <LocationPolicy address={f.location} />
       {offline && (
         <p className="info-note">
@@ -244,7 +246,7 @@ function ReviewTask({
         </p>
       )}
       <p className="simulation-note">
-        {isLive ? 'Your facility wallet will sign this action on Sepolia. Track its confirmation in Activity.' : 'Demo action · saved on this device. No live transaction will be sent.'}
+        {isLive ? receiptProtocol && task==='dispatch' ? 'Dispatch is saved off-chain. No dispatch transaction or gas is required.' : receiptProtocol && task==='receive' ? 'After sender approval, your integrated wallet submits one receipt transaction.' : 'Your facility wallet will sign this action on Sepolia. Track its confirmation in Activity.' : 'Demo action · saved on this device. No live transaction will be sent.'}
       </p>
       <Primary
         className="full"
@@ -252,7 +254,7 @@ function ReviewTask({
         disabled={!selected.length || offline}
         onClick={() => void submit()}
       >
-        Confirm{" "}
+        {receiptProtocol && task==='receive' ? 'Request' : 'Confirm'}{" "}
         {task === "receive" ? "receipt" : task === "sell" ? "sale" : "dispatch"}
         {task === "sell" &&
           ` · ${selected.length} item${selected.length === 1 ? "" : "s"}`}

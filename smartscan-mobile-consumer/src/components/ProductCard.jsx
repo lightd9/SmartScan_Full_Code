@@ -34,6 +34,7 @@ export default function ProductCard({ product, onDetails, onReport }) {
     <div className="passport-card-body">
       <span className={`status-badge ${status.tone}`}><StatusIcon size={13} />{status.label}</span>
       <h2>{status.title}</h2>
+      {product.assessment?.score && <p className="evidence-score"><strong>{product.assessment.score.value}<small>/100</small></strong><span>Evidence score</span></p>}
       <p className="product-name">{product.name || 'Unregistered product'}</p>
       <p className="metadata"><MapPin size={15} /><span>{product.brand || product.manufacturer || 'Origin not available'}</span></p>
       <p className="metadata"><Clock3 size={14} /><span>Scanned {scanDate(product)}{product.isSold ? ' · Previously sold' : ''}</span></p>

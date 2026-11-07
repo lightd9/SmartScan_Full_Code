@@ -1,0 +1,108 @@
+/* App surfaces always fill the window. Bound the content, not the native app. */
+.page { width: 100%; max-width: 1040px; margin-inline: auto; }
+.page.form-page { max-width: 640px; }
+.page > *, .home-summary > *, .product-layout > *, .scan-layout > * { min-width: 0; }
+.page, .sheet, .welcome { overflow-wrap: anywhere; }
+.form, .form-field, .password-field { min-width: 0; }
+.form-field { display: grid; gap: 8px; }
+.form-field > label { font-size: 13px; font-weight: 600; line-height: 1.5; }
+.form input, .form select, .form textarea, .search input { font-size: 16px; scroll-margin-block: 24px; }
+.badge { max-width: 100%; overflow-wrap: anywhere; }
+.detail-pairs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.label-preview > svg { max-width: 100%; height: auto; flex-shrink: 0; }
+.product-row-copy, .choice small, .profile-details dd { overflow-wrap: anywhere; }
+.section-title, .list-caption, .workspace-bar, .demo-strip { flex-wrap: wrap; }
+.facility-button, .demo-strip button, .filter-strip button, .task-switch button,
+.camera-enable, .camera-tools button { min-height: 44px; }
+.workspace-bar, .demo-strip { width: 100%; max-width: 1040px; margin-inline: auto; }
+.bottom-nav { justify-content: center; }
+.bottom-nav .nav-item { max-width: 160px; min-width: 0; padding-inline: 4px; text-align: center; }
+.sheet-overlay { padding-inline: var(--safe-area-inset-left, env(safe-area-inset-left, 0px)) var(--safe-area-inset-right, env(safe-area-inset-right, 0px)); }
+.sheet { max-height: calc(100% - 16px - var(--safe-area-inset-top, env(safe-area-inset-top, 0px))); overscroll-behavior: contain; }
+.sheet > * { flex-shrink: 0; min-width: 0; }
+.welcome { padding-inline: max(24px, calc((100% - 540px) / 2)); }
+
+/* Use auto margins so a short window scrolls from the top, including with IME. */
+.sign-in {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column;
+  padding: calc(28px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 24px
+    calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  background: radial-gradient(ellipse at 100% 0%, #d8e0ff99, transparent 60%), var(--screen);
+  scroll-padding-block: 24px;
+}
+.sign-in-layout { width: 100%; max-width: 420px; margin: auto; flex-shrink: 0; display: grid; gap: 28px; }
+.sign-in .welcome-brand { margin: 0 0 8px; font-size: 18px; }
+.sign-in-intro .eyebrow { font-size: 10px; line-height: 1.6; }
+.sign-in-intro h1 { font-size: clamp(32px, 6vw, 44px); line-height: 1.15; letter-spacing: -1.5px; color: var(--accent); margin: 12px 0; }
+.sign-in-intro > p:last-child { font-size: 15px; line-height: 1.7; color: var(--muted); max-width: 32ch; }
+.sign-in-form { gap: 20px; }
+.sign-in-form input { min-height: 54px; background: #ffffffdf; }
+.sign-in-form .primary { width: 100%; min-height: 54px; margin-top: 4px; font-size: 15px; }
+.sign-in-form .error-note { margin: 0; }
+.password-field { position: relative; }
+.password-field input { padding-right: 58px !important; }
+.password-toggle { position: absolute; top: 4px; bottom: 4px; right: 5px; width: 46px; min-height: 44px; border-radius: 13px; display: grid; place-items: center; color: var(--muted); }
+.sign-in-wallet { display: flex; align-items: flex-start; gap: 10px; margin-top: 24px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.sign-in-wallet svg { margin-top: 2px; color: var(--accent-mid); }
+.sign-in-network { text-align: center; color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+@media (max-width: 360px) {
+  .sign-in { padding-inline: 20px; }
+  .sign-in-layout { gap: 24px; }
+  .sign-in .welcome-brand { margin-bottom: 0; }
+  .filter-strip { margin-inline: -16px; padding-inline: 16px; }
+  .task-switch, .capture-actions { flex-wrap: wrap; }
+  .capture-actions button { flex-basis: 120px; }
+}
+
+/* An unfolded screen has enough room to keep capture and its session together. */
+@media (min-width: 700px) {
+  .page { padding: 16px 32px 32px; }
+  .workspace-bar, .demo-strip { padding-inline: 32px; }
+  .home-summary, .product-layout, .scan-layout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: start; }
+  .home-summary { align-items: stretch; }
+  .home-metrics { display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+  .home-metrics .metric-grid { margin: 0; }
+  .metric { padding-block: 22px; }
+  .metric > span { font-size: 11px; }
+  .product-journey > .section-title:first-child, .scan-session > .section-title:first-child { margin-top: 0; }
+  .inventory-page > .product-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+  .filter-strip { margin-inline: 0; padding-inline: 0; }
+  .scan-capture .camera-panel { min-height: 340px; }
+  .sheet-overlay { justify-content: center; }
+  .sheet { max-width: 560px; }
+}
+@media (min-width: 700px) and (min-height: 600px) {
+  .sheet-overlay { align-items: center; padding-block: calc(20px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) calc(20px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))); }
+  .sheet { border-radius: 32px; max-height: 100%; padding-bottom: 28px; }
+  .sign-in { padding-inline: 40px; }
+  .sign-in-layout { max-width: 900px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px 40px; }
+  .sign-in .welcome-brand { grid-column: 1 / -1; margin-bottom: 16px; }
+  .sign-in-intro { align-self: center; }
+  .sign-in-card { padding: 28px; background: #ffffff9c; border: 1px solid white; border-radius: 32px; box-shadow: var(--shadow); }
+  .sign-in-network { grid-column: 2; }
+}
+@media (max-height: 600px) {
+  .sign-in { padding-top: calc(16px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))); }
+  .sign-in-layout { gap: 20px; }
+  .sign-in .welcome-brand { margin: 0; }
+}
+
+/* Keep the familiar bottom tabs on phones; give roomy tablets a quiet rail. */
+@media (min-width: 1024px) and (min-height: 600px) {
+  .device:has(> .shell-body) { display: grid; grid-template-columns: 104px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .shell-body { grid-column: 2; grid-row: 1; overflow: hidden; padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
+  .bottom-nav { grid-column: 1; grid-row: 1; flex-direction: column; justify-content: center; gap: 20px; padding: calc(24px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 10px calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))); border-right: 1px solid var(--line); }
+  .bottom-nav .nav-item { flex: 0 0 auto; min-height: 72px; border-radius: 20px; }
+  .bottom-nav .nav-item.active { background: var(--accent-surface); }
+  .toast { left: 104px; bottom: calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))); }
+}
+
+@media print {
+  .device:has(> .shell-body) { display: block; }
+  .sheet-overlay { padding: 0; }
+  .sheet { max-width: none; max-height: none; border-radius: 0; padding: 0; }
+}
+.handover-card {padding:20px;margin-block:14px;overflow-wrap:anywhere;}
+.handover-card h2 {font-size:18px;}

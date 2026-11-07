@@ -160,6 +160,7 @@ export default function ScannerTab({ onScanSuccess, verifying, verificationError
       </div>
       {loading && <div className="scanner-loading" role="status"><Loader2 className="spin" size={32} /><h2>{readingPhoto ? 'Reading your photo…' : 'Checking your product…'}</h2><p>This will only take a moment.</p></div>}
     </div>
+    <div className="scanner-side">
     <div className="scanner-controls">
       <button className={`camera-control ${torchOn ? 'active' : ''}`} onClick={toggleTorch} disabled={loading || cameraState !== 'ready' || !torchSupported} aria-label="Flashlight" aria-pressed={torchOn}><span className="circle-button raised"><Zap size={22} /></span><span>Flashlight</span></button>
       <span className="camera-status">{cameraState === 'ready' ? 'Ready to scan' : 'Scan. Verify. Trust.'}</span>
@@ -170,6 +171,7 @@ export default function ScannerTab({ onScanSuccess, verifying, verificationError
       <button disabled={loading} onClick={() => fileInput.current?.click()}><Image size={18} /><span>Upload from photos</span></button>
       <button disabled={loading} onClick={() => setManualOpen(true)}><Keyboard size={18} /><span>Enter serial manually</span></button>
     </div></section>
+    </div>
     {manualOpen && <Sheet title="Enter serial manually" onClose={() => setManualOpen(false)}><p className="supporting-copy">Find the serial number on your product’s label or packaging.</p><form className="sheet-form" onSubmit={event => { event.preventDefault(); if (manualCode.trim()) { setManualOpen(false); onScanSuccess(manualCode.trim()); } }}>
       <label htmlFor="serial-number">Serial number</label><input id="serial-number" data-autofocus value={manualCode} onChange={event => setManualCode(event.target.value)} placeholder="e.g. SS-…" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={150} required />
       <button className="dark-button" disabled={!manualCode.trim() || verifying}>Verify product<ArrowRight size={18} /></button>

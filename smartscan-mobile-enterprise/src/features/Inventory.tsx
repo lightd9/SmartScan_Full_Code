@@ -55,7 +55,7 @@ export default function Inventory() {
     setLimit(20);
   };
   return (
-    <main className="page">
+    <main className="page inventory-page">
       <PageTitle
         title={w.role === "manufacturer" ? "Your products" : "Inventory"}
         subtitle={f.name}

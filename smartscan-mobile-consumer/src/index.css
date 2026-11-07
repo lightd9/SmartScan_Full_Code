@@ -3,7 +3,7 @@
 :root {
   font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: #303030;
-  background: #cdcdcd;
+  background: #efefef;
   font-synthesis: none;
   --paper: #fff;
   --screen: #efefef;
@@ -29,7 +29,7 @@
 * { box-sizing: border-box; }
 body, h1, h2, h3, h4, p { margin: 0; }
 html, body, #root { width: 100%; height: 100%; }
-body { -webkit-font-smoothing: antialiased; }
+body { -webkit-font-smoothing: antialiased; overflow: hidden; overscroll-behavior: none; }
 button, input, textarea, select { font: inherit; }
 button, a, input, textarea { -webkit-tap-highlight-color: transparent; }
 button { cursor: pointer; color: inherit; border: 0; background: none; }
@@ -41,10 +41,11 @@ button:disabled { cursor: default; opacity: .48; }
 :focus-visible { outline: 2px solid var(--accent-mid); outline-offset: 4px; }
 svg { flex-shrink: 0; vertical-align: middle; }
 h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
-#root { display: grid; place-items: center; padding: 20px; }
+#root { height: 100dvh; }
 .device-frame {
-  width: 100%; max-width: 440px; height: min(956px, calc(100dvh - 40px));
-  border-radius: 54px; background: var(--screen); overflow: hidden;
+  width: 100%; height: 100%; background: var(--screen); overflow: hidden;
+  padding-left: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
+  padding-right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
   position: relative; display: flex; flex-direction: column; isolation: isolate;
 }
 .app-content { flex: 1; min-height: 0; position: relative; overflow: hidden; }
@@ -68,7 +69,7 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 .decorative { pointer-events: none; }
 
 /* Screen 1: the full upper panel is the camera surface. */
-.scan-screen { height: 100%; display: flex; flex-direction: column; padding: calc(10px + env(safe-area-inset-top, 0px)) 10px 19px; background: linear-gradient(#eeeeee 0%, #fff 84%); gap: 14px; }
+.scan-screen { height: 100%; display: flex; flex-direction: column; padding: calc(10px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 10px 19px; background: linear-gradient(#eeeeee 0%, #fff 84%); gap: 14px; }
 .scanner-hero { position: relative; flex: 1; min-height: 200px; border-radius: 43px; overflow: hidden; container: scanner / size; display: grid; grid-template-rows: auto minmax(56px, 1fr) auto; gap: 12px; padding: 24px 8px 9px; background: var(--accent); }
 .scanner-ambient { position: absolute; inset: 0; background: radial-gradient(ellipse at 3% 1%, var(--accent) 0%, #242953 12%, transparent 30%), radial-gradient(ellipse at 52% 9%, #18276e 0%, var(--accent-raised) 26%, transparent 65%), radial-gradient(ellipse at 95% 32%, #8fabe1 0%, #617cc0 24%, transparent 56%), linear-gradient(125deg, #3b4268 12%, #8c9ac5 47%, #e5eafa 74%); }
 .scanner-ambient::after { content: ''; position: absolute; width: 28%; height: 110%; left: -10%; top: -16%; background: linear-gradient(100deg, #181d49, #8393be50); transform: rotate(29deg); filter: blur(13px); }
@@ -125,7 +126,7 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 
 /* Screens 2 and 3: one map, two card presentations. */
 .passport-screen { height: 100%; position: relative; overflow: hidden; container-type: size; --card-top: max(104px, 15cqh); --card-height: min(535px, 60cqh); background: #e9e9e9; }
-.floating-header { position: absolute; top: max(27px, env(safe-area-inset-top)); left: 19px; right: 19px; display: flex; align-items: center; gap: 18px; z-index: 500; pointer-events: none; }
+.floating-header { position: absolute; top: max(27px, var(--safe-area-inset-top, env(safe-area-inset-top))); left: 19px; right: 19px; display: flex; align-items: center; gap: 18px; z-index: 500; pointer-events: none; }
 .floating-header > * { pointer-events: auto; }
 .floating-header h1 { font-size: 22px; letter-spacing: -.6px; flex: 1; }
 .floating-header .circle-button { width: 51px; height: 51px; }
@@ -203,7 +204,7 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 .product-row-copy .metadata { font-size: 11px; line-height: 1.3; }
 
 /* Shared four-item navigation follows the soft, quiet reference bar. */
-.bottom-nav-bar { flex: 0 0 auto; min-height: 85px; padding: 10px 14px max(16px, env(safe-area-inset-bottom)); background: var(--paper); display: flex; justify-content: space-around; z-index: 600; }
+.bottom-nav-bar { flex: 0 0 auto; min-height: 85px; padding: 10px 14px max(16px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom))); background: var(--paper); display: flex; justify-content: space-around; z-index: 600; }
 .nav-item { flex: 1; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 400; min-height: 50px; }
 .nav-icon { position: relative; width: 30px; height: 28px; display: grid; place-items: center; color: #ababab; transition: color var(--motion-fast); }
 .nav-icon::before { content: ''; position: absolute; inset: 0; border-radius: 9px; background: var(--accent-gradient); box-shadow: inset 0 1px 2px #ffffff70; opacity: 0; transform: scale(.8); transition: opacity var(--motion-fast), transform 220ms var(--ease-settle); }
@@ -214,7 +215,7 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 .nav-item.active .nav-icon svg { transform: scale(.8333); }
 
 /* Report and More borrow the same rounded cards and typography. */
-.standard-screen { height: 100%; overflow-y: auto; padding: max(27px, env(safe-area-inset-top)) 22px 24px; background: linear-gradient(#ececec, #f5f5f5 60%); }
+.standard-screen { height: 100%; overflow-y: auto; padding: max(27px, var(--safe-area-inset-top, env(safe-area-inset-top))) 22px 24px; background: linear-gradient(#ececec, #f5f5f5 60%); }
 .page-header { display: flex; align-items: center; justify-content: space-between; min-height: 51px; margin-bottom: 25px; }
 .page-header h1 { font-size: 24px; }
 .wordmark { font-size: 13px; font-weight: 600; letter-spacing: -.5px; }
@@ -254,7 +255,7 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 /* Accessible sheets used for manual entry, journey, and reports. */
 .modal-overlay { position: absolute; inset: 0; z-index: 1000; display: flex; align-items: flex-end; }
 .sheet-scrim { position: absolute; inset: 0; background: #36312b55; backdrop-filter: blur(7px); animation: fade-in 180ms ease-out; }
-.modal-sheet-panel { position: relative; width: 100%; max-height: 91%; overflow-y: auto; background: #fbfbfb; border: 1px solid #fff; border-radius: 35px 35px 0 0; padding: 12px 24px max(28px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 17px; box-shadow: 0 -10px 40px #00000014; animation: sheet-enter 280ms var(--ease-settle); }
+.modal-sheet-panel { position: relative; width: 100%; max-height: 91%; overflow-y: auto; background: #fbfbfb; border: 1px solid #fff; border-radius: 35px 35px 0 0; padding: 12px 24px max(28px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom))); display: flex; flex-direction: column; gap: 17px; box-shadow: 0 -10px 40px #00000014; animation: sheet-enter 280ms var(--ease-settle); }
 .modal-overlay.is-closing .modal-sheet-panel { pointer-events: none; }
 @keyframes sheet-enter { from { transform: translateY(32px); opacity: .4; } to { transform: translateY(0); opacity: 1; } }
 .sheet-drag-pill { width: 34px; height: 4px; border-radius: 999px; background: #d5d5d5; align-self: center; flex-shrink: 0; }
@@ -296,15 +297,6 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 .prose h3 { font-size: 16px; color: var(--ink); }
 .prose h3:first-child { margin-top: 0; }
 
-/* Let iOS own the status bar; the app fills its available viewport below it.
-   Only the root uses dvh, so its children cannot center a shorter canvas.
-   White also keeps the home-indicator area continuous with the tab bar. */
-@media (max-width: 600px), (orientation: landscape) and (max-height: 600px) {
-  :root { background: var(--paper); }
-  body { overflow: hidden; overscroll-behavior: none; }
-  #root { display: block; height: 100dvh; padding: 0; background: var(--paper); }
-  .device-frame { max-width: none; width: 100%; height: 100%; border-radius: 0; background: var(--paper); }
-}
 @media (max-width: 380px) {
   .scan-screen { padding-left: 8px; padding-right: 8px; }
   .scanner-hero { border-radius: 36px; }
@@ -341,9 +333,9 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
   .scanner-controls { padding-top: 3px; }
   .camera-control .circle-button { width: 44px; height: 44px; }
   .shortcuts h2 { margin-bottom: 10px; font-size: 19px; }
-  .bottom-nav-bar { min-height: 72px; padding-top: 7px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .bottom-nav-bar { min-height: 72px; padding-top: 7px; padding-bottom: max(10px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom))); }
   .passport-screen { --card-top: 99px; --card-height: 61cqh; }
-  .floating-header { top: max(20px, env(safe-area-inset-top)); }
+  .floating-header { top: max(20px, var(--safe-area-inset-top, env(safe-area-inset-top))); }
   .passport-card h2 { margin-top: 9px; margin-bottom: 7px; }
   .card-actions { margin-top: 12px; }
   .passport-card .product-name { margin-bottom: 4px; }
@@ -367,11 +359,7 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
   .passport-card-body { padding-bottom: 12px; }
 }
 @media (orientation: landscape) and (max-height: 600px) {
-  .scan-screen { display: grid; grid-template-columns: minmax(240px, 1.3fr) minmax(0, 1fr); grid-template-rows: 1fr auto auto; gap: 8px 24px; padding: calc(10px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right)) 10px max(10px, env(safe-area-inset-left)); }
-  .scanner-hero { grid-row: 1 / 4; height: 100%; min-height: 0; padding-top: 12px; gap: 8px; }
-  .scanner-controls { grid-column: 2; align-self: center; padding: 0 14px; }
-  .shortcuts { grid-column: 2; align-self: end; padding: 0 0 10px; }
-  .scan-notice { grid-column: 2; grid-row: 2; margin: 0; font-size: 10px; }
+  .scanner-hero { padding-top: 12px; gap: 8px; }
   .scan-greeting p, .scanner-info-copy { display: none; }
   .scan-greeting h1 { font-size: 24px; }
   .viewfinder { max-height: 100px; width: 100px; }
@@ -379,29 +367,8 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
   .scanner-info-card { border-radius: 24px; }
   .scanner-info-footer { border: 0; padding: 4px 5px 4px 15px; }
   .scanner-bottom { gap: 5px; }
-  .bottom-nav-bar { min-height: 59px; padding: 4px 15% max(4px, env(safe-area-inset-bottom)); }
+  .bottom-nav-bar { min-height: 59px; padding: 4px 15% max(4px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom))); }
   .nav-item { min-height: 45px; gap: 2px; }
-  .passport-screen { --card-top: 82px; --card-height: calc(100cqh - 91px); }
-  .passport-carousel { right: 43%; padding-bottom: 0; }
-  .passport-card { flex-direction: row; border-radius: 24px; }
-  .passport-card > .product-photo { flex: 0 0 27%; height: 100%; border-radius: 20px 0 0 20px; }
-  .passport-card .product-photo::after { background: linear-gradient(90deg, transparent, #fff); }
-  .passport-card-body { padding: 10px; flex: 1; min-width: 0; }
-  .passport-card h2 { font-size: 16px; margin: 6px 0; }
-  .passport-card .product-name { font-size: 11px; }
-  .passport-card .metadata { font-size: 10px; }
-  .card-actions { margin-top: 7px; gap: 4px; }
-  .card-actions .dark-button { min-height: 36px; font-size: 10px; padding: 5px; }
-  .card-actions .circle-button { width: 36px; height: 36px; }
-  .card-actions svg { width: 15px; }
-  .carousel-pagination { top: auto; bottom: 20px; left: 61%; }
-  .history-list-panel, .history-list-panel.expanded { top: 82px; left: 54%; right: 14px; }
-  .map-controls.list { left: 18px; right: auto; top: 110px; }
-  .map-caption.list { left: 85px; top: 104px; max-width: 35%; }
-  .floating-empty { top: 90px; padding: 16px; left: 28%; right: 28%; gap: 8px; }
-  .floating-empty .empty-icon { display: none; }
-  .floating-empty h2 { font-size: 20px; }
-  .floating-empty p { font-size: 11px; }
 }
 /* Respond to the actual panel height, including space taken by camera errors
    and iPhone safe areas, rather than letting the instruction card cover it. */
@@ -438,3 +405,14 @@ h1, h2, h3, h4 { font-weight: 600; letter-spacing: -.7px; }
 .verification-evidence li { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
 .verification-evidence li p { margin: 5px 0 0; color: #596276; font-size: 14px; line-height: 1.5; }
 .verification-evidence li[data-state="concern"] strong { color: #955009; }
+
+/* Installed Android apps fill the native window at every size, including tablets.
+   Insets come from Android; browser and iOS previews keep their env() fallbacks. */
+html.native-android { background: var(--screen); }
+.native-android body { overflow: hidden; overscroll-behavior: none; }
+.native-android #root { display: block; width: 100%; height: 100%; padding: 0; background: var(--screen); }
+.native-android .device-frame {
+  width: 100%; max-width: none; height: 100%; border-radius: 0;
+  padding-left: var(--safe-area-inset-left, 0px);
+  padding-right: var(--safe-area-inset-right, 0px);
+}

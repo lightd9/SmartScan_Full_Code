@@ -11,6 +11,9 @@ import Home from "./features/Home";
 import { ErrorNote, Loading } from "./design/ui";
 import "./design/tokens.css";
 import "./design/workflows.css";
+import "./design/responsive.css";
+import '../../native/web/viewport';
+import '../../native/web/viewport.css';
 
 const Inventory = lazy(() => import("./features/Inventory"));
 const Scan = lazy(() => import("./features/Scan"));
@@ -51,6 +54,8 @@ class ErrorBoundary extends Component<
     );
   }
 }
+const Handovers = lazy(() => import('./features/Handovers'));
+const Reports = lazy(() => import('./features/Reports'));
 function App() {
   // Fail closed: production integration must provide a real adapter. Never silently fall back to demo records.
   if (!['demo','live'].includes(dataMode))
@@ -78,6 +83,8 @@ function App() {
                 <Route path="products/:id" element={<Product />} />
                 <Route path="register" element={<Register />} />
                 <Route path="operations/:id" element={<Operation />} />
+                <Route path="handovers" element={<Handovers />} />
+                <Route path="reports" element={<Reports />} />
                 <Route path="activity" element={<Activity />} />
                 <Route path="operations" element={<Activity />} />
                 <Route path="accounts" element={<Accounts />} />

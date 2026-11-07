@@ -48,6 +48,12 @@ export function capability(
   if (action === "receive") {
     if (!["supplier", "retailer"].includes(facility.role))
       return "This role cannot receive deliveries.";
+    if (product.protocol === 'receipt-v3') {
+      if (product.custodianId === facility.id) return 'This item is already in your custody.';
+      if (![Stage.Manufactured,Stage.Delivered].includes(product.stage)) return 'This product cannot be received at its current stage.';
+      const allowed=product.senderRole === 'manufacturer' ? facility.role === 'supplier' : product.senderRole === 'supplier' && ['supplier','retailer'].includes(facility.role);
+      return allowed ? null : 'This facility is not eligible to request receipt.';
+    }
     if (product.stage !== Stage.Dispatched)
       return "This item is not awaiting delivery.";
     if (product.custodianId === facility.id)
@@ -68,6 +74,7 @@ export function capability(
   if (product.custodianId !== facility.id)
     return "This item is not in this facility’s custody.";
   if (action === "dispatch") {
+    if (product.protocol === 'receipt-v3' && product.dispatchRecorded) return 'Dispatch is recorded. Approve the actual receiver in Handovers.';
     if (!["manufacturer", "supplier"].includes(facility.role))
       return "This role cannot dispatch products.";
     return [Stage.Manufactured, Stage.Delivered].includes(product.stage)
@@ -90,7 +97,7 @@ export function nextScanTask(
   operations: Operation[] = [],
 ): Task | null {
   if (operations.some((op) => op.items.some((item) =>
-    item.productId === product.id && item.status === "submitted"))) return null;
+    item.productId === product.id && ['submitted','waiting_approval'].includes(item.status)))) return null;
   return (["receive", "dispatch", "sell"] as const).find((task) =>
     !capability(product, task, facility, workspace)) || null;
 }
@@ -121,7 +128,7 @@ export function belongsToView(
   w: Workspace,
 ): boolean {
   const own = p.custodianId === f.id;
-  const incoming = !capability(p, "receive", f, w);
+  const incoming = !capability(p, "receive", f, w) && (p.protocol !== 'receipt-v3' || p.dispatchRecorded === true);
   const relevant =
     w.role === "admin" ||
     (w.role === "manufacturer"
@@ -141,7 +148,7 @@ export function belongsToView(
         [Stage.Delivered, Stage.Manufactured].includes(p.stage)
       );
     case "outgoing":
-      return own && p.stage === Stage.Dispatched;
+      return own && (p.stage === Stage.Dispatched || p.dispatchRecorded === true);
     case "pending":
       return (
         w.role === "manufacturer" &&

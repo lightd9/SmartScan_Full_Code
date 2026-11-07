@@ -24,6 +24,7 @@ import {
 } from "../design/ui";
 import { actionNames, type Filter } from "../domain/types";
 import { belongsToView } from "../domain/rules";
+import { isLive } from '../services';
 
 export default function Home() {
   const { data, workspace: w, facility: f, account } = useBusiness();
@@ -87,6 +88,9 @@ export default function Home() {
           <Icon size={23} />
         </span>
       </header>
+      {isLive && <button className="secondary full spaced" onClick={()=>navigate('/handovers')}>Handover approvals</button>}
+      {isLive && admin && <button className="secondary full spaced" onClick={()=>navigate('/reports')}>Consumer reports</button>}
+      <div className="home-summary">
       <section className="hero-card">
         <div className="hero-orbit" aria-hidden="true">
           <Icon />
@@ -113,6 +117,7 @@ export default function Home() {
           {maker ? <Plus size={19} /> : <ArrowRight size={19} />}
         </button>
       </section>
+      <div className="home-metrics">
       <div className="metric-grid">
         {(admin
           ? [
@@ -180,6 +185,8 @@ export default function Home() {
           </button>
         </div>
       )}
+      </div>
+      </div>
       {active.length > 0 && (
         <button
           className="attention-card"

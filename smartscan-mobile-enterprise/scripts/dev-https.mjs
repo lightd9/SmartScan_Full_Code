@@ -63,6 +63,9 @@ const setup = createHttpServer((req, res) => {
   });
   res.end(certificateDownload);
 });
+// Keep phone requests same-origin without widening the production CORS policy.
+// This changes only this preview process, not the packaged native builds.
+process.env.VITE_API_BASE_URL ||= "/__smartscan_api";
 const app = await createServer({
   root,
   server: {
@@ -70,6 +73,15 @@ const app = await createServer({
     port: 5181,
     strictPort: true,
     https: { key: certificate.key, cert: certificate.cert },
+    proxy: {
+      "/__smartscan_api": {
+        target: "https://smartscan-backend-52s4.onrender.com",
+        changeOrigin: true,
+        cookiePathRewrite: '/__smartscan_api/auth',
+        headers: { Origin: "https://localhost" },
+        rewrite: path => path.replace(/^\/__smartscan_api/, ""),
+      },
+    },
   },
 });
 try {
@@ -83,7 +95,7 @@ try {
   setup.close();
   throw e;
 }
-console.log("SmartScan Enterprise — local demo preview");
+console.log("SmartScan Enterprise — HTTPS phone testing");
 for (const address of addresses.length ? addresses : ["localhost"]) {
   console.log(`  App: https://${address}:5181`);
   console.log(

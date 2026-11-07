@@ -13,7 +13,7 @@ export function productStatus(product) {
     return { label: 'Registry only', title: 'Product found in the registry.', tone: 'neutral', description: 'Current blockchain status could not be checked. Try again before relying on this record.' };
   }
   if (product?.isSold || Number(product?.stage) === 4 || (product?.stage == null && status === 'SOLD')) {
-    return { label: 'Sale recorded', title: 'Sale recorded for this product.', tone: 'neutral', description: 'Checking a product after purchase is normal. Scan anomaly checks are unavailable.' };
+    return { label: 'More checks needed', title: 'More verification needed.', tone: 'neutral', description: 'The registered code has a sale recorded. Reconnect for custody, retailer and other authenticity checks.' };
   }
   if (product?.exists === true && (product.source === 'chain' || status === 'AUTHENTIC')) {
     return { label: 'Identity found', title: 'Registered identity found.', tone: 'neutral', description: 'The code matches a registered record. Scan anomaly checks are unavailable; a copied code can also match.' };
@@ -42,7 +42,7 @@ function coordinates(value) {
     lat = value.latitude ?? value.lat;
     lng = value.longitude ?? value.lng ?? value.lon;
   } else if (typeof value === 'string') {
-    const device = value.match(/^\[Device\s+(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)(?:\s+\+\/-\d+(?:\.\d+)?m)?\]/i);
+    const device = value.match(/^(?:\[Device\s+|Device-reported\s+)(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i);
     if (device) return coordinates([device[1], device[2]]);
     const match = value.match(/^(?:Lat(?:itude)?\s*[:=]?\s*)?(-?\d+(?:\.\d+)?)\s*[,;]\s*(?:(?:Long?(?:itude)?|Lng)\s*[:=]?\s*)?(-?\d+(?:\.\d+)?)$/i);
     if (match) [, lat, lng] = match;

@@ -106,7 +106,7 @@ export default function Register() {
     }
   }
   return (
-    <main className="page">
+    <main className="page form-page">
       <PageTitle
         back
         title="A new beginning"

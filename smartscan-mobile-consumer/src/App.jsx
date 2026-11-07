@@ -26,9 +26,9 @@ export default function App() {
     setVerificationError('');
     setVerifying(true);
     try {
-      const { serialNumber } = parseQrPayload(rawCode);
+      const { serialNumber, contractAddress } = parseQrPayload(rawCode);
       if (scanAttempt.current?.serialNumber !== serialNumber) scanAttempt.current = { serialNumber, eventId: crypto.randomUUID() };
-      const result = await fetchProductWithFallback(serialNumber, { eventId: scanAttempt.current.eventId });
+      const result = await fetchProductWithFallback(serialNumber, { eventId: scanAttempt.current.eventId,contractAddress });
       scanAttempt.current = null;
       const scanned = { ...result, scannedAt: new Date().toISOString() };
       saveScanToHistory(scanned);

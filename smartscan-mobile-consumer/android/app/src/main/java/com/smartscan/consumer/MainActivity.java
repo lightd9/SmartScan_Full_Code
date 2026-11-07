@@ -1,5 +1,5 @@
 package com.smartscan.consumer;
 
-import com.getcapacitor.BridgeActivity;
+import com.smartscan.mobile.EdgeToEdgeActivity;
 
-public class MainActivity extends BridgeActivity {}
+public class MainActivity extends EdgeToEdgeActivity {}

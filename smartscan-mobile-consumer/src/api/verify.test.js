@@ -11,7 +11,8 @@ const rejected = { status: 'rejected', reason: new Error('offline') };
 
 test('QR parsing preserves issuer case and checks an explicit contract before extracting the serial', () => {
   for (const value of [serial, `${CONTRACT_ADDRESS},${serial}`, `https://smartscan.example/verify/${serial}?source=label`]) assert.equal(parseQrPayload(value).serialNumber, serial);
-  assert.throws(() => parseQrPayload(`0x0000000000000000000000000000000000000011,${serial}`), /unrecognized contract/);
+  assert.equal(parseQrPayload(`0x0000000000000000000000000000000000000011,${serial}`).contractAddress,'0x0000000000000000000000000000000000000011');
+  assert.throws(() => parseQrPayload(`invalid-address,${serial}`),/unrecognized contract/);
   for (const invalid of [`prefix-${serial}-suffix`, `https://example.com/${serial}junk`, 'batch123', `${serial}z`]) assert.throws(() => parseQrPayload(invalid));
 });
 
@@ -22,12 +23,12 @@ for (const item of cases) test(`V2 ${item.name} is correctly interpreted`, () =>
   assert.doesNotThrow(() => JSON.stringify(result));
   const display = productStatus(result);
   assert.equal(display.label === 'Recalled', item.recalled);
-  assert.equal(display.label === 'Sale recorded', item.status === 'SOLD');
+  assert.equal(display.label === 'More checks needed', item.status === 'SOLD');
   assert.doesNotMatch(display.title, /is authentic/i);
 });
 
 test('old saved stage 4 results incorrectly labelled recalled are rendered as sold', () => {
-  assert.equal(productStatus({ exists: true, stage: 4, status: 'RECALLED' }).label, 'Sale recorded');
+  assert.equal(productStatus({ exists: true, stage: 4, status: 'RECALLED' }).label, 'More checks needed');
   assert.notEqual(productStatus({ exists: true, stage: 3, status: 'SOLD', isSold: false }).label, 'Sale recorded');
 });
 
@@ -58,7 +59,7 @@ test('labelled device coordinates are mapped, and fallbacks are not invented as 
 });
 
 test('consumer displays the backend assessment and retains an explicit scan ID', async () => {
-  const assessment = { policyVersion: 'v2-evidence-1', summary: { label: 'Review findings' }, findings: [] };
+  const assessment = { policyVersion: 'evidence-2', source:{contractAddress:CONTRACT_ADDRESS}, summary: { label: 'Review findings' }, findings: [] };
   const api = { async post(_url, payload) {
     assert.equal(payload.eventId, '12345678-1234-1234-1234-123456789012'); assert.equal(payload.purpose, 'consumer');
     return { status: 200, data: { product: { serialNumber: serial, source: 'chain', exists: true, contractAddress: CONTRACT_ADDRESS, chainId: CHAIN_ID }, assessment, flags: ['unusual_frequency'] } };
@@ -69,6 +70,6 @@ test('consumer displays the backend assessment and retains an explicit scan ID',
 
 test('server mismatch or unavailable assessment falls back without claiming clean monitoring', async () => {
   const api = { async post() { return { status: 201, data: { product: { serialNumber: 'wrong' }, assessment: { summary: {} }, flags: [] } }; }, async get() { throw new Error('offline'); } };
-  const result = await createProductVerifier({ api, readChain: async () => normalizeChainProduct(null, serial) })(serial);
+  const result = await createProductVerifier({ api, readChain: async () => normalizeChainProduct(null, serial) })(serial,{contractAddress:CONTRACT_ADDRESS});
   assert.equal(result.status, 'NOT_FOUND'); assert.deepEqual(result.scanWarnings, ['scan_risk_check_unavailable']);
 });

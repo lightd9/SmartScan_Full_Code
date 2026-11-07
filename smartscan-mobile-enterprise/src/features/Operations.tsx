@@ -32,7 +32,7 @@ import { feedback } from "../platform/feedback";
 import { exportFile } from "../platform/files";
 
 export const operationStatus = (o: Operation) =>
-  o.items.some((i) => i.status === "submitted")
+  o.items.some((i) => i.status === "waiting_approval") ? 'Waiting for sender approval' : o.items.some((i) => i.status === "submitted")
     ? "In progress"
     : o.items.some((i) => i.status === "failed")
       ? "Needs attention"
@@ -176,7 +176,9 @@ export default function OperationDetail() {
     );
   const complete = o.items.filter((i) => i.status === "confirmed");
   const failed = o.items.filter((i) => i.status === "failed");
-  const pending = o.items.some((i) => i.status === "submitted");
+  const waiting = o.items.some(i=>i.status==='waiting_approval');
+  const pending = o.items.some((i) => ['submitted','waiting_approval'].includes(i.status));
+  const offchain = o.items.every(i=>i.proofKind==='offchain');
   const acting = data.facilities.find((f) => f.id === o.facilityId);
   async function retry() {
     if (!o || !w || busy) return;
@@ -269,18 +271,18 @@ export default function OperationDetail() {
           {status}
         </Badge>
         <h2>
-          {pending
+          {waiting ? 'Waiting for sender approval.' : pending
             ? "Recording your action."
             : failed.length
               ? "Some items need a look."
               : "All accounted for."}
         </h2>
         <p>
-          {pending
+          {waiting ? 'The current custodian must approve this facility. Your request is saved; custody has not changed.' : pending
             ? "You can leave this screen. Progress is saved and will be checked when you return."
             : failed.length
               ? "Completed items are saved. Review the remaining items before trying again."
-              : isLive ? 'Blockchain confirmation received. This operation is saved in your activity.' : "Your demo records are updated. This operation is saved in your activity."}
+              : isLive ? offchain ? 'Dispatch recorded off-chain. No transaction was broadcast. The sender retains custody until the approved receipt confirms.' : 'Blockchain confirmation received. This operation is saved in your activity.' : "Your demo records are updated. This operation is saved in your activity."}
         </p>
         <span className="progress-label">
           {complete.length} of {o.items.length} completed

@@ -59,7 +59,7 @@ export default function Scan() {
   const codes = draft?.codes || [];
   const offline = data?.scenario === "offline" || !navigator.onLine;
   function reason(p?: Product) {
-    if (p && data?.operations.some((op) => op.items.some((item) => item.productId === p.id && item.status === "submitted")))
+    if (p && data?.operations.some((op) => op.items.some((item) => item.productId === p.id && ['submitted','waiting_approval'].includes(item.status))))
       return "An action is already in progress for this item.";
     return !p
       ? isLive ? 'Not found in the current SmartScan inventory.' : "Not found in demo records."
@@ -167,6 +167,8 @@ export default function Scan() {
   return (
     <main className="page scan-page">
       <PageTitle title="Scan product" subtitle={f.name} />
+      <div className="scan-layout">
+      <section className="scan-capture" aria-label="Capture products">
       <div className="task-switch" role="group" aria-label="Scanner task">
         {tasks.map((t) => (
           <button
@@ -201,6 +203,8 @@ export default function Scan() {
         {scanNotice || "Capture items here. Review before recording an action."}
       </p>
       <ErrorNote>{error}</ErrorNote>
+      </section>
+      <section className="scan-session" aria-label="Current scan session">
       <SectionTitle title={`This session · ${codes.length}`}>
         {codes.length > 0 && (
           <button className="text-button" onClick={() => setConfirmClear(true)}>
@@ -276,6 +280,8 @@ export default function Scan() {
           </Primary>
         </div>
       )}
+      </section>
+      </div>
       {manual && (
         <Sheet title="Enter a serial number" onClose={() => setManual(false)}>
           <p className="support">

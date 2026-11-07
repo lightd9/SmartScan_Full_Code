@@ -1,0 +1,4 @@
+html[data-keyboard-overlay] #root {
+  height: var(--keyboard-viewport-height);
+  transform: translateY(var(--keyboard-viewport-top, 0px));
+}

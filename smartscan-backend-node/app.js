@@ -14,6 +14,11 @@ const { getContractOwnerWallet, getTreasuryStatus, fundSubaccount } = require('.
 const { chainProduct, assessProduct } = require('./assessment');
 const { recordObservation } = require('./scan-observation');
 const { mountEnterprise } = require('./enterprise-routes');
+const { createSessions } = require('./sessions');
+const { createAuthority } = require('./authority');
+const { receiptHistoryConflict } = require('./receipt-policy');
+const { normalizePurchase, loadEvidence } = require('./purchase-evidence');
+const { mountReports } = require('./report-routes');
 
 const CUSTODY_EXECUTION_ABI = [
   'function registerProduct(string name_, string brand_, string serialNumber_, string description_, string image_, string actor_, string location_, string timestamp_)',
@@ -191,11 +196,13 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   const chainProvider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : null;
   app.locals.chainProvider = chainProvider;
   const scanProvider = chainProvider;
-  const getOwnerRoleContract = async () => {
+  const authority = createAuthority({ pool,provider:chainProvider,contractAddress:expectedContractAddress,chainId:configuredChainId });
+  app.locals.authority = authority;
+  const getOwnerRoleContract = async (targetAddress = expectedContractAddress) => {
     if (!expectedContractAddress) throw new Error('Contract address is not configured.');
     const ownerWallet = getContractOwnerWallet(rpcUrl, configuredChainId);
     if (!ownerWallet) return null;
-    const roleContract = new ethers.Contract(expectedContractAddress, CHAIN_ROLE_ABI, ownerWallet);
+    const roleContract = new ethers.Contract(targetAddress, CHAIN_ROLE_ABI, ownerWallet);
     const configuredOwner = normalizedAddress(await roleContract.owner());
     if (configuredOwner !== normalizedAddress(ownerWallet.address)) {
       throw new Error('CONTRACT_OWNER_PRIVATE_KEY does not match the configured contract owner.');
@@ -216,32 +223,43 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       }
     };
     return { roles: (...args) => roleContract.roles(...args),
-      grantRole: writeRole('grantRole'), revokeRole: writeRole('revokeRole') };
+      walletSuccessor:(...args)=>roleContract.walletSuccessor(...args),
+      grantRole: writeRole('grantRole'), revokeRole: writeRole('revokeRole'),replaceRole:writeRole('replaceRole') };
+  };
+  const syncReceiptRole = async (wallet,role,name) => {
+    if (!authority.receipt) return;
+    const target=await getOwnerRoleContract(authority.receipt.contractAddress);
+    if(!target) throw new Error('Receipt contract owner signing is unavailable.');
+    const existing=Number(await target.roles(wallet));
+    if(existing===role) return;
+    if(existing) await target.revokeRole(wallet);
+    if(role) await target.grantRole(wallet,role,name);
   };
   const scanContract = scanProvider && expectedContractAddress
     ? new ethers.Contract(expectedContractAddress, PRODUCT_SCAN_ABI, scanProvider)
     : null;
 
-  const fetchOnChainProduct = async (serialNumber) => {
+  const fetchOnChainProduct = async (serialNumber,db=pool) => {
     if (!scanProvider || !expectedContractAddress || !scanContract) {
       throw new Error('Product scan verification is not configured');
     }
-    return await scanContract.getProduct(serialNumber);
+    return await authority.read(serialNumber,db);
   };
 
   const verifyScanProduct = scanVerifier || (async (serialNumber) => {
     if (!scanProvider || !expectedContractAddress) throw new Error('Product scan verification is not configured');
     const network = await scanProvider.getNetwork();
     if (Number(network.chainId) !== Number(configuredChainId)) throw new Error('Product scan RPC chain mismatch');
-    if ((await scanProvider.getCode(expectedContractAddress)) === '0x') throw new Error('Product scan contract has no code');
+    const selected = await authority.resolve(serialNumber);
+    if ((await scanProvider.getCode(selected.contractAddress)) === '0x') throw new Error('Product scan contract has no code');
     const product = await fetchOnChainProduct(serialNumber);
-    return { exists: product[0] === serialNumber, conflictingState: product[0] === serialNumber && hasConflictingProductState(product), product: chainProduct(product, serialNumber, expectedContractAddress, configuredChainId) };
+    return { exists: product[0] === serialNumber, conflictingState: product[0] === serialNumber && (selected.protocol === 'receipt-v3' ? receiptHistoryConflict(product) : hasConflictingProductState(product)), product: { ...chainProduct(product, serialNumber, selected.contractAddress, configuredChainId),protocol:selected.protocol } };
   });
 
   const reconcileOnChainProduct = async (serialNumber) => {
     if (!scanContract || !scanProvider || process.env.NODE_ENV === 'test' || rpcUrl?.includes('.test')) return false;
     try {
-      const exists = await scanContract.productExists(serialNumber);
+      const exists = (await fetchOnChainProduct(serialNumber))[0] === serialNumber;
       if (exists) {
         await pool.query(
           "UPDATE product SET chain_status = 'confirmed', failure_reason = NULL, chain_updated_at = NOW() WHERE serialnumber = $1 AND chain_status <> 'confirmed'",
@@ -274,13 +292,16 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       return callback(new Error('Not allowed by CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-SmartScan-Session', 'X-SmartScan-Protocol'],
+    credentials: true,
   }));
 
   const authRateLimit = rateLimiters.auth;
   const scanRateLimit = rateLimiters.scan;
   const uploadRateLimit = rateLimiters.upload;
   const writeRateLimit = rateLimiters.write;
+  const sessions = createSessions({ pool, jwtSecret, jwtExpiresIn, allowedOrigins });
+  sessions.mount(app, authRateLimit);
 
   const uploadProfile = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }).single('image');
   const uploadProduct = multer({ storage: multer.memoryStorage(), fileFilter: imageFilter, limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }).single('image');
@@ -299,6 +320,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const { rows } = await pool.query('SELECT token_version FROM auth WHERE username = $1', [payload.username]);
       if (!rows.length || Number(rows[0].token_version || 0) !== Number(payload.tokenVersion || 0)) {
         return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+      if (payload.sessionId) {
+        const active = await pool.query('SELECT 1 FROM app_sessions WHERE id=$1 AND username=$2 AND revoked_at IS NULL AND expires_at>now()', [payload.sessionId, payload.username]);
+        if (!active.rows.length) return res.status(401).json({ error: 'Session ended. Please sign in again.' });
       }
       req.user = payload;
       return next();
@@ -396,8 +421,9 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           [account.wallet_address, account.wallet_status, account.username]
         ).catch(() => {});
       }
-      const token = jwt.sign({ username: account.username, role: account.role, tokenVersion: Number(account.token_version || 0) }, jwtSecret, { expiresIn: jwtExpiresIn });
-      return res.json({ token, user: { username: account.username, role: account.role, walletAddress: account.wallet_address, walletStatus: account.wallet_status } });
+      const remembered = await sessions.issue(account, req, res);
+      const token = jwt.sign({ username: account.username, role: account.role, tokenVersion: Number(account.token_version || 0), ...(remembered.sessionId ? { sessionId: remembered.sessionId } : {}) }, jwtSecret, { expiresIn: jwtExpiresIn });
+      return res.json({ token, ...remembered, user: { username: account.username, role: account.role, walletAddress: account.wallet_address, walletStatus: account.wallet_status } });
     } catch (err) {
       return next(err);
     }
@@ -757,6 +783,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
               const tx = await roleContract.grantRole(autoWallet.walletAddress, roleId, (name ? name.trim() : username));
               await tx.wait(1);
             }
+            await syncReceiptRole(autoWallet.walletAddress,roleId,name ? name.trim() : username);
             const activated = await pool.query(
               "UPDATE auth SET wallet_status = 'active' WHERE username = $1 AND wallet_address = $2 AND wallet_status = 'pending_onchain'",
               [username, autoWallet.walletAddress],
@@ -1376,6 +1403,22 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'On-chain wallet roles do not match the requested operation' });
       }
+      // Completing a legacy wallet-management request must also update the
+      // receipt authority; otherwise a revoked wallet could still use V3 permits.
+      if (authority.receipt) {
+        if (operation.action==='replace') {
+          const target=await getOwnerRoleContract(authority.receipt.contractAddress);
+          if(!target) throw new Error('Receipt role management is unavailable.');
+          const previous=Number(await target.roles(oldWallet));
+          const successor=await target.walletSuccessor(oldWallet);
+          if(previous) await target.replaceRole(oldWallet,newWallet,operation.business_name);
+          else if(successor.toLowerCase()!==newWallet.toLowerCase()) {
+            if(successor!==ethers.ZeroAddress) throw new Error('Receipt wallet replacement does not match.');
+            await syncReceiptRole(newWallet,roleId,operation.business_name);
+          }
+        } else await syncReceiptRole(operation.action==='link' ? newWallet : oldWallet,
+          ['link','restore'].includes(operation.action) ? roleId : 0,operation.business_name);
+      }
       const accountResult = await client.query('SELECT wallet_address, wallet_status FROM auth WHERE username = $1 FOR UPDATE', [operation.username]);
       if (!accountResult.rows.length) {
         await client.query('ROLLBACK');
@@ -1444,6 +1487,13 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   app.get('/file/product/:fileName', sendUpload(uploadStore, 'product'));
 
   // --- product ---
+  app.use('/product/:serialNumber', async (req,res,next) => {
+    if (['GET','HEAD','OPTIONS'].includes(req.method)) return next();
+    try {
+      if ((await authority.resolve(req.params.serialNumber)).protocol !== 'v2') return res.status(426).json({ error:'Use the current Enterprise app to change this receipt-protocol product.' });
+      next();
+    } catch(error) {next(error);}
+  });
 
   app.get('/product/serialNumber', authenticate, async (req, res, next) => {
     try {
@@ -1470,6 +1520,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       return res.json({
         exists: true,
         serialNumber: p.serialnumber,
+        protocol:p.chain_protocol || 'v2',contractAddress:p.chain_contract_address || expectedContractAddress,chainId:p.chain_expected_id || configuredChainId,
         name: p.name,
         brand: p.brand,
         description: p.description,
@@ -1492,6 +1543,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     try {
       const { serialNumber, contractAddress: submittedContractAddress, latitude, longitude, eventId, purpose = 'unspecified' } = req.body || {};
       const readOnly = req.method === 'GET';
+      const purchase = normalizePurchase(req.body?.purchase);
       if (!readOnly && req.path === '/v1/assessments' && !eventId) return res.status(400).json({ error: 'A unique scan event ID is required' });
       if (eventId !== undefined && (typeof eventId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId))) return res.status(400).json({ error: 'Invalid scan event ID' });
       if (!['consumer', 'logistics', 'unspecified'].includes(purpose)) return res.status(400).json({ error: 'Invalid scan purpose' });
@@ -1505,13 +1557,14 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (hasCoords && (typeof latitude !== 'number' || typeof longitude !== 'number' || !Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180)) {
         return res.status(400).json({ error: 'Invalid scan coordinates' });
       }
-      const requestAddress = normalizedAddress(submittedContractAddress);
+      const selected = scanVerifier ? { contractAddress:expectedContractAddress,protocol:'v2' } : await authority.resolve(serialNumber);
+      const requestAddress = submittedContractAddress ? normalizedAddress(submittedContractAddress) : selected.contractAddress;
       const flags = [];
       let outcome = 'invalid';
       let conflictingState = false;
       let product = { serialNumber, source: 'chain', exists: false, contractAddress: expectedContractAddress, chainId: configuredChainId };
       const requestMatchesConfiguredProduct = validProductIdentifier(serialNumber)
-        && expectedContractAddress && requestAddress === expectedContractAddress;
+        && selected.contractAddress && requestAddress?.toLowerCase() === selected.contractAddress.toLowerCase();
       if (!requestMatchesConfiguredProduct) {
         product.source = 'invalid_input';
         flags.push('invalid_identifier');
@@ -1545,14 +1598,17 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         }
       }
       const currentFlags = [...new Set([...observation.flags.filter(flag => !['conflicting_product_state', 'invalid_identifier'].includes(flag)), ...flags])];
-      const assessment = assessProduct({ product, flags: currentFlags, monitoring, hasLocation: hasCoords, historyChecked: requestMatchesConfiguredProduct && outcome === 'valid', assessmentId: eventId || undefined });
+      let evidence = {};
+      try { evidence = await loadEvidence(pool,product,purchase); } catch { /* Missing registry metadata stays unknown. */ }
+      const assessment = assessProduct({ product, flags: currentFlags, monitoring, hasLocation: hasCoords, historyChecked: requestMatchesConfiguredProduct && outcome === 'valid', purchase,evidence,assessmentId: eventId || undefined });
+      if (evidence.publicHistory) product.history=evidence.publicHistory;
       return res.status(readOnly || observation.replayed || monitoring === 'unavailable' ? 200 : 201).json({ product: { ...product, status: assessment.summary.status, verifiedAt: assessment.source.verifiedAt }, assessment, flags: currentFlags, replayed: observation.replayed });
     } catch (err) { return next(err); }
   };
   app.post('/scan-events', scanRateLimit, assessScan);
   app.post('/v1/assessments', scanRateLimit, assessScan);
   app.get('/v1/assessments/:serialNumber', scanRateLimit, (req, res, next) => {
-    req.body = { serialNumber: req.params.serialNumber, contractAddress: expectedContractAddress };
+    req.body = { serialNumber: req.params.serialNumber };
     return assessScan(req, res, next);
   });
 
@@ -1595,6 +1651,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           error: 'Invalid product identifier format. Expected canonical SS-UUID.',
         });
       }
+      if ((await authority.resolve(serial)).protocol !== 'v2') return res.status(426).json({ error:'Use the current Enterprise app for this receipt-protocol product.' });
 
       let product;
       try {
@@ -1843,6 +1900,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
 
       if (subaccount.status === 'active') {
+        await syncReceiptRole(subaccount.wallet_address,CHAIN_ROLE_IDS[subaccount.role],subaccount.subaccount_name);
         return res.json({ success: true, message: 'Subaccount is already active and approved',
           subaccountId: subaccount.id, walletAddress: subaccount.wallet_address, role: subaccount.role });
       }
@@ -1869,6 +1927,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       }
 
       // Automatically disburse initial operational gas
+      await syncReceiptRole(subaccount.wallet_address,roleId,subaccount.subaccount_name);
       let fundResult = null;
       try {
         fundResult = await fundSubaccount({
@@ -1949,6 +2008,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
 
       // On-chain role revocation
+      await syncReceiptRole(subaccount.wallet_address,0,'');
       const roleContract = await getOwnerRoleContract();
       if (!roleContract) return res.status(503).json({ error: 'CONTRACT_OWNER_PRIVATE_KEY is not configured for on-chain role revocation.' });
       if (Number(await roleContract.roles(subaccount.wallet_address)) !== 0) {
@@ -2214,6 +2274,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   app.post('/addproduct', authenticate, authorize('manufacturer'), writeRateLimit, async (req, res, next) => {
     try {
+      authority.forNew(req.user.username,0);
       const { serialNumber, name, brand, description = '', image = '', actor = '', location = '', timestamp = '' } = req.body || {};
       if (!validProductIdentifier(serialNumber) || !validText(name, 50) || !validText(brand, 50) ||
         !['description', 'image', 'actor', 'location', 'timestamp'].every((field) => typeof req.body?.[field] === 'undefined' || typeof req.body[field] === 'string')) {
@@ -2514,7 +2575,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   mountEnterprise(app, { pool, authenticate, writeRateLimit, provider: chainProvider,
     contractAddress: expectedContractAddress, chainId: configuredChainId, rpcUrl,
-    readProduct: fetchOnChainProduct, logger });
+    readProduct: fetchOnChainProduct, authority, logger });
+  mountReports(app,{pool,authenticate,scanRateLimit,writeRateLimit});
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {

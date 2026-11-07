@@ -2,7 +2,7 @@
 
 Prepared 7 November 2026, following the [authentication architecture review](SMARTSCAN_AUTHENTICATION_REVIEW.md).
 
-**Status: implementation started, 7 November 2026.** Consumer lifecycle/identifier/fallback corrections are implemented locally. The initial shared evidence assessment backend, including scan deduplication and migration 014, is now deployed to the existing Render service as commit `c40a93b`; [live validation passed](BACKEND_DEPLOYMENT_2026-11-07.md). Manufacturer imports, unit/carton aggregation, advanced scoring and live enterprise services remain future milestones. The current V2 contract remains authoritative for existing V2 products on Sepolia. See [native delivery instructions](NATIVE_MOBILE_DEPLOYMENT.md) and [implementation validation](SMARTSCAN_IMPLEMENTATION_VALIDATION.md).
+**Status updated 7 November 2026: selected correction packages deployed as a controlled Sepolia pilot.** The user subsequently authorized packages 1, 2, 5 and 6, with manufacturer serialization and exact pack relationships deferred. New allowlisted products use off-chain dispatch and receiver-bound on-chain receipt. Consumer seller/location checks, a transparent evidence score, server reports and resumable Enterprise sessions are implemented. Existing V2 products remain under their original contract. See the [release record](SMARTSCAN_WORKFLOW_RELEASE_2026-11-07.md) for actual deployment, validation and remaining boundaries. The [workflow correction plan](SMARTSCAN_WORKFLOW_CORRECTION_PLAN.md) retains the original gap audit and acceptance gates; not every roadmap requirement is complete.
 
 ## 1. Intended outcome and implementation order
 

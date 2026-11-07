@@ -65,13 +65,13 @@ export default function ProductDetail() {
   ).find((a) => !capability(p, a, f, w));
   const labels: Record<Action, string> = {
     register: "Continue registration",
-    receive: "Receive this item",
+    receive: p.protocol === 'receipt-v3' ? 'Request receipt approval' : 'Receive this item',
     dispatch: "Dispatch this item",
     sell: "Sell this item",
     recall: "Recall product",
   };
   const pending = data.operations.find((o) =>
-    o.items.some((i) => i.productId === p.id && i.status === "submitted"),
+    o.items.some((i) => i.productId === p.id && ['submitted','waiting_approval'].includes(i.status)),
   );
   async function submit(action: "register" | "recall" | "receive") {
     if (!p || !w || submitting.current || offline) return;
@@ -123,10 +123,12 @@ export default function ProductDetail() {
           </button>
         }
       />
+      <div className="product-layout">
       <article className="passport">
         <ProductArt product={p} large />
         <div className="passport-body">
           <ProductBadge product={p} />
+          {isLive && <p className="support">{p.protocol==='receipt-v3' ? 'Receipt protocol · dispatch recorded off-chain' : 'Legacy V2 · dispatch and receipt on-chain'}</p>}
           <h2>{p.name}</h2>
           <p>{p.brand}</p>
           <span className="serial">{p.id}</span>
@@ -188,10 +190,12 @@ export default function ProductDetail() {
             </p>
           )}
           <ErrorNote>{error}</ErrorNote>
-          {action === "receive" && <p className="support">Receive this item only once it has physically arrived. This records receipt immediately.</p>}
+          {action === "receive" && <p className="support">{p.protocol==='receipt-v3' ? 'Only request receipt after physical arrival. Custody changes after sender approval and blockchain confirmation.' : 'Receive this item only once it has physically arrived. This records receipt immediately.'}</p>}
+          {p.protocol==='receipt-v3' && p.custodianId===f.id && <button className="secondary full" onClick={()=>navigate('/handovers')}>Review handover requests</button>}
           {(action === "register" || action === "receive") && <LocationPolicy address={f.location} />}
         </div>
       </article>
+      <section className="product-journey" aria-label="Product journey">
       <SectionTitle title="The journey so far" />
       <div className="surface journey">
         <ol>
@@ -233,6 +237,8 @@ export default function ProductDetail() {
           Recall this product
         </button>
       )}
+      </section>
+      </div>
       <p className="simulation-note">
         {isLive ? 'Recorded identity and custody on Sepolia. A matching code alone does not prove physical authenticity.' : 'Demo passport · sample identity and custody records.'}
       </p>

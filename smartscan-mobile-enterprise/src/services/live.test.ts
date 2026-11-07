@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { signIn, signOut, currentSession, api } from './session';
+import { signIn, signOut, currentSession, api, restoreSession } from './session';
 import { liveService, emptyLiveState } from './live';
 
 const storage = new Map<string, string>();
@@ -9,12 +9,12 @@ const state = { ...emptyLiveState, products: [product] };
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 beforeEach(() => {
   vi.stubGlobal('window', new EventTarget());
-  vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) || null, setItem: (key: string, value: string) => storage.set(key, value) });
-  storage.clear(); signOut();
+  vi.stubGlobal('localStorage', { getItem: (key: string) => storage.get(key) || null, setItem: (key: string, value: string) => storage.set(key, value), removeItem:(key:string)=>storage.delete(key) });
+  storage.clear(); signOut(false);
 });
 afterEach(() => vi.unstubAllGlobals());
 it('keeps credentials off disk and signs out on expired authorization', async () => {
-  const fetcher = vi.fn().mockResolvedValueOnce(response({ token: 'test-token', user })).mockResolvedValueOnce(response({ error: 'Invalid or expired token' }, 401));
+  const fetcher = vi.fn().mockResolvedValueOnce(response({ token: 'test-token', user })).mockResolvedValueOnce(response({ error: 'Invalid or expired token' }, 401)).mockResolvedValueOnce(response({ error:'Please sign in again.' },401));
   vi.stubGlobal('fetch', fetcher);
   await signIn('maker', 'test-password');
   expect(storage.size).toBe(0);
@@ -47,4 +47,25 @@ it('rejects a response from an account that has signed out', async () => {
   const pending = api('/api/enterprise/snapshot');
   signOut(); finish(response(state));
   await expect(pending).rejects.toThrow('session changed');
+});
+it('renews one session for concurrent expired requests and keeps bearer tokens in memory', async()=>{
+  let refreshes=0;
+  vi.stubGlobal('fetch',vi.fn(async(url:string,options:RequestInit)=>{
+    if(url.endsWith('/auth'))return response({token:'old',user});
+    if(url.endsWith('/auth/refresh')){refreshes++;return response({token:'new',user});}
+    const token=(options.headers as Record<string,string>).Authorization;
+    return token==='Bearer old' ? response({error:'expired'},401) : response({ok:true});
+  }));
+  await signIn('maker','not-stored');
+  const results=await Promise.all([api('/one'),api('/two')]);
+  expect(results).toEqual([{ok:true},{ok:true}]);expect(refreshes).toBe(1);expect(storage.size).toBe(0);
+});
+it('retains the session on a connection error while resuming',async()=>{
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(response({token:'old',user})).mockRejectedValueOnce(new TypeError('offline')));
+  await signIn('maker','not-stored');await expect(restoreSession()).rejects.toThrow('offline');expect(currentSession()?.user).toEqual(user);
+});
+it('does not resurrect a session if refresh finishes after signout',async()=>{
+  let finish!:(r:Response)=>void;
+  vi.stubGlobal('fetch',vi.fn().mockImplementationOnce(()=>new Promise<Response>(resolve=>{finish=resolve;})));
+  const pending=restoreSession();await new Promise(resolve=>setTimeout(resolve,0));signOut(false);finish(response({token:'new',user}));expect(await pending).toBe(false);expect(currentSession()).toBeNull();
 });

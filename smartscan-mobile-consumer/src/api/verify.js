@@ -9,7 +9,7 @@ export function parseQrPayload(rawInput) {
   if (typeof rawInput !== 'string' || !rawInput.trim()) throw new Error('Please scan a valid SmartScan QR code or enter a serial number.');
   const trimmed = rawInput.trim();
   let serialNumber = trimmed;
-  let contractAddress = CONTRACT_ADDRESS;
+  let contractAddress = null;
   if (/^https?:\/\//i.test(trimmed)) {
     const url = new URL(trimmed);
     const pathMatch = url.pathname.match(/\/verify\/([^/]+)\/?$/);
@@ -19,7 +19,7 @@ export function parseQrPayload(rawInput) {
     if (parts.length !== 2) throw new Error('The scanned code is not a recognized SmartScan product passport.');
     [contractAddress, serialNumber] = parts.map(part => part.trim());
   }
-  if (!ethers.isAddress(contractAddress) || contractAddress.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) throw new Error('The scanned code points to an unrecognized contract.');
+  if (contractAddress && !ethers.isAddress(contractAddress)) throw new Error('The scanned code points to an unrecognized contract.');
   if (!SS_UUID_REGEX.test(serialNumber || '')) throw new Error('The scanned code is not a recognized SmartScan product passport.');
   // Contract string keys are case-sensitive; retain the identifier as issued.
   return { serialNumber, contractAddress };
@@ -76,21 +76,26 @@ export function mergeVerificationResults(serialNumber, registry, chain) {
 }
 
 export function createProductVerifier({ api = axios, readChain = verifyProductOnChain } = {}) {
-  return async function fetchProduct(serialNumber, { eventId = crypto.randomUUID() } = {}) {
+  return async function fetchProduct(serialNumber, { eventId = crypto.randomUUID(), contractAddress, purchase } = {}) {
     try {
       const response = await api.post(`${API_BASE_URL}/v1/assessments`, {
-        serialNumber, contractAddress: CONTRACT_ADDRESS, eventId, purpose: 'consumer',
+        serialNumber, ...(contractAddress ? {contractAddress} : {}), eventId, purpose: 'consumer', ...(purchase ? {purchase} : {}),
       }, { timeout: 12000 });
       const { product, assessment, flags } = response.data || {};
-      if (![200, 201].includes(response.status) || !assessment?.summary || assessment.policyVersion !== 'v2-evidence-1'
+      if (![200, 201].includes(response.status) || !assessment?.summary || !['v2-evidence-1','evidence-2'].includes(assessment.policyVersion)
         || !Array.isArray(assessment.findings) || !Array.isArray(flags) || product?.serialNumber !== serialNumber
-        || product?.contractAddress?.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase() || String(product?.chainId) !== String(CHAIN_ID)) throw new Error('Assessment unavailable');
+        || !ethers.isAddress(product?.contractAddress || '') || product.contractAddress.toLowerCase() !== assessment.source?.contractAddress?.toLowerCase()
+        || (contractAddress && product.contractAddress.toLowerCase() !== contractAddress.toLowerCase())
+        || !['v2','receipt-v3'].includes(product.protocol || 'v2') || String(product?.chainId) !== String(CHAIN_ID)) throw new Error('Assessment unavailable');
       return { ...product, assessment, scanWarnings: flags };
     } catch {
+      if (purchase || (contractAddress && contractAddress.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase())) throw new Error('Current verification checks are unavailable. Reconnect and try again.');
       const [registry, chain] = await Promise.allSettled([
         api.get(`${API_BASE_URL}/product/verify/${encodeURIComponent(serialNumber)}`, { timeout: 4500 }),
         readChain(serialNumber),
       ]);
+      if (registry.status === 'fulfilled' && registry.value.data?.protocol === 'receipt-v3') throw new Error('Current verification checks are unavailable. Reconnect and try again.');
+      if (!contractAddress && registry.status !== 'fulfilled' && chain.status === 'fulfilled' && !chain.value.exists) throw new Error('The product authority could not be resolved. Reconnect and try again.');
       return mergeVerificationResults(serialNumber, registry, chain);
     }
   };

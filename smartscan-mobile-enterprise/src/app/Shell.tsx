@@ -59,8 +59,8 @@ export default function Shell() {
         <BrandMark />
         <h1>Let’s restore your workspace.</h1>
         <ErrorNote>{error.message}</ErrorNote>
-        <button className="primary" onClick={() => navigate("/welcome")}>
-          Return to sign in
+        <button className="primary" onClick={() => void refresh()}>
+          Reconnect
         </button>
       </main>
     );

@@ -48,9 +48,22 @@ const setupServer = createHttpServer((request, response) => {
   response.end(certificateDownload);
 });
 
+// Phone previews use a same-origin proxy; the live backend only allows the
+// deployed web/native origins. Keep this override local to this dev process.
+process.env.VITE_API_BASE_URL ||= '/__smartscan_api';
 const app = await createServer({
   root: resolve(root),
-  server: { host: '0.0.0.0', port: 5177, strictPort: true, https: { key: certificate.key, cert: certificate.cert } },
+  server: {
+    host: '0.0.0.0', port: 5177, strictPort: true, https: { key: certificate.key, cert: certificate.cert },
+    proxy: {
+      '/__smartscan_api': {
+        target: 'https://smartscan-backend-52s4.onrender.com',
+        changeOrigin: true,
+        headers: { Origin: 'https://localhost' },
+        rewrite: path => path.replace(/^\/__smartscan_api/, ''),
+      },
+    },
+  },
 });
 
 try {
