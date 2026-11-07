@@ -31,8 +31,9 @@ async function recordObservation(pool, { eventId, serialNumber, contractAddress,
     const flags = [...initialFlags];
     const prior = hasLocation ? await client.query('SELECT latitude, longitude FROM product_scans WHERE serial_number = $1 AND contract_address IS NOT DISTINCT FROM $2 AND outcome = \'valid\' AND scanned_at > now() - interval \'1 hour\' AND latitude IS NOT NULL ORDER BY scanned_at DESC LIMIT 50', [serialNumber, contractAddress]) : { rows: [] };
     if (outcome === 'valid' && prior.rows.some(row => distanceKm(lat, lon, Number(row.latitude), Number(row.longitude)) > 100)) flags.push('suspicious_location');
-    const frequency = await client.query('SELECT count(*)::int AS count FROM product_scans WHERE serial_number = $1 AND contract_address IS NOT DISTINCT FROM $2 AND outcome = \'valid\' AND scanned_at > now() - interval \'10 minutes\'', [serialNumber, contractAddress]);
-    if (outcome === 'valid' && Number(frequency.rows[0]?.count || 0) + 1 >= 10) flags.push('unusual_frequency');
+    const frequency = await client.query(`SELECT count(*)::int AS count,count(DISTINCT visitor_hash)::int AS observers,bool_or(visitor_hash=$3) AS seen FROM product_scans WHERE serial_number=$1 AND contract_address IS NOT DISTINCT FROM $2 AND outcome='valid' AND scan_purpose<>'logistics' AND scanned_at>now()-interval '10 minutes'`,[serialNumber,contractAddress,visitorHash]);
+    const observers=Number(frequency.rows[0]?.observers || 0)+(frequency.rows[0]?.seen ? 0 : 1);
+    if (purpose!=='logistics' && outcome==='valid' && Number(frequency.rows[0]?.count || 0)+1>=10 && observers>=3) flags.push('unusual_frequency');
     await client.query('INSERT INTO product_scans (serial_number, contract_address, visitor_hash, outcome, latitude, longitude, location_source, flags, event_id, request_digest, scan_purpose) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',
       [serialNumber, contractAddress, visitorHash, outcome, lat, lon, hasLocation ? 'browser_reported' : 'not_provided', flags, eventId || null, digest, purpose]);
     await client.query('COMMIT');

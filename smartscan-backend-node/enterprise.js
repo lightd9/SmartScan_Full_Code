@@ -3,6 +3,7 @@ const { ethers } = require('ethers');
 const { chainProduct } = require('./assessment');
 const { getSubaccountSigner } = require('./crypto-vault');
 const { getContractOwnerWallet, fundSubaccount } = require('./gas-treasury');
+const { RECEIPT_ABI, TRANSFER_TYPES, domain, eligible } = require('./receipt-policy');
 
 const ACTIONS = ['register', 'dispatch', 'receive', 'sell', 'recall'];
 const ROLES = ['', 'admin', 'manufacturer', 'supplier', 'retailer'];
@@ -51,13 +52,13 @@ function operationDto(row, items) {
     action: row.action, recipientId: row.recipient_id, reason: row.reason, location: row.location,
     createdAt: row.created_at, items: items.map(i => ({ productId: i.serial_number,
       expectedVersion: i.expected_version, status: i.status === 'queued' ? 'submitted' : i.status,
-      phase: i.status, message: i.message, txHash: i.transaction_hash, blockNumber: i.block_number,
+      phase: i.status, proofKind: i.proof_kind || 'blockchain', message: i.message, txHash: i.transaction_hash, blockNumber: i.block_number,
       finishAt: 0 })) };
 }
 // Keep SQL projections explicit: neither encrypted keys nor signed payloads belong in snapshots.
-const PUBLIC_ITEM_COLUMNS = 'operation_id, serial_number, expected_version, position, status, message, transaction_hash, block_number';
+const PUBLIC_ITEM_COLUMNS = 'operation_id, serial_number, expected_version, position, status, message, transaction_hash, block_number, proof_kind';
 
-function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, readProduct, logger = console,
+function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, readProduct, authority, logger = console,
   signerFactory = getSubaccountSigner, ownerFactory = getContractOwnerWallet, fund = fundSubaccount }) {
   const chainCache = new Map();
   let running = false;
@@ -65,10 +66,11 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
     if (!provider || !contractAddress) fail('Blockchain connection is unavailable.', 503);
     if (String((await provider.getNetwork()).chainId) !== String(chainId)) fail('Blockchain network mismatch.', 503);
   }
-  async function productChain(serial, fresh = false) {
+  async function productChain(serial, fresh = false, db = pool) {
     const previous = chainCache.get(serial);
     if (!fresh && previous && Date.now() - previous.at < 10000) return previous.value;
-    const value = chainProduct(await readProduct(serial), serial, contractAddress, chainId);
+    const source = authority ? await authority.resolve(serial,db) : { protocol: 'v2', contractAddress, chainId };
+    const value = { ...chainProduct(await readProduct(serial,db), serial, source.contractAddress, source.chainId), protocol: source.protocol };
     if (chainCache.size > 1000) chainCache.clear();
     chainCache.set(serial, { value, at: Date.now() });
     return value;
@@ -136,10 +138,34 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`, [id, user.username, requestKey, fingerprint, String(facilityId), action, recipientId, reason, location, Number(user.tokenVersion || 0)]);
       for (let position = 0; position < items.length; position++) {
         const item = items[position];
+        await db.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`handover:${item.productId}`]);
         const product = await db.query('SELECT manufacturer_username FROM product WHERE serialnumber = $1', [item.productId]);
         if (!product.rows.length) fail('A selected product is not registered in SmartScan.', 404);
         if (action === 'register' && product.rows[0].manufacturer_username !== user.username) fail('Only the owning manufacturer can register this item.', 403);
-        await db.query(`INSERT INTO enterprise_operation_items(operation_id,serial_number,expected_version,position) VALUES($1,$2,$3,$4)`, [id, item.productId, item.expectedVersion, position]);
+        let phase = 'queued', proof = 'blockchain', message = null;
+        const source = authority ? await authority.resolve(item.productId, db) : { protocol: 'v2' };
+        if(source.protocol==='receipt-v3' && process.env.RECEIPT_WRITES_ENABLED==='false' && action!=='recall') fail('Receipt-protocol operations are temporarily paused. Existing records remain available.',503);
+        if (source.protocol === 'receipt-v3' && ['dispatch','receive'].includes(action)) {
+          const chain = await productChain(item.productId, true, db);
+          if (!chain.exists || chain.history.length !== item.expectedVersion || ![1,3].includes(chain.stage)) fail('Product custody changed or this item is closed. Refresh first.', 409);
+          if (action === 'dispatch') {
+            if (chain.custodian.toLowerCase() !== f.wallet_address.toLowerCase()) fail('Only the confirmed custodian can dispatch this item.', 403);
+            if (recipientId) fail('Dispatch is open. The sender approves the actual receiver through the handover inbox.');
+            const active = await db.query("SELECT 1 FROM handover_requests WHERE serial_number=$1 AND expected_version=$2 AND status IN ('approved','submitted')", [item.productId,item.expectedVersion]);
+            if (active.rowCount) fail('An approved handover is in progress.', 409);
+            const prior = await db.query(`SELECT 1 FROM enterprise_operation_items i JOIN enterprise_operations o ON o.id=i.operation_id WHERE i.serial_number=$1 AND i.expected_version=$2 AND o.action='dispatch' AND i.status='confirmed' AND i.proof_kind='offchain'`, [item.productId,item.expectedVersion]);
+            if (prior.rowCount) fail('Dispatch is already recorded for this custody version.', 409);
+            phase = 'confirmed'; proof = 'offchain'; message = 'Dispatch recorded. Custody remains with the sender until an approved receipt confirms.';
+          } else {
+            const sender = (await db.query("SELECT id,role FROM facility_subaccounts WHERE lower(wallet_address)=lower($1) AND status='active'", [chain.custodian])).rows[0];
+            if (!sender || String(sender.id) === String(f.id) || !eligible(sender.role, f.role)) fail('This facility cannot receive this product.',403);
+            const dispatched = await db.query(`SELECT 1 FROM enterprise_operations o JOIN enterprise_operation_items i ON i.operation_id=o.id WHERE i.serial_number=$1 AND i.expected_version=$2 AND o.action='dispatch' AND i.status='confirmed' AND i.proof_kind='offchain'`, [item.productId,item.expectedVersion]);
+            await db.query(`INSERT INTO handover_requests(id,serial_number,expected_version,sender_id,receiver_id,request_key,requested_by,operation_id,dispatch_recorded)
+              VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [randomUUID(),item.productId,item.expectedVersion,sender.id,f.id,requestKey,user.username,id,Boolean(dispatched.rowCount)]);
+            phase = 'waiting_approval'; message = 'Waiting for sender approval. Custody has not changed.';
+          }
+        }
+        await db.query(`INSERT INTO enterprise_operation_items(operation_id,serial_number,expected_version,position,status,proof_kind,message) VALUES($1,$2,$3,$4,$5,$6,$7)`, [id, item.productId, item.expectedVersion, position,phase,proof,message]);
       }
       const insertedItems = await db.query(`SELECT ${PUBLIC_ITEM_COLUMNS} FROM enterprise_operation_items WHERE operation_id=$1 ORDER BY position`, [id]);
       await db.query('COMMIT');
@@ -154,8 +180,9 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
   async function finish(db, item, status, message, receipt) {
     await db.query('BEGIN');
     try {
-      await db.query(`UPDATE enterprise_operation_items SET status=$3,message=$4,block_number=$5,updated_at=now()
-        WHERE operation_id=$1 AND serial_number=$2`, [item.operation_id, item.serial_number, status, message, receipt?.blockNumber || null]);
+      await db.query(`UPDATE enterprise_operation_items SET status=$3,message=$4,block_number=$5,block_hash=$6,updated_at=now()
+        WHERE operation_id=$1 AND serial_number=$2`, [item.operation_id, item.serial_number, status, message, receipt?.blockNumber || null, receipt?.blockHash || null]);
+      if (item.action === 'receive' && authority) await db.query("UPDATE handover_requests SET status=$3 WHERE operation_id=$1 AND serial_number=$2 AND status IN ('approved','submitted')", [item.operation_id,item.serial_number,status === 'confirmed' ? 'received' : 'expired']);
       if (item.action === 'register') {
         await db.query(`UPDATE product SET chain_status=$2,chain_tx_hash=COALESCE($3,chain_tx_hash),failure_reason=$4,
           chain_id=$5,chain_updated_at=now() WHERE serialnumber=$1 AND (chain_status <> 'confirmed' OR $2='confirmed')`,
@@ -178,7 +205,7 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
         const user = auth.rows[0];
         if (!user || Number(user.token_version) !== Number(item.token_version)) fail('Session was revoked before signing. Sign in and review the action again.');
         const f = await facility(user, item.facility_id, db);
-        const chain = await productChain(item.serial_number, true);
+        const chain = await productChain(item.serial_number, true, db);
         if ((chain.history?.length || 0) !== item.expected_version) fail('Product custody changed. Refresh and review its current state.');
         if (item.action === 'register' && chain.exists) fail('This product has already been registered.');
         const signer = f.role === 'admin' ? ownerFactory(rpcUrl, chainId)?.connect(provider) : signerFactory({
@@ -186,10 +213,12 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
           keyVersion: f.key_version, walletAddress: f.wallet_address,
         }, provider);
         if (!signer) fail('The integrated wallet is not configured. Contact the administrator.');
-        const contract = new ethers.Contract(contractAddress, ABI, signer);
+        const targetAddress = chain.contractAddress;
+        const contract = new ethers.Contract(targetAddress, [...ABI,...RECEIPT_ABI], signer);
         if (Number(await contract.roles(signer.address)) !== ROLES.indexOf(f.role)) fail('Wallet approval on the blockchain is missing. Contact the administrator.');
         const timestamp = Math.floor(Date.now() / 1000).toString();
-        const location = chainLocation(item.location);
+        // V3 publishes a commitment, keeping precise device coordinates in the protected journal.
+        const location = chain.protocol === 'receipt-v3' ? `SmartScan event ${item.operation_id}` : chainLocation(item.location);
         let transaction;
         if (item.action === 'register') {
           const result = await db.query('SELECT * FROM product WHERE serialnumber=$1 AND manufacturer_username=$2', [item.serial_number, item.username]);
@@ -198,7 +227,25 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
           if (p.chain_sender?.toLowerCase() !== signer.address.toLowerCase()) fail('This product belongs to another manufacturing facility.');
           transaction = await contract.registerProduct.populateTransaction(p.name, p.brand, p.serialnumber,
             p.chain_description || '', p.chain_image || '', f.subaccount_name, location, timestamp);
+        } else if (item.action === 'receive' && chain.protocol === 'receipt-v3') {
+          const approval = (await db.query("SELECT * FROM handover_requests WHERE operation_id=$1 AND serial_number=$2 AND status IN ('approved','submitted')", [item.operation_id,item.serial_number])).rows[0];
+          if (!approval || new Date(approval.expires_at).getTime() <= Date.now()) fail('Sender approval is missing or expired. Request approval again.');
+          const senderUser = (await db.query('SELECT username,role,token_version FROM auth WHERE username=$1', [approval.approved_by])).rows[0];
+          if (!senderUser || Number(senderUser.token_version) !== Number(approval.approval_token_version)) fail('Sender authorization was revoked. Request approval again.');
+          const sender = await facility(senderUser, String(approval.sender_id), db);
+          if (chain.custodian.toLowerCase() !== sender.wallet_address.toLowerCase() || String(approval.receiver_id) !== String(f.id)) fail('Sender or receiver no longer matches approval.');
+          let permit = approval.permit, signature = approval.signature;
+          if (!permit) {
+            const senderSigner = signerFactory({ encryptedPrivateKey: sender.encrypted_private_key, keyIv: sender.key_iv, keyAuthTag: sender.key_auth_tag, keyVersion: sender.key_version, walletAddress: sender.wallet_address }, provider);
+            permit = { serialHash: ethers.id(item.serial_number), sender: sender.wallet_address, receiver: signer.address,
+              version: item.expected_version, nonce: ethers.hexlify(ethers.randomBytes(32)), deadline: Math.floor(Date.now()/1000) + 840,
+              senderEpoch: String(await contract.credentialEpoch(sender.wallet_address)), receiverEpoch: String(await contract.credentialEpoch(signer.address)), authorizationEpoch: String(await contract.authorizationEpoch(item.serial_number)) };
+            signature = await senderSigner.signTypedData(domain(chainId,targetAddress), TRANSFER_TYPES, permit);
+            await db.query("UPDATE handover_requests SET permit=$3,signature=$4,status='submitted' WHERE operation_id=$1 AND serial_number=$2 AND permit IS NULL", [item.operation_id,item.serial_number,permit,signature]);
+          }
+          transaction = await contract.confirmReceipt.populateTransaction(item.serial_number,permit,signature,location);
         } else if (item.action === 'dispatch') {
+          if (chain.protocol === 'receipt-v3') fail('Receipt-protocol dispatch must be recorded off-chain.');
           const r = item.recipient_id ? (await db.query("SELECT wallet_address FROM facility_subaccounts WHERE id=$1 AND status='active'", [item.recipient_id])).rows[0] : null;
           if (item.recipient_id && !r) fail('The recipient is no longer active.');
           transaction = await contract.dispatchProduct.populateTransaction(item.serial_number, r?.wallet_address || ethers.ZeroAddress, f.subaccount_name, location, timestamp);
@@ -242,6 +289,10 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
     try {
       const receipt = await provider.getTransactionReceipt(item.transaction_hash);
       if (receipt && await receipt.confirmations() >= 2) {
+        if (receipt.blockHash && provider.getBlock) {
+          const canonical = await provider.getBlock(receipt.blockNumber);
+          if (!canonical || canonical.hash !== receipt.blockHash) return;
+        }
         await finish(db, item, receipt.status === 1 ? 'confirmed' : 'failed', receipt.status === 1 ? null : 'The blockchain rejected this action. Refresh before retrying.', receipt);
       } else if (!receipt) {
         // Rebroadcast identical bytes: same nonce, same hash, same transaction.
@@ -269,7 +320,12 @@ function createEnterprise({ pool, provider, contractAddress, chainId, rpcUrl, re
           const pending = await db.query(`SELECT i.*,o.username,o.facility_id,o.action,o.recipient_id,o.reason,o.location,o.token_version
             FROM enterprise_operation_items i JOIN enterprise_operations o ON o.id=i.operation_id
             WHERE (o.facility_id=$1 OR ($2=true AND o.facility_id LIKE 'admin:%')) AND i.status IN ('queued','submitted') ORDER BY o.created_at,i.position LIMIT 1`, [row.facility_id, row.facility_id.startsWith('admin:')]);
-          if (pending.rows[0]) await processItem(db, pending.rows[0]);
+          if (pending.rows[0]) {
+            const subjectLock = `handover:${pending.rows[0].serial_number}`;
+            await db.query('SELECT pg_advisory_lock(hashtextextended($1,0))',[subjectLock]);
+            try { await processItem(db, pending.rows[0]); }
+            finally { await db.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',[subjectLock]); }
+          }
         } finally {
           if (locked) await db.query('SELECT pg_advisory_unlock(hashtextextended($1,0))', [lockKey]);
           db.release();

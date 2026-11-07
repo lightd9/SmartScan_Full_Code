@@ -72,12 +72,13 @@ test('durable Enterprise operations on PostgreSQL', { skip: !connectionString },
     await pool.query(`CREATE TABLE auth(username text PRIMARY KEY,role text,token_version integer DEFAULT 0);
       CREATE TABLE product(serialnumber text PRIMARY KEY,name text,brand text,manufacturer_username text,chain_sender text,
         chain_status text DEFAULT 'pending_wallet',chain_tx_hash text,chain_id text,chain_updated_at timestamptz,failure_reason text,
-        chain_attempt integer DEFAULT 1,chain_description text,chain_image text);
+        chain_attempt integer DEFAULT 1,chain_description text,chain_image text,chain_contract_address text,chain_expected_id text);
       CREATE TABLE product_chain_attempts(serial_number text,attempt_number integer,status text,transaction_hash text,failure_reason text,finalized_at timestamptz);
       CREATE TABLE facility_subaccounts(id integer PRIMARY KEY,parent_username text,role text,status text,subaccount_name text,wallet_address text,
         encrypted_private_key text,key_iv text,key_auth_tag text,key_version integer);
       INSERT INTO auth(username,role) VALUES('maker','manufacturer'),('other','manufacturer'),('supp','supplier'),('shop','retailer'),('admin','admin');`);
     await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/015_enterprise_operations.sql'), 'utf8'));
+    await pool.query(fs.readFileSync(path.join(__dirname, '../migrations/017_receipt_protocol.sql'), 'utf8'));
     await pool.query(`INSERT INTO facility_subaccounts(id,parent_username,role,status,subaccount_name,wallet_address)
       VALUES(1,'maker','manufacturer','active','Example',$1),(2,'other','manufacturer','active','Other',$2),
         (3,'supp','supplier','active','Supplier',$2),(4,'shop','retailer','active','Retailer',$2)`, [wallet.address, other.address]);

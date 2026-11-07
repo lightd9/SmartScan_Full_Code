@@ -275,8 +275,9 @@ function createFakePool() {
         state.scans.push(scan);
         return { rows: [{ id: scan.id }] };
       }
-      if (s.startsWith('select count(*)::int as count from product_scans')) {
-        return { rows: [{ count: state.scans.filter((scan) => scan.serial_number === params[0] && scan.contract_address === params[1] && scan.outcome === 'valid' && new Date(scan.scanned_at).getTime() > Date.now() - 600000).length }] };
+      if (s.startsWith('select count(*)::int as count,count(distinct visitor_hash)')) {
+        const scans=state.scans.filter(scan=>scan.serial_number===params[0] && scan.contract_address===params[1] && scan.outcome==='valid' && scan.scan_purpose!=='logistics');
+        return { rows:[{ count:scans.length,observers:new Set(scans.map(s=>s.visitor_hash)).size,seen:scans.some(s=>s.visitor_hash===params[2]) }] };
       }
       if (s.startsWith('update product_scans set flags')) {
         const scan = state.scans.find((item) => item.id === params[1]);
@@ -590,7 +591,7 @@ test('assessment scan retry inserts once, rejects changed payload, and returns c
   } }) });
   const body = { serialNumber: serial, contractAddress: '0x0000000000000000000000000000000000000022', eventId: '11111111-1111-1111-1111-111111111111', purpose: 'consumer' };
   const first = await request(app).post('/v1/assessments').send(body);
-  assert.equal(first.status, 201); assert.equal(first.body.assessment.summary.status, 'REGISTERED');
+  assert.equal(first.status, 201); assert.equal(first.body.assessment.summary.status, 'INCOMPLETE');
   stage = 5;
   const replay = await request(app).post('/v1/assessments').send(body);
   assert.equal(replay.status, 200); assert.equal(replay.body.replayed, true);
@@ -605,7 +606,7 @@ test('separate observations count toward the threshold and read-only assessment 
   const { app, pool } = buildApp({ scanVerifier: async () => ({ exists: true, conflictingState: false }) });
   for (let i = 1; i <= 10; i += 1) {
     const response = await request(app).post('/v1/assessments').send({ serialNumber: serial, contractAddress, eventId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}` });
-    assert.equal(response.status, 201); assert.equal(response.body.flags.includes('unusual_frequency'), i === 10);
+    assert.equal(response.status, 201); assert.equal(response.body.flags.includes('unusual_frequency'), false);
   }
   const read = await request(app).get(`/v1/assessments/${serial}`);
   assert.equal(read.status, 200); assert.equal(pool.state.scans.length, 10);

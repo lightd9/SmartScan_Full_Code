@@ -1,8 +1,9 @@
 const { ethers } = require('ethers');
 const { createEnterprise, SERIAL, ROLES, limited, fail } = require('./enterprise');
+const { mountHandovers } = require('./handover-routes');
 
 function mountEnterprise(app, options) {
-  const { pool, authenticate, writeRateLimit, provider, contractAddress, chainId } = options;
+  const { pool, authenticate, writeRateLimit, provider, contractAddress, chainId, authority } = options;
   const service = createEnterprise(options);
   const route = handler => async (req, res, next) => {
     try { await service.account(req.user); await handler(req, res); }
@@ -12,10 +13,14 @@ function mountEnterprise(app, options) {
     }
   };
   app.locals.enterprise = service;
+  mountHandovers(app, { pool,authenticate,writeRateLimit,service });
   app.get('/api/enterprise/operations', authenticate, route(async (req, res) => {
     res.json(await service.operations(req.user));
   }));
   app.post('/api/enterprise/operations', authenticate, writeRateLimit, route(async (req, res) => {
+    if (authority && Number(req.headers['x-smartscan-protocol'] || 0) < 3) {
+      for (const item of req.body?.items || []) if ((await authority.resolve(item.productId)).protocol !== 'v2') fail('Update SmartScan to act on this product.',426);
+    }
     const operation = await service.submit(req.user, req.body);
     res.status(202).json(operation);
     void service.tick();
@@ -27,15 +32,16 @@ function mountEnterprise(app, options) {
         || !limited(description, 1000) || !limited(image, 200) || (image && !/^[\w.-]+$/.test(image))
         || !['bottle', 'carton'].includes(kind)) fail('Provide a valid serial, product name, brand and packaging type.');
     const f = await service.facility(req.user, facilityId);
+    const selected = authority ? authority.forNew(req.user.username,req.headers['x-smartscan-protocol']) : { protocol:'v2',contractAddress,chainId };
     if (!contractAddress) fail('Blockchain configuration is unavailable.', 503);
     const created = await pool.query(`WITH created_product AS (
       INSERT INTO product(serialnumber,name,brand,manufacturer_username,packaging_kind,chain_status,chain_attempt,
-        chain_sender,chain_contract_address,chain_expected_id,chain_description,chain_image)
-      VALUES($1,$2,$3,$4,$5,'pending_wallet',1,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING
+        chain_sender,chain_contract_address,chain_expected_id,chain_description,chain_image,chain_protocol)
+      VALUES($1,$2,$3,$4,$5,'pending_wallet',1,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING
       RETURNING serialnumber,chain_sender,chain_contract_address,chain_expected_id)
       INSERT INTO product_chain_attempts(serial_number,attempt_number,status,sender_address,contract_address,expected_chain_id)
       SELECT serialnumber,1,'pending_wallet',chain_sender,chain_contract_address,chain_expected_id FROM created_product RETURNING serial_number`,
-    [id, name.trim(), brand.trim(), req.user.username, kind, f.wallet_address, contractAddress, String(chainId), description, image]);
+    [id, name.trim(), brand.trim(), req.user.username, kind, f.wallet_address, selected.contractAddress, String(selected.chainId), description, image,selected.protocol]);
     if (!created.rowCount) {
       const existing = (await pool.query(`SELECT manufacturer_username,name,brand,packaging_kind,chain_sender,chain_description,chain_image FROM product WHERE serialnumber=$1`, [id])).rows[0];
       if (!existing || existing.manufacturer_username !== req.user.username || existing.chain_sender?.toLowerCase() !== f.wallet_address.toLowerCase()
@@ -109,9 +115,14 @@ function mountEnterprise(app, options) {
             : ['failed','needs_retry'].includes(row.chain_status) ? 'needs_retry' : row.chain_status === 'confirmed' ? 'submitted' : row.chain_status,
           stage: chain?.stage || 0, manufacturerId, custodianId: walletId(chain?.custodian) || manufacturerId,
           recipientId: walletId(chain?.pendingRecipient), senderRole: ROLES[lastDispatch?.actorRole],
-          version: history.length, history, chainAvailable: Boolean(chain), chainId: String(chainId), contractAddress };
+          version: history.length, history, chainAvailable: Boolean(chain), chainId: String(chainId), contractAddress:chain?.contractAddress || contractAddress, protocol:chain?.protocol || 'v2' };
       }));
       products.push(...slice);
+    }
+    const dispatches = await pool.query(`SELECT DISTINCT i.serial_number,i.expected_version FROM enterprise_operation_items i JOIN enterprise_operations o ON o.id=i.operation_id WHERE o.action='dispatch' AND i.status='confirmed' AND i.proof_kind='offchain'`);
+    for (const p of products) {
+      p.dispatchRecorded = p.protocol === 'receipt-v3' && dispatches.rows.some(d => d.serial_number === p.id && d.expected_version === p.version);
+      if (p.protocol === 'receipt-v3') p.senderRole = facilities.find(f => f.id === p.custodianId)?.role;
     }
     let alerts = [], audit = [];
     if (admin) {

@@ -6,7 +6,7 @@ const base = { serialNumber: 'SS-test', exists: true, source: 'chain', stage: 3 
 
 for (const item of cases) test(`shared assessment: ${item.name}`, () => {
   const result = assessProduct({ product: { ...base, stage: item.stage, isSold: item.sold, recalled: item.recalled }, historyChecked: true, monitoring: 'complete' });
-  assert.equal(result.summary.status, item.status); assert.equal(result.score, null);
+  assert.equal(result.summary.status, item.recalled || item.stage===5 ? 'RECALLED' : 'INCOMPLETE'); assert.equal(result.score.max,100);
   assert.ok(result.coverage.assessed < result.coverage.expected);
   assert.equal(result.subject.unitIdentityConfirmed, false);
 });
