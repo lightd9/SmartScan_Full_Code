@@ -15,7 +15,8 @@ This implements the authorized parts of packages 1, 2, 5 and 6 from the [workflo
 | V3 deployment transaction | `0xb8356d8b2a8bc17f86f5fedcd0af56d3637865835870bd5a0ab4c45ac68efa7e` |
 | New-protocol cohort | New products created by `aster.test` only |
 | Android | Both apps built as `1.1.0-testing`, version code 2, development signing |
-| iOS | Both simulator compilations passed on Codemagic at `193685e`; no signed TestFlight release without Apple Developer membership |
+| Mobile source | `92bcbdf` on `build/native-ios-checks`; both updated APKs installed on the local emulator |
+| iOS | Consumer simulator compilation passed at `92bcbdf`, Enterprise at `193685e` (unchanged since); no signed TestFlight release without Apple Developer membership |
 
 Nine existing active facility wallets were provisioned on the new contract after their V2 roles were checked. The global V2 contract setting was preserved. Existing products, labels, accounts, admin access and custody history were not migrated or reset. A fresh live backup was restored locally and additive migrations 016–018 were rehearsed while preserving all 15 pre-pilot products.
 
@@ -33,6 +34,8 @@ A missing dispatch remains a visible exception. Receipt can be requested, but se
 The permit includes chain/contract binding, replay protection and credential epochs. Wallet revocation/replacement and product authorization invalidation are checked. Cancellation before signing is supported. After signing, a database-only cancellation is refused: the contract authorization must expire or be invalidated. Signed payloads remain private.
 
 Operation journals retain transaction recovery data. Confirmation checks validate a canonical block before confirming the operation. A continuous post-confirmation deep-reorganization watcher is **not implemented**. No independent security audit has been completed; this remains a Sepolia pilot.
+
+`RECEIPT_WRITES_ENABLED=false` rejects new V3 operations and sender approvals, except recalls. It does not cancel already queued/signed transactions. Keep `RECEIPT_CONTRACT_ADDRESS` configured to preserve reads; control the new-product cohort with `RECEIPT_PILOT_ACCOUNTS`. Do not change the global V2 address to disable this pilot.
 
 ## Consumer assessment policy
 
@@ -79,7 +82,7 @@ Consumer reports can be explicitly submitted to the server and return a case ref
 - Android emulator: native login, minimize/resume, force-stop/relaunch and explicit logout/relaunch verified. Native Consumer displayed the live 90/100 passing result after retailer confirmation.
 - WebKit: Secure/HttpOnly cookie scope, reload, a new browser context, network-failure recovery and explicit logout verified. Both apps fit 320, 393, 768 and 960 CSS-pixel viewports; Consumer retailer confirmation and mismatch states passed.
 - Report browser regression with a mocked server: failed submission, offline draft, reopened draft and successful retry retained one request ID and one stored case.
-- Codemagic iOS simulator checks passed for Consumer (`6aefa8c19b55daafa6fb9c51`) and Enterprise (`6aefa8c17ef104892ebe6c5d`). These are unsigned simulator artifacts, not installable iPhone builds.
+- Codemagic iOS simulator checks passed for the final Consumer report fix (`6aefaa4d7ef104892ebe6dae`) and Enterprise (`6aefa8c17ef104892ebe6c5d`). These are unsigned simulator artifacts, not installable iPhone builds.
 
 ## Tester handoff
 
