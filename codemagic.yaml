@@ -3,7 +3,7 @@
 definitions:
   ios_environment: &ios_environment
     node: "24"
-    xcode: latest
+    xcode: "26.6"
     cocoapods: default
   consumer_vars: &consumer_vars
     BUNDLE_ID: com.smartscan.consumer
@@ -45,9 +45,9 @@ workflows:
     scripts:
       - *simulator_script
     artifacts:
-      - smartscan-mobile-consumer/build/ios/*-simulator.zip
-      - smartscan-mobile-consumer/build/ios/*.log
-      - smartscan-mobile-consumer/ios/App/Podfile.lock
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/build/ios/*-simulator.zip
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/build/ios/*.log
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/ios/App/Podfile.lock
 
   ios-enterprise-simulator:
     name: Enterprise demo - iOS simulator check (no Apple membership)
@@ -60,9 +60,9 @@ workflows:
     scripts:
       - *simulator_script
     artifacts:
-      - smartscan-mobile-enterprise/build/ios/*-simulator.zip
-      - smartscan-mobile-enterprise/build/ios/*.log
-      - smartscan-mobile-enterprise/ios/App/Podfile.lock
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/build/ios/*-simulator.zip
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/build/ios/*.log
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/ios/App/Podfile.lock
 
   ios-consumer-testflight:
     name: Consumer - signed TestFlight upload
@@ -82,10 +82,10 @@ workflows:
     scripts:
       - *testflight_script
     artifacts:
-      - smartscan-mobile-consumer/build/ios/ipa/*.ipa
-      - smartscan-mobile-consumer/build/ios/xcarchive/**/*.dSYM
-      - smartscan-mobile-consumer/build/ios/*.log
-      - smartscan-mobile-consumer/ios/App/Podfile.lock
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/build/ios/ipa/*.ipa
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/build/ios/xcarchive/**/*.dSYM
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/build/ios/*.log
+      - $CM_BUILD_DIR/smartscan-mobile-consumer/ios/App/Podfile.lock
       - /tmp/xcodebuild_logs/*.log
     publishing: *internal_testflight
 
@@ -107,9 +107,9 @@ workflows:
     scripts:
       - *testflight_script
     artifacts:
-      - smartscan-mobile-enterprise/build/ios/ipa/*.ipa
-      - smartscan-mobile-enterprise/build/ios/xcarchive/**/*.dSYM
-      - smartscan-mobile-enterprise/build/ios/*.log
-      - smartscan-mobile-enterprise/ios/App/Podfile.lock
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/build/ios/ipa/*.ipa
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/build/ios/xcarchive/**/*.dSYM
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/build/ios/*.log
+      - $CM_BUILD_DIR/smartscan-mobile-enterprise/ios/App/Podfile.lock
       - /tmp/xcodebuild_logs/*.log
     publishing: *internal_testflight
