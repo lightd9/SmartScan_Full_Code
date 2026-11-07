@@ -44,6 +44,13 @@ These are locally generated debug builds, not store releases. Later builds will 
 - The Apple Developer membership is not yet active. The mobile sources and cloud configuration are packaged on `build/native-ios-checks`. Codemagic is connected to GitHub, but this development session still needs separate Codemagic API access or a manually started build. No macOS compilation, signed IPA or TestFlight upload has been produced. See [cloud iOS setup](IOS_CLOUD_BUILDS.md).
 - Before deployment, hosted native API preflight returned HTTP 403 for iOS and timed out for Android. The backend release on 7 November resolved this: both origins now pass HTTP 204 preflight. See the deployment record below.
 
+### Mobile publication validation
+
+- Packaged both mobile projects and their shared build scripts on `build/native-ios-checks`. Unrelated web frontend edits remain outside this mobile commit.
+- In a separate clean Git checkout, both apps completed `npm ci`, their tests (consumer 13/13; enterprise 21/21), production builds and `npx cap copy ios` using the committed sources and public defaults. No private `.env` or files from the original `node_modules` directories were needed. Consumer retains its existing large-bundle warning.
+- Checked all four workflow definitions, app IDs, lockfiles, shared Xcode schemes, unsigned-workflow separation and shell syntax. The iOS build script and both Android Gradle launchers retain LF line endings and executable permissions in Git.
+- Verified generated iOS configurations use the expected app IDs and bundled assets without a remote `server.url`. These Windows checks do not compile the native Xcode projects; the Codemagic simulator runs remain pending API access.
+
 ## Release and remaining scope
 
 The backend and migration 014 were deployed to the existing Render service on 7 November 2026 as commit `c40a93b`. Live readiness, native/web preflights, existing-product assessment and retry deduplication passed. The temporary test observation was removed. See [the deployment record](BACKEND_DEPLOYMENT_2026-11-07.md) for the database backup/rehearsal, repaired runtime settings and unfunded Sepolia treasury. Vercel continues to host the web application; installed apps bundle their own assets.
