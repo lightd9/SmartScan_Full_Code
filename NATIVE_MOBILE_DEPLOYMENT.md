@@ -56,7 +56,7 @@ For Google Play, configure an organization-controlled upload signing key using A
 
 ## iOS
 
-Cloud build configuration is now in `codemagic.yaml`, with separate simulator checks and signed TestFlight workflows for each app. See [iPhone builds from Windows](IOS_CLOUD_BUILDS.md) for the account/signing setup and the first run. No cloud build or TestFlight upload has run yet; the Apple Developer membership still needs to be set up.
+Cloud build configuration is in `codemagic.yaml`, with separate simulator checks and signed TestFlight workflows for each app. Both simulator builds passed on Codemagic and their downloadable apps were verified on 7 November 2026; see [the build results](IOS_BUILD_RESULTS_2026-11-07.md). See [iPhone builds from Windows](IOS_CLOUD_BUILDS.md) for signing setup. No TestFlight upload has run yet; the Apple Developer membership still needs to be set up.
 
 Both applications have Xcode projects. Windows can build/copy the web assets with:
 

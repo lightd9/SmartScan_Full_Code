@@ -1,6 +1,6 @@
 # iPhone builds from Windows
 
-Configured 7 November 2026. The repository now contains manual Codemagic workflows for both Capacitor apps. Configuration has been checked locally; no cloud Xcode build, Apple signing operation or TestFlight upload has run yet. An Apple Developer membership has not yet been set up.
+Configured and tested 7 November 2026. Both unsigned simulator workflows passed on Codemagic and produced downloadable apps and logs. See [the cloud build results](IOS_BUILD_RESULTS_2026-11-07.md). No Apple signing operation or TestFlight upload has run yet; an Apple Developer membership has not yet been set up.
 
 ## Start now: check iOS compilation without Apple membership
 
@@ -54,13 +54,13 @@ SmartScan Enterprise is the product name, not Apple's Enterprise distribution pr
 
 ## What the build does
 
-- Uses Node 24, the service's latest stable Xcode image and its default CocoaPods. Toolchain versions and Git commit are logged with each build; pin a tested Xcode version in `codemagic.yaml` after the first successful cloud run.
+- Uses Node 24, the tested Xcode 26.6 image and the service's default CocoaPods (1.16.2 in the successful runs). Toolchain versions and Git commit are logged with each build.
 - Uses `npm ci` with each committed lockfile, runs existing tests, builds the web assets, then runs `npx cap sync ios`. Sync performs native dependency installation; Windows `prepare:ios` does not replace this macOS step.
 - Uses the committed shared `App` schemes and verifies the bundled Capacitor configuration has the correct app ID, local UI assets and no remote `server.url`.
 - Keeps enterprise in demo mode and the consumer on the existing Sepolia configuration. This setup is for testing, not a production-chain launch. Review `codemagic.yaml` public variables before changing the API or network; `VITE_*` values are visible inside the installed app.
 - Keeps certificates/private keys in Codemagic, selects only the current app's Xcode project when applying profiles, and stops on test/build/signing failures.
 - Uses the larger of the next TestFlight build number for the selected version and Codemagic's next project build number. Apple lookup failures stop the build. Run at most one signed build per app/version at a time and wait for Apple processing before retrying an upload; the remote lookup cannot reserve a number against concurrent external builds. Dotted legacy build numbers or counters over 9999 require a numbering-policy update rather than silently guessing.
-- Uploads IPA, dSYM, logs and the resolved Podfile.lock as artifacts. The simulator workflow uploads a simulator ZIP instead. After the first successful native sync, retain/review the generated Podfile.lock for reproducible future dependency resolution.
+- Uploads IPA, dSYM, logs and the resolved Podfile.lock as artifacts. The simulator workflow uploads a simulator ZIP instead. Both Podfile.lock files from the successful simulator runs are retained in Git, checked against the npm lockfiles and Podfile checksums. Artifact paths explicitly use `$CM_BUILD_DIR` to locate outputs in the repository.
 
 ## Render and the existing database
 
