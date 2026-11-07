@@ -14,7 +14,11 @@ case "$(basename "$PWD")" in
   smartscan-mobile-consumer) expected_bundle=com.smartscan.consumer ;;
   smartscan-mobile-enterprise)
     expected_bundle=com.smartscan.enterprise
-    [[ "${VITE_DATA_MODE:-demo}" == demo ]] || fail "Enterprise live services are not implemented; this workflow requires demo mode."
+    case "${VITE_DATA_MODE:-live}" in
+      demo) ;;
+      live) [[ "${VITE_API_BASE_URL:-}" == https://* ]] || fail "Enterprise live builds require an HTTPS API endpoint." ;;
+      *) fail "VITE_DATA_MODE must be live or demo." ;;
+    esac
     ;;
   *) fail "Run this script from a SmartScan mobile app directory." ;;
 esac

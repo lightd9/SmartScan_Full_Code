@@ -7,7 +7,7 @@ definitions:
     cocoapods: default
   consumer_vars: &consumer_vars
     BUNDLE_ID: com.smartscan.consumer
-    IOS_MARKETING_VERSION: "1.0.0"
+    IOS_MARKETING_VERSION: "1.1.0"
     VITE_API_BASE_URL: https://smartscan-backend-52s4.onrender.com
     VITE_CONTRACT_ADDRESS: "0xC4Dc9a66A669F88ac80eA6555796Fb576a388D96"
     VITE_CHAIN_ID: "11155111"
@@ -16,7 +16,7 @@ definitions:
     VITE_BLOCK_EXPLORER_URL: https://sepolia.etherscan.io
   enterprise_vars: &enterprise_vars
     BUNDLE_ID: com.smartscan.enterprise
-    IOS_MARKETING_VERSION: "1.0.0"
+    IOS_MARKETING_VERSION: "1.1.0"
     VITE_DATA_MODE: live
     VITE_API_BASE_URL: https://smartscan-backend-52s4.onrender.com
     VITE_VERIFICATION_ORIGIN: https://smart-scan-ten.vercel.app
