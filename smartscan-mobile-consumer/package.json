@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test src/api/verify.test.js",
+    "test": "node --test src/api/verify.test.js src/utils/storage.test.js",
     "dev": "vite",
     "dev:https": "node scripts/dev-https.mjs",
     "build": "vite build",

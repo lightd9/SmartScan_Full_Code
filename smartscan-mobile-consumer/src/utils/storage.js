@@ -45,10 +45,11 @@ export function getSavedReports() {
 
 export function saveReport(report) {
     const existing = getSavedReports();
-    const saved = { ...report, id: `REP-${crypto.randomUUID()}`, timestamp: new Date().toISOString() };
+    const previous = existing.find(item => report.requestId && item.requestId === report.requestId);
+    const saved = { ...report, id: report.id || previous?.id || `REP-${crypto.randomUUID()}`, timestamp: report.timestamp || new Date().toISOString() };
     const updated = [
       saved,
-      ...existing,
+      ...existing.filter(item => item.id !== saved.id && (!report.requestId || item.requestId !== report.requestId)),
     ];
     localStorage.setItem(SAVED_REPORTS_KEY, JSON.stringify(updated));
     return saved;

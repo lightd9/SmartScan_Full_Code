@@ -15,7 +15,7 @@ This implements the authorized parts of packages 1, 2, 5 and 6 from the [workflo
 | V3 deployment transaction | `0xb8356d8b2a8bc17f86f5fedcd0af56d3637865835870bd5a0ab4c45ac68efa7e` |
 | New-protocol cohort | New products created by `aster.test` only |
 | Android | Both apps built as `1.1.0-testing`, version code 2, development signing |
-| iOS | Source/plugin sync prepared; no signed TestFlight release without Apple Developer membership |
+| iOS | Both simulator compilations passed on Codemagic at `193685e`; no signed TestFlight release without Apple Developer membership |
 
 Nine existing active facility wallets were provisioned on the new contract after their V2 roles were checked. The global V2 contract setting was preserved. Existing products, labels, accounts, admin access and custody history were not migrated or reset. A fresh live backup was restored locally and additive migrations 016–018 were rehearsed while preserving all 15 pre-pilot products.
 
@@ -66,17 +66,20 @@ Reassessment after purchase confirmation reuses the original observation identif
 
 Enterprise restores sessions with revocable refresh credentials and an absolute 30-day lifetime. Access tokens remain in memory. Native refresh credentials use Android Keystore/iOS Keychain through the secure-storage plugin. Browser previews use Secure, HttpOnly cookies with origin/header validation. Refresh failure caused by connectivity does not log the user out; explicit logout revokes the session. The HTTPS preview rewrites the cookie path to its API proxy prefix.
 
-Consumer reports can be explicitly submitted to the server and return a case reference. Drafts remain local until submitted. Administrators can review cases with an audit trail and version-conflict handling. Reports are not silently uploaded or treated as proven counterfeit findings.
+Consumer reports can be explicitly submitted to the server and return a case reference. Drafts remain local until submitted. A saved draft retains its submission request ID; retries update the same local record when a server receipt arrives. Administrators can review cases with an audit trail and version-conflict handling. Reports are not silently uploaded or treated as proven counterfeit findings.
 
 ## Validation evidence
 
 - Contract suite: 36 passed, including 9 V3 authorization, replay, expiry, invalidation, revocation and replacement tests.
 - Backend suite with isolated PostgreSQL and local contract RPC: 125 passed, none skipped. Final targeted app/anomaly integration: 46 passed.
 - Enterprise: 30 tests passed; TypeScript, Vite and Android debug build passed.
-- Consumer: 13 tests passed; Vite and Android debug build passed.
+- Consumer: 15 tests passed, including draft retry/case deduplication; Vite and Android debug build passed.
 - Live pilot: four new synthetic V3 products registered. Transfers through manufacturer, supplier and retailer completed, followed by a selected-item sale.
 - Live assessment: before retailer confirmation `INCOMPLETE`; correct retailer `VERIFIED`, 90/100; different seller `CONCERN`; existing V2 recalled sample `RECALLED`; reassessment reported `replayed: true`.
-- Android emulator: native login, minimize/resume, force-stop/relaunch and explicit logout/relaunch verified. Consumer and browser acceptance results are recorded in the local tester validation artifacts.
+- Android emulator: native login, minimize/resume, force-stop/relaunch and explicit logout/relaunch verified. Native Consumer displayed the live 90/100 passing result after retailer confirmation.
+- WebKit: Secure/HttpOnly cookie scope, reload, a new browser context, network-failure recovery and explicit logout verified. Both apps fit 320, 393, 768 and 960 CSS-pixel viewports; Consumer retailer confirmation and mismatch states passed.
+- Report browser regression with a mocked server: failed submission, offline draft, reopened draft and successful retry retained one request ID and one stored case.
+- Codemagic iOS simulator checks passed for Consumer (`6aefa8c19b55daafa6fb9c51`) and Enterprise (`6aefa8c17ef104892ebe6c5d`). These are unsigned simulator artifacts, not installable iPhone builds.
 
 ## Tester handoff
 

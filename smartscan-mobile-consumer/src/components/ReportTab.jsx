@@ -14,10 +14,18 @@ export function downloadReport(report) {
 import { API_BASE_URL } from '../config/constants';
 const reasons = ['Suspected counterfeit', 'Broken or tampered seal', 'Duplicate serial number', 'Unauthorized retailer', 'Other concern'];
 export default function ReportTab({ initialProduct, onOpenScanner }) {
-  const [selected, setSelected] = useState(initialProduct || null);
+  const [selected, updateSelected] = useState(initialProduct || null);
   const [reason, setReason] = useState(reasons[0]);
   const [details, setDetails] = useState('');
   const requestId=useRef(crypto.randomUUID());
+  function setSelected(product) {
+    if (product) {
+      requestId.current = crypto.randomUUID();
+      setReason(reasons[0]);
+      setDetails('');
+    }
+    updateSelected(product);
+  }
   const [busy,setBusy]=useState(false);
   const [saved, setSaved] = useState(null);
   const [error, setError] = useState('');
@@ -42,11 +50,11 @@ export default function ReportTab({ initialProduct, onOpenScanner }) {
         }catch(e){setError('Report not confirmed as submitted. Your details remain here; retry to check the same request. '+e.message);}
         finally{setBusy(false);}
       }}>
-        <fieldset className="report-reasons"><legend>What did you notice?</legend>{reasons.map(item => <label key={item} className={reason === item ? 'selected' : ''}><input type="radio" name="reason" value={item} checked={reason === item} onChange={() => setReason(item)} /><span>{item}</span>{reason === item && <Check size={17} />}</label>)}</fieldset>
-        <label htmlFor="report-details">More details <span className="optional">(optional)</span></label><textarea id="report-details" rows={3} maxLength={2000} placeholder="Where you bought it, or what looks unusual…" value={details} onChange={event => setDetails(event.target.value)} />
+        <fieldset className="report-reasons" disabled={busy}><legend>What did you notice?</legend>{reasons.map(item => <label key={item} className={reason === item ? 'selected' : ''}><input type="radio" name="reason" value={item} checked={reason === item} onChange={() => setReason(item)} /><span>{item}</span>{reason === item && <Check size={17} />}</label>)}</fieldset>
+        <label htmlFor="report-details">More details <span className="optional">(optional)</span></label><textarea id="report-details" disabled={busy} rows={3} maxLength={2000} placeholder="Where you bought it, or what looks unusual…" value={details} onChange={event => setDetails(event.target.value)} />
         <p className="supporting-copy small">Submit sends these details to SmartScan for review. Reports are allegations and do not automatically lower a product score.</p>
         {error && <p role="alert" className="form-error">{error}</p>}
-        <button className="dark-button" disabled={busy}>{busy ? 'Submitting…' : 'Submit report'}<ArrowRight size={18}/></button><button type="button" className="text-button" disabled={busy} onClick={()=>{try {const draft=saveReport({productSerial:selected.serialNumber,productName:selected.name || 'Unregistered product',reason,details:details.trim(),status:'draft'});setSaved(draft);setSelected(null);}catch{setError('Could not save a draft on this device.');}}}>Save an offline draft</button>
+        <button className="dark-button" disabled={busy}>{busy ? 'Submitting…' : 'Submit report'}<ArrowRight size={18}/></button><button type="button" className="text-button" disabled={busy} onClick={()=>{try {const draft=saveReport({productSerial:selected.serialNumber,productName:selected.name || 'Unregistered product',reason,details:details.trim(),status:'draft',requestId:requestId.current});setSaved(draft);setSelected(null);}catch{setError('Could not save a draft on this device.');}}}>Save an offline draft</button>
       </form>
     </Sheet>}
     {saved && <Sheet title={saved.caseId ? 'Report submitted' : 'Draft saved'} onClose={() => setSaved(null)}><span className="success-seal"><Check size={30} /></span><h3>Thanks for looking out.</h3><p className="supporting-copy">{saved.caseId ? 'SmartScan received your report. Case reference: '+saved.caseId : 'Saved only on this device. This draft has not been submitted.'}</p><button className="dark-button" onClick={() => downloadReport(saved)}><Download size={18} />Download report</button><button className="text-button" onClick={() => { setSaved(null); setView('reports'); }}>View saved reports</button></Sheet>}
