@@ -35,6 +35,8 @@ function createFakePool() {
         }
       }
       const s = sql.trim().toLowerCase();
+      if (s.startsWith('select * from product where serialnumber')) return { rows: state.product.filter(p => (p.serialnumber || p.serialNumber) === params[0]) };
+      if (s.startsWith('select request_digest, flags from product_scans')) return { rows: state.scans.filter(scan => scan.event_id === params[0]) };
 
       if (s.startsWith('select a.role, a.wallet_address, a.wallet_status, p.name as business_name from auth a join profile p')) {
         const account = state.auth.find((item) => item.username === params[0]);
@@ -261,19 +263,20 @@ function createFakePool() {
         return { rows };
       }
       if (s.startsWith('select latitude, longitude from product_scans')) {
-        return { rows: state.scans.filter((scan) => scan.serial_number === params[0]).map(({ latitude, longitude }) => ({ latitude, longitude })) };
+        return { rows: state.scans.filter((scan) => scan.serial_number === params[0] && scan.contract_address === params[1] && scan.outcome === 'valid' && scan.latitude != null && new Date(scan.scanned_at).getTime() > Date.now() - 3600000).map(({ latitude, longitude }) => ({ latitude, longitude })) };
       }
       if (s.startsWith('insert into product_scans')) {
         const scan = {
           id: state.scans.length + 1,
           serial_number: params[0], contract_address: params[1], visitor_hash: params[2], outcome: params[3],
           latitude: params[4], longitude: params[5], location_source: params[6], flags: params[7], scanned_at: new Date(),
+          event_id: params[8], request_digest: params[9], scan_purpose: params[10],
         };
         state.scans.push(scan);
         return { rows: [{ id: scan.id }] };
       }
       if (s.startsWith('select count(*)::int as count from product_scans')) {
-        return { rows: [{ count: state.scans.filter((scan) => scan.serial_number === params[0]).length }] };
+        return { rows: [{ count: state.scans.filter((scan) => scan.serial_number === params[0] && scan.contract_address === params[1] && scan.outcome === 'valid' && new Date(scan.scanned_at).getTime() > Date.now() - 600000).length }] };
       }
       if (s.startsWith('update product_scans set flags')) {
         const scan = state.scans.find((item) => item.id === params[1]);
@@ -300,10 +303,10 @@ function createFakePool() {
   return pool;
 }
 
-function buildApp({ scanVerifier, chainAdapter, logger, trustProxyHops = 0 } = {}) {
+function buildApp({ scanVerifier, chainAdapter, logger, trustProxyHops = 0, allowedOrigins = ['http://localhost:3000'] } = {}) {
   const uploadBaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'smartscan-test-'));
   const pool = createFakePool();
-  const app = createApp({ pool, jwtSecret: 'test-secret', allowedOrigins: ['http://localhost:3000'], uploadBaseDir, contractAddress: '0x0000000000000000000000000000000000000022', rpcUrl: 'http://rpc.test', chainId: '11155111', scanVerifier, chainAdapter, logger, trustProxyHops });
+  const app = createApp({ pool, jwtSecret: 'test-secret', allowedOrigins, uploadBaseDir, contractAddress: '0x0000000000000000000000000000000000000022', rpcUrl: 'http://rpc.test', chainId: '11155111', scanVerifier, chainAdapter, logger, trustProxyHops });
   return { app, pool };
 }
 
@@ -312,6 +315,24 @@ async function loginAs(app, username, password) {
   assert.equal(res.status, 200);
   return res.body.token;
 }
+
+test('custody locations reject malformed and oversized input before wallet execution', async () => {
+  const { app } = buildApp();
+  const token = await loginAs(app, 'manu', 'manu');
+  for (const location of ['', '   ', null, { address: 'Store' }, '界'.repeat(67)]) {
+    const res = await request(app).post('/api/custody/auto-execute')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ serialNumber: 'SS-00000000-0000-4000-8000-000000000001', action: 'dispatch', location });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /location of 1–200 UTF-8 bytes/);
+  }
+  const valid = await request(app).post('/api/custody/auto-execute')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ serialNumber: 'SS-00000000-0000-4000-8000-000000000001', action: 'dispatch', location: '界'.repeat(66) + 'ab' });
+  assert.equal(valid.status, 400);
+  // Passed location validation; this fixture has no signing facility.
+  assert.match(valid.body.error, /No facility subaccount/);
+});
 
 test('POST /auth requires username and password', async () => {
   const { app } = buildApp();
@@ -559,6 +580,73 @@ test('scan telemetry is not persisted when authoritative chain verification is u
   assert.equal(response.status, 503);
   assert.match(response.body.error, /temporarily unavailable/);
   assert.equal(pool.state.scans.length, 0);
+});
+
+test('assessment scan retry inserts once, rejects changed payload, and returns current recall state', async () => {
+  const serial = 'SS-00000000-0000-0000-0000-000000000025';
+  let stage = 3;
+  const { app, pool } = buildApp({ scanVerifier: async () => ({ exists: true, conflictingState: false, product: {
+    serialNumber: serial, exists: true, source: 'chain', stage, chainId: '11155111', contractAddress: '0x0000000000000000000000000000000000000022',
+  } }) });
+  const body = { serialNumber: serial, contractAddress: '0x0000000000000000000000000000000000000022', eventId: '11111111-1111-1111-1111-111111111111', purpose: 'consumer' };
+  const first = await request(app).post('/v1/assessments').send(body);
+  assert.equal(first.status, 201); assert.equal(first.body.assessment.summary.status, 'REGISTERED');
+  stage = 5;
+  const replay = await request(app).post('/v1/assessments').send(body);
+  assert.equal(replay.status, 200); assert.equal(replay.body.replayed, true);
+  assert.equal(replay.body.assessment.summary.status, 'RECALLED'); assert.equal(pool.state.scans.length, 1);
+  const changed = await request(app).post('/v1/assessments').send({ ...body, latitude: 6, longitude: 3 });
+  assert.equal(changed.status, 409); assert.equal(pool.state.scans.length, 1);
+});
+
+test('separate observations count toward the threshold and read-only assessment does not insert', async () => {
+  const serial = 'SS-00000000-0000-0000-0000-000000000026';
+  const contractAddress = '0x0000000000000000000000000000000000000022';
+  const { app, pool } = buildApp({ scanVerifier: async () => ({ exists: true, conflictingState: false }) });
+  for (let i = 1; i <= 10; i += 1) {
+    const response = await request(app).post('/v1/assessments').send({ serialNumber: serial, contractAddress, eventId: `00000000-0000-0000-0000-${String(i).padStart(12, '0')}` });
+    assert.equal(response.status, 201); assert.equal(response.body.flags.includes('unusual_frequency'), i === 10);
+  }
+  const read = await request(app).get(`/v1/assessments/${serial}`);
+  assert.equal(read.status, 200); assert.equal(pool.state.scans.length, 10);
+  assert.equal(read.body.assessment.findings.find(f => f.code === 'scan_monitoring').state, 'unavailable');
+});
+
+test('monitoring failure preserves chain evidence with an explicit unavailable finding', async () => {
+  const { app, pool } = buildApp({ scanVerifier: async () => ({ exists: true, conflictingState: false }) });
+  pool.connect = async () => { throw new Error('database credentials must never appear'); };
+  const response = await request(app).post('/v1/assessments').send({ serialNumber: 'SS-00000000-0000-0000-0000-000000000027', contractAddress: '0x0000000000000000000000000000000000000022', eventId: '22222222-2222-2222-2222-222222222222' });
+  assert.equal(response.status, 200); assert.equal(response.body.product.exists, true);
+  assert.deepEqual(response.body.flags, ['scan_risk_check_unavailable']);
+  assert.equal(response.body.assessment.findings.find(f => f.code === 'scan_monitoring').state, 'unavailable');
+  assert.equal(JSON.stringify(response.body).includes('credentials'), false);
+});
+
+test('versioned scans require event IDs and reject malformed location pairs', async () => {
+  const { app } = buildApp();
+  const body = { serialNumber: 'SS-00000000-0000-0000-0000-000000000028', contractAddress: '0x0000000000000000000000000000000000000022' };
+  assert.equal((await request(app).post('/v1/assessments').send(body)).status, 400);
+  assert.equal((await request(app).post('/v1/assessments').send({ ...body, eventId: 'bad' })).status, 400);
+  assert.equal((await request(app).post('/v1/assessments').send({ ...body, eventId: '22222222-2222-2222-2222-222222222222', latitude: 6 })).status, 400);
+});
+
+test('native Android and iOS CORS preflights allow only explicitly configured origins', async () => {
+  const origins = ['https://localhost', 'capacitor://localhost'];
+  const { app } = buildApp({ allowedOrigins: origins, logger: { error() {} } });
+  for (const origin of origins) {
+    const response = await request(app).options('/v1/assessments').set('Origin', origin).set('Access-Control-Request-Method', 'POST');
+    assert.equal(response.status, 204); assert.equal(response.headers['access-control-allow-origin'], origin);
+  }
+  const denied = await request(app).options('/v1/assessments').set('Origin', 'capacitor://other-host').set('Access-Control-Request-Method', 'POST');
+  assert.equal(denied.headers['access-control-allow-origin'], undefined);
+});
+
+test('registry lookup never claims live authenticity or invents a verification timestamp', async () => {
+  const { app, pool } = buildApp();
+  pool.state.product.push({ serialnumber: 'SS-test', stage: 3, issold: false });
+  const result = await request(app).get('/product/verify/SS-test');
+  assert.equal(result.status, 200); assert.equal(result.body.status, 'REGISTERED');
+  assert.equal(result.body.source, 'registry'); assert.equal(result.body.verifiedAt, null);
 });
 
 test('unexpected server errors are logged with a request id without exposing internal details', async () => {

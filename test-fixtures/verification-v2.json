@@ -1,0 +1,8 @@
+[
+  { "name": "manufactured", "stage": 1, "sold": false, "recalled": false, "status": "REGISTERED" },
+  { "name": "dispatched", "stage": 2, "sold": false, "recalled": false, "status": "REGISTERED" },
+  { "name": "delivered", "stage": 3, "sold": false, "recalled": false, "status": "REGISTERED" },
+  { "name": "sold", "stage": 4, "sold": true, "recalled": false, "status": "SOLD" },
+  { "name": "recalled before sale", "stage": 5, "sold": false, "recalled": true, "status": "RECALLED" },
+  { "name": "recalled after sale", "stage": 5, "sold": true, "recalled": true, "status": "RECALLED" }
+]

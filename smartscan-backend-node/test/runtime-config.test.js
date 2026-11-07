@@ -33,6 +33,14 @@ test('production runtime accepts explicit secure configuration', () => {
   assert.equal(config.jwtExpiresIn, '12h');
 });
 
+test('native origins must be explicitly allowed and arbitrary custom schemes remain rejected', () => {
+  const config = loadRuntimeConfig({ ...validProduction, ALLOWED_ORIGINS: 'https://app.example.com,https://localhost,capacitor://localhost' });
+  assert.deepEqual(config.allowedOrigins, ['https://app.example.com', 'https://localhost', 'capacitor://localhost']);
+  for (const origin of ['capacitor://other-host', 'capacitor://localhost/path', 'http://localhost', 'null', '*']) {
+    assert.throws(() => loadRuntimeConfig({ ...validProduction, ALLOWED_ORIGINS: origin }), /ALLOWED_ORIGINS/);
+  }
+});
+
 test('production runtime rejects missing or weak security and chain settings', () => {
   assert.throws(() => loadRuntimeConfig({ ...validProduction, JWT_SECRET: 'dev-insecure-secret-change-me' }), /JWT_SECRET/);
   assert.throws(() => loadRuntimeConfig({ ...validProduction, OPERATIONAL_VAULT_SECRET: '' }), /OPERATIONAL_VAULT_SECRET/);

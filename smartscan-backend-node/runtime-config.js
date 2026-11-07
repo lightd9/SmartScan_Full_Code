@@ -87,7 +87,7 @@ function loadRuntimeConfig(env = process.env) {
     if (!/^(0|[1-9]\d*)$/.test(env.CONTRACT_DEPLOYMENT_BLOCK || '')) errors.push('CONTRACT_DEPLOYMENT_BLOCK must be a non-negative integer in production');
     if (['1', 'true', 'yes'].includes(String(env.PGSSL_DISABLE).toLowerCase())) errors.push('PGSSL_DISABLE cannot be enabled in production');
     if (String(env.PGSSL_REJECT_UNAUTHORIZED).toLowerCase() === 'false') errors.push('PGSSL_REJECT_UNAUTHORIZED cannot be disabled in production');
-    if (!origins.length || origins.some((origin) => !validOrigin(origin, ['https:']))) errors.push('ALLOWED_ORIGINS must contain only HTTPS origins in production');
+    if (!origins.length || origins.some((origin) => origin !== 'capacitor://localhost' && !validOrigin(origin, ['https:']))) errors.push('ALLOWED_ORIGINS must contain only HTTPS origins or the native iOS origin capacitor://localhost in production');
     if (!validOrigin(walletLinkOrigin, ['https:'])) errors.push('WALLET_LINK_ORIGIN must be an HTTPS origin in production');
     if (uploadStorageDriver !== 's3') errors.push('UPLOAD_STORAGE_DRIVER=s3 is required in production; local disk is not durable across instances or deployments');
     if (!redisUrl || !validUrl(redisUrl, ['rediss:'])) errors.push('REDIS_URL must be a secure rediss:// URL in production for shared rate limits');

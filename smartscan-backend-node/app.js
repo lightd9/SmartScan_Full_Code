@@ -11,6 +11,8 @@ const { createRateLimiters } = require('./rate-limiters');
 const { expectedCall, hasExpectedWalletOperationEvent, isDirectOwnerWalletOperation } = require('./wallet-operation-verification');
 const { generateEncapsulatedSubaccount, decryptSubaccountPrivateKey, getSubaccountSigner } = require('./crypto-vault');
 const { getContractOwnerWallet, getTreasuryStatus, fundSubaccount } = require('./gas-treasury');
+const { chainProduct, assessProduct } = require('./assessment');
+const { recordObservation } = require('./scan-observation');
 
 const CUSTODY_EXECUTION_ABI = [
   'function registerProduct(string name_, string brand_, string serialNumber_, string description_, string image_, string actor_, string location_, string timestamp_)',
@@ -216,7 +218,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     if (Number(network.chainId) !== Number(configuredChainId)) throw new Error('Product scan RPC chain mismatch');
     if ((await scanProvider.getCode(expectedContractAddress)) === '0x') throw new Error('Product scan contract has no code');
     const product = await fetchOnChainProduct(serialNumber);
-    return { exists: product[0] === serialNumber, conflictingState: product[0] === serialNumber && hasConflictingProductState(product) };
+    return { exists: product[0] === serialNumber, conflictingState: product[0] === serialNumber && hasConflictingProductState(product), product: chainProduct(product, serialNumber, expectedContractAddress, configuredChainId) };
   });
 
   const reconcileOnChainProduct = async (serialNumber) => {
@@ -1435,9 +1437,47 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     }
   });
 
-  app.post('/scan-events', scanRateLimit, async (req, res, next) => {
+  app.get('/product/verify/:serialNumber', scanRateLimit, async (req, res, next) => {
     try {
-      const { serialNumber, contractAddress: submittedContractAddress, latitude, longitude } = req.body || {};
+      const rawSerial = req.params.serialNumber;
+      let serial = (rawSerial || '').trim();
+      if (serial.includes('/verify/')) {
+        const parts = serial.split('/verify/');
+        serial = parts[parts.length - 1].split(/[?#]/)[0].trim();
+      }
+      const { rows } = await pool.query('SELECT * FROM product WHERE serialnumber = $1 LIMIT 1', [serial]);
+      if (rows.length === 0) {
+        return res.status(404).json({ exists: false, error: 'Product not found' });
+      }
+      const p = rows[0];
+      return res.json({
+        exists: true,
+        serialNumber: p.serialnumber,
+        name: p.name,
+        brand: p.brand,
+        description: p.description,
+        imageHash: p.image_hash || p.imagehash || '',
+        isSold: Boolean(p.issold),
+        stage: p.stage,
+        status: Number(p.stage) === 5 ? 'RECALLED' : p.issold || Number(p.stage) === 4 ? 'SOLD' : 'REGISTERED',
+        source: 'registry',
+        chainStatus: p.chain_status || 'unknown',
+        registryUpdatedAt: p.chain_updated_at || null,
+        verifiedAt: null,
+        custodian: p.custodian,
+      });
+    } catch (err) {
+      return next(err);
+    }
+  });
+
+  const assessScan = async (req, res, next) => {
+    try {
+      const { serialNumber, contractAddress: submittedContractAddress, latitude, longitude, eventId, purpose = 'unspecified' } = req.body || {};
+      const readOnly = req.method === 'GET';
+      if (!readOnly && req.path === '/v1/assessments' && !eventId) return res.status(400).json({ error: 'A unique scan event ID is required' });
+      if (eventId !== undefined && (typeof eventId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId))) return res.status(400).json({ error: 'Invalid scan event ID' });
+      if (!['consumer', 'logistics', 'unspecified'].includes(purpose)) return res.status(400).json({ error: 'Invalid scan purpose' });
       if (!validText(serialNumber, 100)) {
         return res.status(400).json({ error: 'A product identifier is required' });
       }
@@ -1452,9 +1492,11 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       const flags = [];
       let outcome = 'invalid';
       let conflictingState = false;
+      let product = { serialNumber, source: 'chain', exists: false, contractAddress: expectedContractAddress, chainId: configuredChainId };
       const requestMatchesConfiguredProduct = validProductIdentifier(serialNumber)
         && expectedContractAddress && requestAddress === expectedContractAddress;
       if (!requestMatchesConfiguredProduct) {
+        product.source = 'invalid_input';
         flags.push('invalid_identifier');
       } else {
         let verification;
@@ -1467,36 +1509,34 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         else {
           outcome = 'valid';
           conflictingState = verification.conflictingState === true;
+          product = verification.product || { ...product, exists: true };
         }
       }
       const visitorHash = crypto.createHmac('sha256', jwtSecret).update(String(req.ip || req.socket.remoteAddress || 'unknown')).digest('hex');
-      const lat = hasCoords ? Number(latitude.toFixed(2)) : null;
-      const lon = hasCoords ? Number(longitude.toFixed(2)) : null;
-      const locationSource = hasCoords ? 'browser_reported' : 'not_provided';
-      const storedContractAddress = requestAddress;
-      const priorLocations = hasCoords
-        ? await pool.query('SELECT latitude, longitude FROM product_scans WHERE serial_number = $1 AND scanned_at > now() - interval \'1 hour\' AND latitude IS NOT NULL ORDER BY scanned_at DESC LIMIT 50', [serialNumber])
-        : { rows: [] };
       if (conflictingState) flags.push('conflicting_product_state');
-      const distanceKm = (aLat, aLon, bLat, bLon) => {
-        const radians = (degrees) => degrees * Math.PI / 180;
-        const dLat = radians(bLat - aLat);
-        const dLon = radians(bLon - aLon);
-        const value = Math.sin(dLat / 2) ** 2 + Math.cos(radians(aLat)) * Math.cos(radians(bLat)) * Math.sin(dLon / 2) ** 2;
-        return 6371 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
-      };
-      if (priorLocations.rows.some((row) => distanceKm(lat, lon, Number(row.latitude), Number(row.longitude)) > 100)) {
-        flags.push('suspicious_location');
+      let observation = { flags, replayed: false };
+      let monitoring = 'not_requested';
+      if (!readOnly) {
+        try {
+          observation = await recordObservation(pool, { eventId: eventId?.toLowerCase(), serialNumber, contractAddress: requestAddress, visitorHash, outcome, latitude, longitude, purpose, flags });
+          monitoring = 'complete';
+        } catch (error) {
+          if (error.status === 409) return res.status(409).json({ error: error.message });
+          // Preserve a successful chain read when the monitoring database fails.
+          monitoring = 'unavailable';
+          observation.flags = [...flags, 'scan_risk_check_unavailable'];
+        }
       }
-      const inserted = await pool.query(
-        'INSERT INTO product_scans (serial_number, contract_address, visitor_hash, outcome, latitude, longitude, location_source, flags) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id',
-        [serialNumber, storedContractAddress, visitorHash, outcome, lat, lon, locationSource, flags],
-      );
-      const frequency = await pool.query('SELECT count(*)::int AS count FROM product_scans WHERE serial_number = $1 AND scanned_at > now() - interval \'10 minutes\'', [serialNumber]);
-      if (frequency.rows[0].count >= 10) flags.push('unusual_frequency');
-      if (flags.length) await pool.query('UPDATE product_scans SET flags = $1 WHERE id = $2', [flags, inserted.rows[0].id]);
-      return res.status(201).json({ flags });
+      const currentFlags = [...new Set([...observation.flags.filter(flag => !['conflicting_product_state', 'invalid_identifier'].includes(flag)), ...flags])];
+      const assessment = assessProduct({ product, flags: currentFlags, monitoring, hasLocation: hasCoords, historyChecked: requestMatchesConfiguredProduct && outcome === 'valid', assessmentId: eventId || undefined });
+      return res.status(readOnly || observation.replayed || monitoring === 'unavailable' ? 200 : 201).json({ product: { ...product, status: assessment.summary.status, verifiedAt: assessment.source.verifiedAt }, assessment, flags: currentFlags, replayed: observation.replayed });
     } catch (err) { return next(err); }
+  };
+  app.post('/scan-events', scanRateLimit, assessScan);
+  app.post('/v1/assessments', scanRateLimit, assessScan);
+  app.get('/v1/assessments/:serialNumber', scanRateLimit, (req, res, next) => {
+    req.body = { serialNumber: req.params.serialNumber, contractAddress: expectedContractAddress };
+    return assessScan(req, res, next);
   });
 
   app.get('/admin/scan-alerts', authenticate, authorize('admin'), async (_req, res, next) => {
@@ -1515,7 +1555,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         storeId = 'STORE-MAIN-01',
         registerId = 'REG-01',
         cashierName = 'Retail Cashier',
-        location = 'Retail Store Checkout',
+      location = '[Location unavailable]',
       } = req.body || {};
 
       let serial = (rawSerial || '').trim();
@@ -1910,7 +1950,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         serialNumber: rawSerial,
         action,
         subaccountId,
-        location = 'Facility Dock Floor',
+        location = '[Location unavailable]',
         recipientWallet = ethers.ZeroAddress,
       } = req.body || {};
 
@@ -1926,6 +1966,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       if (!['register_product', 'dispatch', 'confirm_delivery', 'mark_sold'].includes(action)) {
         return res.status(400).json({ error: 'Invalid custody action. Must be register_product, dispatch, confirm_delivery, or mark_sold' });
+      }
+
+      if (typeof location !== 'string' || !location.trim() || Buffer.byteLength(location, 'utf8') > 200) {
+        return res.status(400).json({ error: 'Provide a location of 1–200 UTF-8 bytes, or explicitly mark location unavailable.' });
       }
 
       // Find an active approved subaccount
