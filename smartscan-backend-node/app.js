@@ -13,6 +13,7 @@ const { generateEncapsulatedSubaccount, decryptSubaccountPrivateKey, getSubaccou
 const { getContractOwnerWallet, getTreasuryStatus, fundSubaccount } = require('./gas-treasury');
 const { chainProduct, assessProduct } = require('./assessment');
 const { recordObservation } = require('./scan-observation');
+const { mountEnterprise } = require('./enterprise-routes');
 
 const CUSTODY_EXECUTION_ABI = [
   'function registerProduct(string name_, string brand_, string serialNumber_, string description_, string image_, string actor_, string location_, string timestamp_)',
@@ -199,7 +200,23 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
     if (configuredOwner !== normalizedAddress(ownerWallet.address)) {
       throw new Error('CONTRACT_OWNER_PRIVATE_KEY does not match the configured contract owner.');
     }
-    return roleContract;
+    const writeRole = method => async (...args) => {
+      const db = await pool.connect();
+      try {
+        await db.query("SELECT pg_advisory_lock(hashtextextended('smartscan-wallet:admin',0))");
+        const pending = await db.query(`SELECT 1 FROM enterprise_operations o JOIN enterprise_operation_items i ON i.operation_id=o.id
+          WHERE o.facility_id LIKE 'admin:%' AND i.status IN ('queued','submitted') LIMIT 1`);
+        if (pending.rows.length) throw new Error('An administrative wallet operation is pending. Retry after it confirms.');
+        const tx = await roleContract[method](...args);
+        await tx.wait(1);
+        return tx;
+      } finally {
+        try { await db.query("SELECT pg_advisory_unlock(hashtextextended('smartscan-wallet:admin',0))"); }
+        finally { db.release(); }
+      }
+    };
+    return { roles: (...args) => roleContract.roles(...args),
+      grantRole: writeRole('grantRole'), revokeRole: writeRole('revokeRole') };
   };
   const scanContract = scanProvider && expectedContractAddress
     ? new ethers.Contract(expectedContractAddress, PRODUCT_SCAN_ABI, scanProvider)
@@ -1710,7 +1727,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
   // 2. Create Encapsulated Subaccount
   const createSubaccountHandler = async (req, res, next) => {
     try {
-      const { subaccountName, facilityCode, role: requestedRole, parentUsername } = req.body || {};
+      const { subaccountName, facilityCode, role: requestedRole, parentUsername, location = '' } = req.body || {};
+      if (typeof location !== 'string' || location.length > 500) return res.status(400).json({ error: 'Invalid facility address' });
 
       if (!validText(subaccountName, 120)) {
         return res.status(400).json({ error: 'A valid facility/subaccount name is required (max 120 chars)' });
@@ -1735,13 +1753,16 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       const assignedParent = (req.user.role === 'admin' && parentUsername) ? parentUsername.trim() : req.user.username;
 
+      const parent = await pool.query('SELECT role FROM auth WHERE username=$1', [assignedParent]);
+      if (!parent.rows[0] || parent.rows[0].role !== role) return res.status(400).json({ error: 'Facility role must match its business account.' });
+
       // Generate encapsulated wallet
       const encWallet = generateEncapsulatedSubaccount();
 
       const insertRes = await pool.query(
         `INSERT INTO facility_subaccounts
-          (parent_username, subaccount_name, facility_code, role, wallet_address, encrypted_private_key, key_iv, key_auth_tag, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          (parent_username, subaccount_name, facility_code, role, wallet_address, encrypted_private_key, key_iv, key_auth_tag, status, location)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, parent_username, subaccount_name, facility_code, role, wallet_address, status, created_at`,
         [
           assignedParent,
@@ -1752,7 +1773,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
           encWallet.encryptedPrivateKey,
           encWallet.keyIv,
           encWallet.keyAuthTag,
-          'pending_approval'
+          'pending_approval',
+          location.trim()
         ]
       );
 
@@ -1821,7 +1843,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (!subaccount) return res.status(404).json({ error: 'Subaccount not found' });
 
       if (subaccount.status === 'active') {
-        return res.json({ success: true, message: 'Subaccount is already active and approved', subaccount });
+        return res.json({ success: true, message: 'Subaccount is already active and approved',
+          subaccountId: subaccount.id, walletAddress: subaccount.wallet_address, role: subaccount.role });
       }
 
       const roleId = CHAIN_ROLE_IDS[subaccount.role];
@@ -1873,7 +1896,7 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
       return res.json({
         success: true,
-        message: 'Subaccount approved, on-chain role granted, and initial gas funded!',
+        message: fundResult?.success ? 'Subaccount approved and gas funded.' : 'Subaccount approved. Treasury gas funding is still needed.',
         subaccountId: subaccount.id,
         walletAddress: subaccount.wallet_address,
         role: subaccount.role,
@@ -1945,6 +1968,8 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
 
   // 7. Headless Custody Auto-Execution API (Zero-Friction Transaction Execution)
   const autoExecuteCustodyHandler = async (req, res, next) => {
+    let signingConnection;
+    let walletLock;
     try {
       const {
         serialNumber: rawSerial,
@@ -1997,47 +2022,22 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         });
       }
 
-      // Ensure the facility subaccount wallet has its expected on-chain role granted
+      // Signing must never approve, restore, or bypass a suspended/revoked
+      // facility. Approval is a separate, authenticated administrator action.
+      if (subaccount.status !== 'active') {
+        return res.status(403).json({ error: 'This facility wallet is not active. An administrator must approve it before it can sign transactions.' });
+      }
+
+      if (req.user.role !== 'admin' && subaccount.role !== req.user.role) {
+        return res.status(403).json({ error: 'The facility wallet role does not match your account.' });
+      }
+
+      // Operational signing never changes wallet approval or role assignments.
       const expectedRoleId = CHAIN_ROLE_IDS[subaccount.role];
       if (expectedRoleId && scanProvider && expectedContractAddress && process.env.NODE_ENV !== 'test') {
-        try {
-          const roleChecker = new ethers.Contract(expectedContractAddress, ['function roles(address) view returns (uint8)'], scanProvider);
-          let onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
-          if (onchainRole !== expectedRoleId) {
-            const roleContract = await getOwnerRoleContract();
-            if (!roleContract) {
-              return res.status(403).json({
-                error: `Facility wallet (${subaccount.wallet_address}) is not authorized on-chain as ${subaccount.role} (contract role: ${onchainRole}, expected: ${expectedRoleId}), and contract owner key is not available to auto-grant. Please contact the administrator.`
-              });
-            }
-            if (onchainRole !== 0) {
-              const revokeTx = await roleContract.revokeRole(subaccount.wallet_address);
-              await revokeTx.wait(1);
-            }
-            const grantTx = await roleContract.grantRole(
-              subaccount.wallet_address,
-              expectedRoleId,
-              subaccount.subaccount_name || subaccount.parent_username
-            );
-            await grantTx.wait(1);
-            onchainRole = Number(await roleChecker.roles(subaccount.wallet_address));
-          }
-          if (onchainRole === expectedRoleId) {
-            if (subaccount.status !== 'active') {
-              await pool.query("UPDATE facility_subaccounts SET status = 'active', updated_at = NOW() WHERE id = $1", [subaccount.id]);
-              await pool.query("UPDATE auth SET wallet_status = 'active', wallet_address = $1 WHERE LOWER(username) = LOWER($2)", [subaccount.wallet_address, subaccount.parent_username]);
-              subaccount.status = 'active';
-            }
-          } else {
-            return res.status(403).json({
-              error: `Facility wallet (${subaccount.wallet_address}) is not authorized on-chain as ${subaccount.role} (contract role: ${onchainRole}, expected: ${expectedRoleId}). Please request an on-chain role approval from the administrator.`
-            });
-          }
-        } catch (roleErr) {
-          console.error('Role verification/grant on custody execution error:', roleErr);
-          return res.status(403).json({
-            error: `Facility wallet (${subaccount.wallet_address}) could not be confirmed on-chain as ${subaccount.role}: ${roleErr.message}`
-          });
+        const roleChecker = new ethers.Contract(expectedContractAddress, ['function roles(address) view returns (uint8)'], scanProvider);
+        if (Number(await roleChecker.roles(subaccount.wallet_address)) !== expectedRoleId) {
+          return res.status(403).json({ error: 'Facility wallet approval is missing on-chain. Contact the administrator.' });
         }
       }
 
@@ -2055,6 +2055,15 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       if (action === 'mark_sold' && subRole !== 'retailer') {
         return res.status(403).json({ error: `Facility role (${subRole}) is not authorized to finalize consumer sales` });
       }
+
+      // Share the wallet lock with durable mobile operations to serialize nonces.
+      signingConnection = await pool.connect();
+      walletLock = `smartscan-wallet:${subaccount.id}`;
+      await signingConnection.query('SELECT pg_advisory_lock(hashtextextended($1,0))', [walletLock]);
+      const pendingMobile = await signingConnection.query(`SELECT 1 FROM enterprise_operations o
+        JOIN enterprise_operation_items i ON i.operation_id=o.id
+        WHERE o.facility_id=$1 AND i.status IN ('queued','submitted') LIMIT 1`, [String(subaccount.id)]);
+      if (pendingMobile.rows.length) return res.status(409).json({ error: 'This wallet has an operation in progress. Check Activity before submitting another action.' });
 
       // Decrypt signer in memory
       const signer = getSubaccountSigner({
@@ -2191,8 +2200,13 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
         },
       });
     } catch (err) {
-      console.error('Headless custody auto-execution error:', err);
-      return res.status(500).json({ error: err.reason || err.message || 'On-chain auto-execution failed' });
+      console.error('Headless custody auto-execution could not be confirmed.');
+      return res.status(500).json({ error: 'On-chain auto-execution could not be confirmed. Check the product before retrying.' });
+    } finally {
+      if (signingConnection) {
+        try { if (walletLock) await signingConnection.query('SELECT pg_advisory_unlock(hashtextextended($1,0))', [walletLock]); }
+        finally { signingConnection.release(); }
+      }
     }
   };
 
@@ -2497,6 +2511,10 @@ function createApp({ pool, jwtSecret, jwtExpiresIn = '12h', allowedOrigins = [],
       return res.json(rows);
     } catch (err) { return next(err); }
   });
+
+  mountEnterprise(app, { pool, authenticate, writeRateLimit, provider: chainProvider,
+    contractAddress: expectedContractAddress, chainId: configuredChainId, rpcUrl,
+    readProduct: fetchOnChainProduct, logger });
 
   // eslint-disable-next-line no-unused-vars
   app.use((err, req, res, next) => {
