@@ -42,6 +42,12 @@ smartscan-backend-node/public/uploads/product/*
 **/ios/App/.build/
 *.apk
 *.aab
+*.ipa
+*.xcarchive/
+# Apple signing identities stay in the build service's secure settings.
+*.p8
+*.p12
+*.mobileprovision
 
 # OS files
 .DS_Store

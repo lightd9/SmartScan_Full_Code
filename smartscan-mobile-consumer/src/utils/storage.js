@@ -4,7 +4,8 @@ const SAVED_REPORTS_KEY = 'smartscan_consumer_reports';
 export function getScanHistory() {
   try {
     const raw = localStorage.getItem(PASSPORT_HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(item => item && typeof item.serialNumber === 'string') : [];
   } catch (_e) {
     return [];
   }
@@ -35,25 +36,28 @@ export function clearScanHistory() {
 export function getSavedReports() {
   try {
     const raw = localStorage.getItem(SAVED_REPORTS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(item => item && typeof item.id === 'string') : [];
   } catch (_e) {
     return [];
   }
 }
 
 export function saveReport(report) {
-  try {
     const existing = getSavedReports();
+    const saved = { ...report, id: `REP-${crypto.randomUUID()}`, timestamp: new Date().toISOString() };
     const updated = [
-      {
-        ...report,
-        id: `REP-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-      },
+      saved,
       ...existing,
     ];
     localStorage.setItem(SAVED_REPORTS_KEY, JSON.stringify(updated));
-  } catch (err) {
-    console.error('Failed to save report:', err);
-  }
+    return saved;
+}
+
+export function getHapticsEnabled() {
+  try { return localStorage.getItem('smartscan_haptics') !== 'false'; } catch { return true; }
+}
+
+export function setHapticsEnabled(enabled) {
+  localStorage.setItem('smartscan_haptics', String(enabled));
 }

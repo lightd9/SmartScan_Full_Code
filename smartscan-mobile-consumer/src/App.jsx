@@ -1,138 +1,66 @@
-import React, { useState, useEffect } from 'react';
-import { StatusBar, Style } from '@capacitor/status-bar';
-import { SplashScreen } from '@capacitor/splash-screen';
-
-import Header from './components/Header';
+import React, { useCallback, useRef, useState } from 'react';
 import BottomNav from './components/BottomNav';
 import ScannerTab from './components/ScannerTab';
 import PassportView from './components/PassportView';
-import HistoryTab from './components/HistoryTab';
-import ReportModal from './components/ReportModal';
-
+import ReportTab from './components/ReportTab';
+import MoreTab from './components/MoreTab';
 import { parseQrPayload, fetchProductWithFallback } from './api/verify';
-import { vibrateWarning, vibrateSuccess } from './utils/haptics';
 import { saveScanToHistory } from './utils/storage';
+import { vibrateSuccess, vibrateWarning } from './utils/haptics';
+import { productStatus } from './utils/product';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('scan');
   const [currentProduct, setCurrentProduct] = useState(null);
+  const [reportProduct, setReportProduct] = useState(null);
   const [verifying, setVerifying] = useState(false);
-  const [verificationError, setVerificationError] = useState(null);
-  const [torchActive, setTorchActive] = useState(false);
-  const [showInfo, setShowInfo] = useState(false);
+  const [verificationError, setVerificationError] = useState('');
+  const pending = useRef(false);
+  const scanAttempt = useRef(null);
+  const navigationVersion = useRef(0);
 
-  useEffect(() => {
-    // Hide splash screen and set dark status bar for mobile
-    async function initNative() {
-      try {
-        await SplashScreen.hide();
-      } catch (_e) {
-        // Ignored on browser
-      }
-      try {
-        await StatusBar.setStyle({ style: Style.Dark });
-        await StatusBar.setBackgroundColor({ color: '#0B132B' });
-      } catch (_e) {
-        // Ignored on browser
-      }
-    }
-    initNative();
-  }, []);
-
-  const handleScanSuccess = async (rawCode) => {
-    setVerificationError(null);
+  const handleScanSuccess = useCallback(async rawCode => {
+    if (pending.current) return;
+    pending.current = true;
+    const version = navigationVersion.current;
+    setVerificationError('');
     setVerifying(true);
-
     try {
       const { serialNumber } = parseQrPayload(rawCode);
-      const result = await fetchProductWithFallback(serialNumber);
-
-      if (result.exists) {
-        vibrateSuccess();
-        saveScanToHistory(result);
-      } else {
-        vibrateWarning();
+      if (scanAttempt.current?.serialNumber !== serialNumber) scanAttempt.current = { serialNumber, eventId: crypto.randomUUID() };
+      const result = await fetchProductWithFallback(serialNumber, { eventId: scanAttempt.current.eventId });
+      scanAttempt.current = null;
+      const scanned = { ...result, scannedAt: new Date().toISOString() };
+      saveScanToHistory(scanned);
+      if (version === navigationVersion.current) {
+        setCurrentProduct(scanned);
+        setActiveTab('passport');
+        if (productStatus(scanned).tone === 'authentic') vibrateSuccess();
+        else vibrateWarning();
       }
-
-      setCurrentProduct(result);
-      setActiveTab('passport');
-    } catch (err) {
-      console.error('Verification failed:', err);
-      vibrateWarning();
-      setVerificationError(
-        err.message || 'Unable to verify this product record. Please check code or try again.'
-      );
+    } catch (error) {
+      if (version === navigationVersion.current) setVerificationError(error.message?.startsWith('The scanned') || error.message?.startsWith('Please scan') ? error.message : 'We couldn’t verify this product. Check your connection and try again.');
     } finally {
       setVerifying(false);
+      pending.current = false;
     }
-  };
+  }, []);
 
-  const handleSelectHistoryItem = (product) => {
-    setCurrentProduct(product);
-    setActiveTab('passport');
-  };
-
-  const handleReportProduct = (product) => {
-    setCurrentProduct(product);
-    setActiveTab('report');
-  };
-
-  return (
-    <div className="app-shell">
-      <Header
-        torchActive={torchActive}
-        onToggleTorch={() => setTorchActive(!torchActive)}
-        onShowInfo={() => setShowInfo(!showInfo)}
-      />
-
-      <main className="mobile-content">
-        {showInfo && (
-          <div className="m-card" style={{ marginBottom: 16, backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }}>
-            <h3 style={{ fontSize: 14, fontWeight: 800, color: '#1E40AF', marginBottom: 4 }}>
-              About SmartScan Verify
-            </h3>
-            <p style={{ fontSize: 12.5, color: '#1E3A8A', lineHeight: 1.5, margin: 0 }}>
-              SmartScan Verify connects directly to the Ethereum Sepolia blockchain network to audit anti-counterfeit merchandise passports in real-time. No login or crypto wallet required.
-            </p>
-          </div>
-        )}
-
-        {activeTab === 'scan' && (
-          <ScannerTab
-            onScanSuccess={handleScanSuccess}
-            verifying={verifying}
-            verificationError={verificationError}
-          />
-        )}
-
-        {activeTab === 'passport' && (
-          <PassportView
-            product={currentProduct}
-            onScanAgain={() => setActiveTab('scan')}
-            onReportProduct={handleReportProduct}
-          />
-        )}
-
-        {activeTab === 'history' && (
-          <HistoryTab
-            onSelectProduct={handleSelectHistoryItem}
-            onOpenScanner={() => setActiveTab('scan')}
-          />
-        )}
-
-        {activeTab === 'report' && (
-          <ReportModal
-            initialProduct={currentProduct}
-            onClose={() => setActiveTab('passport')}
-          />
-        )}
-      </main>
-
-      <BottomNav
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        hasScannedItem={Boolean(currentProduct)}
-      />
-    </div>
-  );
+  function navigate(tab) {
+    navigationVersion.current += 1;
+    setActiveTab(tab);
+    if (tab === 'report') setReportProduct(null);
+  }
+  function report(product) { setReportProduct(product); setActiveTab('report'); }
+  return <div className="device-frame">
+    <main className="app-content">
+      <div className="screen-transition" key={activeTab}>
+      {activeTab === 'scan' && <ScannerTab onScanSuccess={handleScanSuccess} verifying={verifying} verificationError={verificationError} />}
+      {(activeTab === 'passport' || activeTab === 'history') && <PassportView key={activeTab} product={activeTab === 'passport' ? currentProduct : null} title={activeTab === 'passport' ? 'Your product' : 'History'} onScanAgain={() => navigate('scan')} onBack={() => navigate('scan')} onReportProduct={report} />}
+      {activeTab === 'report' && <ReportTab initialProduct={reportProduct} onOpenScanner={() => navigate('scan')} />}
+      {activeTab === 'more' && <MoreTab />}
+      </div>
+    </main>
+    <BottomNav activeTab={activeTab === 'passport' ? 'scan' : activeTab} onSelectTab={navigate} />
+  </div>;
 }

@@ -1,266 +1,178 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode';
-import { Camera, SwitchCamera, KeyRound, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
-import { vibrateClick, vibrateSuccess, vibrateWarning } from '../utils/haptics';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Html5Qrcode, Html5QrcodeScannerState, Html5QrcodeSupportedFormats } from 'html5-qrcode';
+import { ArrowRight, Camera, Image, Keyboard, Loader2, ScanLine, ShieldCheck, SwitchCamera, Zap } from 'lucide-react';
+import Sheet from './Sheet';
+
+function cameraErrorMessage(error) {
+  // html5-qrcode wraps some DOMExceptions in strings, so handle both forms.
+  const details = `${error?.name || ''} ${error?.message || error || ''}`;
+  if (/NotAllowedError|PermissionDeniedError|SecurityError/i.test(details)) {
+    return 'Camera access was blocked. Allow Camera for this website in Safari, then tap Try camera.';
+  }
+  if (/NotFoundError|DevicesNotFoundError/i.test(details)) return 'No camera was found. Upload a photo or enter the serial instead.';
+  if (/NotReadableError|TrackStartError|AbortError/i.test(details)) return 'The camera could not start. Close other apps using it, then tap Try camera.';
+  if (/OverconstrainedError|ConstraintNotSatisfiedError/i.test(details)) return 'This camera is unavailable. Try Flip camera, upload a photo, or enter the serial.';
+  return 'The camera could not open. Tap Try camera, upload a photo, or enter the serial.';
+}
 
 export default function ScannerTab({ onScanSuccess, verifying, verificationError }) {
-  const [cameraActive, setCameraActive] = useState(false);
-  const [cameraError, setCameraError] = useState(null);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [cameraAttempt, setCameraAttempt] = useState(0);
+  const [cameraState, setCameraState] = useState('idle');
+  const [facingMode, setFacingMode] = useState('environment');
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
   const [manualCode, setManualCode] = useState('');
-  const [showManualInput, setShowManualInput] = useState(false);
-  const [facingMode, setFacingMode] = useState('environment'); // 'environment' = back, 'user' = front
-  
+  const [notice, setNotice] = useState('');
+  const [readingPhoto, setReadingPhoto] = useState(false);
   const scannerRef = useRef(null);
-  const isScanningRef = useRef(false);
+  const cameraQueue = useRef(Promise.resolve());
+  const fileInput = useRef(null);
+  const callback = useRef(onScanSuccess);
+  const busy = useRef(false);
+  const hintCopy = useRef(null);
+  const hintWasScanning = useRef(false);
+  const loading = verifying || readingPhoto;
+  const scanning = cameraState === 'ready' && !loading && !manualOpen;
+  callback.current = onScanSuccess;
+  busy.current = verifying || readingPhoto || manualOpen;
+
+  useLayoutEffect(() => {
+    if (hintWasScanning.current === scanning) return;
+    hintWasScanning.current = scanning;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    // Keep the moving badge from crossing visible lettering in either direction.
+    // The instruction remains available to assistive technology throughout.
+    const animation = hintCopy.current?.animate([
+      { opacity: 0 }, { opacity: 0, offset: 0.8 }, { opacity: 1 },
+    ], { duration: 500, easing: 'ease-out' });
+    return () => animation?.cancel();
+  }, [scanning]);
 
   useEffect(() => {
-    let mounted = true;
-
-    async function startScanner() {
+    if (!cameraEnabled) return;
+    let disposed = false;
+    let scanner;
+    // Finish closing each camera stream before starting the next one.
+    const start = cameraQueue.current.catch(() => {}).then(async () => {
+      if (disposed) return;
+      setCameraState('starting');
+      setNotice('');
+      setTorchOn(false);
+      setTorchSupported(false);
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+        setCameraState('error');
+        setNotice(!window.isSecureContext
+          ? 'Camera access needs a secure connection. Open the HTTPS test address, or upload a photo or enter the serial.'
+          : 'Live camera access is unavailable in this browser. Open in Safari, upload a photo, or enter the serial.');
+        return;
+      }
       try {
-        setCameraError(null);
-        const html5QrCode = new Html5Qrcode('reader', {
-          formatsToSupport: [
-            Html5QrcodeSupportedFormats.QR_CODE,
-            Html5QrcodeSupportedFormats.DATA_MATRIX,
-            Html5QrcodeSupportedFormats.CODE_128,
-            Html5QrcodeSupportedFormats.EAN_13,
-          ],
-          verbose: false,
-        });
-        scannerRef.current = html5QrCode;
-
-        const config = {
-          fps: 15,
-          qrbox: { width: 220, height: 220 },
-          aspectRatio: 1.0,
-        };
-
-        await html5QrCode.start(
-          { facingMode },
-          config,
-          (decodedText) => {
-            if (!isScanningRef.current && mounted) {
-              isScanningRef.current = true;
-              vibrateSuccess();
-              onScanSuccess(decodedText);
-              // Pause scanning momentarily
-              setTimeout(() => {
-                isScanningRef.current = false;
-              }, 2000);
-            }
-          },
-          (_errorMessage) => {
-            // Scanning frame failed, normal continuous scan loop
+        scanner = new Html5Qrcode('camera-reader', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
+        scannerRef.current = scanner;
+        await scanner.start({ facingMode }, { fps: 10, disableFlip: false }, async code => {
+          if (disposed || busy.current) return;
+          busy.current = true;
+          scanner.pause(true);
+          try { await callback.current(code); }
+          finally {
+            if (!disposed && scanner.isScanning) scanner.resume();
+            busy.current = false;
           }
-        );
-
-        if (mounted) setCameraActive(true);
-      } catch (err) {
-        console.warn('Camera start error:', err);
-        if (mounted) {
-          setCameraError(
-            err.name === 'NotAllowedError'
-              ? 'Camera permission was denied. Please allow camera access in your device settings or use manual serial code entry below.'
-              : 'Could not initialize camera. You can enter or paste the product serial number below.'
-          );
-          setCameraActive(false);
+        }, () => {});
+        if (disposed) return;
+        setCameraState('ready');
+        // Optional capabilities can be missing or throw in Safari. A working
+        // video stream must remain usable when flashlight detection fails.
+        try { setTorchSupported(Boolean(scanner.getRunningTrackCapabilities()?.torch)); }
+        catch { setTorchSupported(false); }
+        setNotice('');
+      } catch (error) {
+        if (!disposed) {
+          setCameraState('error');
+          setNotice(cameraErrorMessage(error));
         }
       }
-    }
-
-    startScanner();
-
+    });
+    cameraQueue.current = start;
     return () => {
-      mounted = false;
-      if (scannerRef.current && scannerRef.current.isScanning) {
-        scannerRef.current.stop().catch((e) => console.warn('Scanner stop error:', e));
-      }
+      disposed = true;
+      cameraQueue.current = start.catch(() => {}).then(async () => {
+        // start() can resolve before the first video frame sets isScanning.
+        // The state machine already owns a stream at that point, so close it too.
+        if (scanner && [Html5QrcodeScannerState.SCANNING, Html5QrcodeScannerState.PAUSED].includes(scanner.getState())) {
+          await scanner.stop().catch(() => {});
+        }
+        try { scanner?.clear(); } catch { /* The stream is closed even if its detached view cannot be cleared. */ }
+        if (scannerRef.current === scanner) scannerRef.current = null;
+      });
     };
-  }, [facingMode]);
+  }, [cameraEnabled, cameraAttempt, facingMode]);
 
-  const handleFlipCamera = () => {
-    vibrateClick();
-    if (scannerRef.current && scannerRef.current.isScanning) {
-      scannerRef.current.stop().then(() => {
-        setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
-      }).catch((e) => console.warn('Flip error:', e));
-    } else {
-      setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'));
-    }
-  };
+  function enableCamera() {
+    setCameraState('starting');
+    setCameraEnabled(true);
+    setCameraAttempt(attempt => attempt + 1);
+  }
 
-  const handleManualSubmit = (e) => {
-    e.preventDefault();
-    if (!manualCode.trim()) return;
-    vibrateClick();
-    onScanSuccess(manualCode.trim());
-  };
+  async function toggleTorch() {
+    if (!torchSupported) { setNotice('Flashlight is available with a supported rear camera.'); return; }
+    try {
+      await scannerRef.current.applyVideoConstraints({ advanced: [{ torch: !torchOn }] });
+      setTorchOn(!torchOn);
+    } catch { setNotice('This camera could not turn on its flashlight.'); }
+  }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {/* Viewfinder Container */}
-      <div className="scanner-viewport">
-        <div id="reader" style={{ width: '100%', height: '100%' }}></div>
+  async function readPhoto(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setReadingPhoto(true);
+    setNotice('');
+    const scanner = new Html5Qrcode('photo-reader', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
+    try { await callback.current(await scanner.scanFile(file, false)); }
+    catch { setNotice('No QR code found in that photo. Try a clearer image or enter the serial manually.'); }
+    finally { scanner.clear(); setReadingPhoto(false); event.target.value = ''; }
+  }
 
-        {/* Reticle Overlay */}
-        <div className="scanner-overlay-reticle">
-          <div className="scanner-corner corner-tl"></div>
-          <div className="scanner-corner corner-tr"></div>
-          <div className="scanner-corner corner-bl"></div>
-          <div className="scanner-corner corner-br"></div>
-          <div className="scanner-laser"></div>
+  return <section className="scan-screen" aria-label="Scan a product">
+    <input type="file" accept="image/*" ref={fileInput} hidden onChange={readPhoto} aria-label="Upload QR code photo" />
+    <div id="photo-reader" hidden />
+    <div className={`scanner-hero ${cameraState === 'ready' ? 'camera-live' : ''}`}>
+      <div className="scanner-ambient" />
+      <div id="camera-reader" />
+      <div className="scanner-camera-shade" />
+      <div className="scan-greeting"><p>A little scan. Total confidence.</p><h1>Scan your product</h1></div>
+      <div className="scanner-target" aria-hidden="true"><div className="viewfinder"><i /><i /><i /><i /><ScanLine className="finder-icon" size={44} strokeWidth={1} /></div></div>
+      <div className="scanner-bottom">
+        <div className={`scanner-glass-hint ${scanning ? 'is-scanning' : ''}`}>
+          <span className="scan-hint-track" aria-hidden="true"><span className="scan-hint-icon"><ScanLine size={22} /></span></span>
+          <span className="scan-hint-copy" ref={hintCopy}>Place the QR code inside the frame</span>
+          <ArrowRight className="scan-hint-arrow" size={16} aria-hidden="true" />
         </div>
-
-        {/* Loading Overlay */}
-        {verifying && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              backgroundColor: 'rgba(11, 19, 43, 0.85)',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 12,
-              zIndex: 30,
-              backdropFilter: 'blur(4px)',
-            }}
-          >
-            <Loader2 className="animate-spin" size={36} color="#3B82F6" style={{ animation: 'spin 1s linear infinite' }} />
-            <strong style={{ color: '#FFFFFF', fontSize: 15 }}>
-              Verifying Ledger Authenticity…
-            </strong>
-            <span style={{ color: '#93C5FD', fontSize: 12 }}>
-              Auditing Ethereum Sepolia Blockchain
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Camera Controls Bar */}
-      <div style={{ display: 'flex', gap: 10 }}>
-        <button
-          type="button"
-          className="btn-m-secondary"
-          onClick={handleFlipCamera}
-          style={{ flex: 1 }}
-        >
-          <SwitchCamera size={18} />
-          <span>Flip Camera</span>
-        </button>
-
-        <button
-          type="button"
-          className="btn-m-secondary"
-          onClick={() => {
-            vibrateClick();
-            setShowManualInput(!showManualInput);
-          }}
-          style={{ flex: 1 }}
-        >
-          <KeyRound size={18} />
-          <span>{showManualInput ? 'Hide Manual Entry' : 'Manual Serial'}</span>
-        </button>
-      </div>
-
-      {/* Camera Error Alert */}
-      {cameraError && (
-        <div
-          style={{
-            padding: '14px 16px',
-            borderRadius: 14,
-            backgroundColor: 'var(--color-warning-bg)',
-            border: '1px solid var(--color-warning-border)',
-            color: 'var(--color-warning-dark)',
-            fontSize: 13,
-            lineHeight: 1.5,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 10,
-          }}
-        >
-          <AlertCircle size={20} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>{cameraError}</span>
+        <div className="scanner-info-card">
+          <div className="scanner-info-copy"><h2>Know what you’re buying.</h2><p><ShieldCheck size={15} />Trace its origin. Check it’s authentic.</p></div>
+          <div className="scanner-info-footer"><span>SmartScan Verify</span><button className="dark-button" disabled={loading || cameraState === 'starting' || cameraState === 'ready'} onClick={enableCamera}>
+            {cameraState === 'starting' ? <Loader2 className="spin" size={16} /> : <Camera size={16} />}
+            {cameraState === 'ready' ? 'Camera ready' : cameraState === 'starting' ? 'Opening…' : cameraState === 'error' ? 'Try camera' : 'Enable camera'}
+          </button></div>
         </div>
-      )}
-
-      {/* Verification Error Notice */}
-      {verificationError && (
-        <div
-          style={{
-            padding: '14px 16px',
-            borderRadius: 14,
-            backgroundColor: 'var(--color-danger-bg)',
-            border: '1px solid var(--color-danger-border)',
-            color: 'var(--color-danger-dark)',
-            fontSize: 13,
-            lineHeight: 1.5,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 10,
-          }}
-        >
-          <AlertCircle size={20} style={{ flexShrink: 0, marginTop: 1 }} />
-          <span>{verificationError}</span>
-        </div>
-      )}
-
-      {/* Manual Input Form */}
-      {showManualInput && (
-        <form onSubmit={handleManualSubmit} className="m-card">
-          <label
-            style={{
-              display: 'block',
-              fontSize: 12,
-              fontWeight: 700,
-              color: 'var(--color-text-secondary)',
-              textTransform: 'uppercase',
-              letterSpacing: 0.5,
-              marginBottom: 8,
-            }}
-          >
-            Enter Packaging Serial Number
-          </label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <input
-              type="text"
-              placeholder="e.g. SS-37010C83-997C-4C67-8547-09419BE82245"
-              value={manualCode}
-              onChange={(e) => setManualCode(e.target.value)}
-              style={{
-                flex: 1,
-                padding: '12px 14px',
-                borderRadius: 12,
-                border: '1px solid var(--color-border)',
-                fontFamily: 'monospace',
-                fontSize: 13,
-                outline: 'none',
-              }}
-            />
-            <button
-              type="submit"
-              className="btn-m-primary"
-              style={{ width: 'auto', padding: '0 18px', minHeight: 44 }}
-            >
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        </form>
-      )}
-
-      {/* Consumer Quick Guide */}
-      <div className="m-card" style={{ padding: '16px' }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-text-main)', marginBottom: 8 }}>
-          How to Verify Authentic Products
-        </h3>
-        <ol style={{ paddingLeft: 18, margin: 0, fontSize: 13, color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-          <li>Locate the official <strong>SmartScan QR code</strong> on product packaging or receipt.</li>
-          <li>Align the code within the viewfinder corners above.</li>
-          <li>Review the certified blockchain origin and brand warranty passport instantly.</li>
-        </ol>
       </div>
+      {loading && <div className="scanner-loading" role="status"><Loader2 className="spin" size={32} /><h2>{readingPhoto ? 'Reading your photo…' : 'Checking your product…'}</h2><p>This will only take a moment.</p></div>}
     </div>
-  );
+    <div className="scanner-controls">
+      <button className={`camera-control ${torchOn ? 'active' : ''}`} onClick={toggleTorch} disabled={loading || cameraState !== 'ready' || !torchSupported} aria-label="Flashlight" aria-pressed={torchOn}><span className="circle-button raised"><Zap size={22} /></span><span>Flashlight</span></button>
+      <span className="camera-status">{cameraState === 'ready' ? 'Ready to scan' : 'Scan. Verify. Trust.'}</span>
+      <button className="camera-control" disabled={loading || cameraState === 'starting'} onClick={() => { setFacingMode(mode => mode === 'environment' ? 'user' : 'environment'); enableCamera(); }} aria-label="Flip camera"><span className="circle-button raised"><SwitchCamera size={22} /></span><span>Flip camera</span></button>
+    </div>
+    {(verificationError || notice) && <p className="scan-notice" role="alert">{verificationError || notice}</p>}
+    <section className="shortcuts"><h2>Shortcuts</h2><div className="shortcut-pills">
+      <button disabled={loading} onClick={() => fileInput.current?.click()}><Image size={18} /><span>Upload from photos</span></button>
+      <button disabled={loading} onClick={() => setManualOpen(true)}><Keyboard size={18} /><span>Enter serial manually</span></button>
+    </div></section>
+    {manualOpen && <Sheet title="Enter serial manually" onClose={() => setManualOpen(false)}><p className="supporting-copy">Find the serial number on your product’s label or packaging.</p><form className="sheet-form" onSubmit={event => { event.preventDefault(); if (manualCode.trim()) { setManualOpen(false); onScanSuccess(manualCode.trim()); } }}>
+      <label htmlFor="serial-number">Serial number</label><input id="serial-number" data-autofocus value={manualCode} onChange={event => setManualCode(event.target.value)} placeholder="e.g. SS-…" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={150} required />
+      <button className="dark-button" disabled={!manualCode.trim() || verifying}>Verify product<ArrowRight size={18} /></button>
+    </form></Sheet>}
+  </section>;
 }

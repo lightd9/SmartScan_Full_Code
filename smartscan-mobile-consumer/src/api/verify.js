@@ -1,140 +1,99 @@
 import { ethers } from 'ethers';
 import axios from 'axios';
-import {
-  CONTRACT_ADDRESS,
-  CHAIN_RPC_URL,
-  API_BASE_URL,
-} from '../config/constants';
-import contractAbi from '../utils/IdenteefiV2.json';
+import { CONTRACT_ADDRESS, CHAIN_RPC_URL, API_BASE_URL, CHAIN_ID } from '../config/constants.js';
+import contractAbi from '../utils/IdenteefiV2.json' with { type: 'json' };
 
-const SS_UUID_REGEX = /SS-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const SS_UUID_REGEX = /^SS-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function parseQrPayload(rawInput) {
-  if (!rawInput || typeof rawInput !== 'string') {
-    throw new Error('Please scan a valid SmartScan QR code or enter a serial number.');
-  }
-
+  if (typeof rawInput !== 'string' || !rawInput.trim()) throw new Error('Please scan a valid SmartScan QR code or enter a serial number.');
   const trimmed = rawInput.trim();
-
-  // Pattern 1: Contains SmartScan Serial UUID (e.g. from URL or label)
-  const match = trimmed.match(SS_UUID_REGEX);
-  if (match) {
-    return {
-      serialNumber: match[0].toUpperCase(),
-      contractAddress: CONTRACT_ADDRESS,
-    };
-  }
-
-  // Pattern 2: Comma separated contract,serial
-  if (trimmed.includes(',')) {
+  let serialNumber = trimmed;
+  let contractAddress = CONTRACT_ADDRESS;
+  if (/^https?:\/\//i.test(trimmed)) {
+    const url = new URL(trimmed);
+    const pathMatch = url.pathname.match(/\/verify\/([^/]+)\/?$/);
+    serialNumber = pathMatch ? decodeURIComponent(pathMatch[1]) : url.searchParams.get('serialNumber');
+  } else if (trimmed.includes(',')) {
     const parts = trimmed.split(',');
-    if (parts.length === 2 && ethers.isAddress(parts[0].trim())) {
-      return {
-        contractAddress: parts[0].trim(),
-        serialNumber: parts[1].trim(),
-      };
-    }
+    if (parts.length !== 2) throw new Error('The scanned code is not a recognized SmartScan product passport.');
+    [contractAddress, serialNumber] = parts.map(part => part.trim());
   }
+  if (!ethers.isAddress(contractAddress) || contractAddress.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) throw new Error('The scanned code points to an unrecognized contract.');
+  if (!SS_UUID_REGEX.test(serialNumber || '')) throw new Error('The scanned code is not a recognized SmartScan product passport.');
+  // Contract string keys are case-sensitive; retain the identifier as issued.
+  return { serialNumber, contractAddress };
+}
 
-  // Fallback: If alphanumeric serial without standard prefix
-  if (trimmed.length >= 6 && trimmed.length <= 64) {
-    return {
-      serialNumber: trimmed,
-      contractAddress: CONTRACT_ADDRESS,
-    };
-  }
-
-  throw new Error('The scanned code is not a recognized SmartScan product passport.');
+export function normalizeChainProduct(raw, serialNumber, verifiedAt = new Date().toISOString()) {
+  if (!raw || raw[0] !== serialNumber) return { serialNumber, exists: false, status: 'NOT_FOUND', source: 'chain', contractAddress: CONTRACT_ADDRESS, chainId: String(CHAIN_ID), verifiedAt };
+  const stage = Number(raw[6]);
+  const recalled = raw[10] === true || stage === 5;
+  const isSold = raw[9] === true || stage === 4;
+  return {
+    serialNumber: raw[0], name: raw[1] || 'Registered product', brand: raw[2] || '',
+    description: (raw[3] || '').replace(/;/g, ', '), imageHash: raw[4] || '',
+    stage, custodian: raw[7], pendingRecipient: raw[8], recalled, isSold,
+    history: Array.from(raw[5] || [], event => ({
+      actor: event.actor ?? event[1] ?? '', actorWallet: event.actorWallet ?? event[2] ?? '',
+      actorRole: Number(event.actorRole ?? event[7] ?? 0), location: event.location ?? event[3] ?? '',
+      timestamp: String(event.timestamp ?? event[4] ?? ''), action: Number(event.action ?? event[5] ?? 0),
+    })),
+    exists: true, status: recalled ? 'RECALLED' : isSold ? 'SOLD' : 'REGISTERED', source: 'chain',
+    contractAddress: CONTRACT_ADDRESS, chainId: String(CHAIN_ID), verifiedAt,
+  };
 }
 
 export async function verifyProductOnChain(serialNumber) {
+  const request = new ethers.FetchRequest(CHAIN_RPC_URL);
+  request.timeout = 9000;
+  const provider = new ethers.JsonRpcProvider(request);
   try {
-    const provider = new ethers.JsonRpcProvider(CHAIN_RPC_URL);
+    const network = await provider.getNetwork();
+    if (Number(network.chainId) !== CHAIN_ID) throw new Error('Verification network mismatch');
     const contract = new ethers.Contract(CONTRACT_ADDRESS, contractAbi.abi, provider);
-
-    const exists = await contract.productExists(serialNumber);
-    if (!exists) {
-      return {
-        serialNumber,
-        exists: false,
-        status: 'COUNTERFEIT',
-        verdictTitle: 'Unregistered / Counterfeit Alert',
-        verdictMessage: 'This product identifier does not exist on the SmartScan Sepolia blockchain ledger.',
-      };
-    }
-
-    const raw = await contract.getProduct(serialNumber);
-    const stage = Number(raw[6]);
-    const isSold = Boolean(raw[9]);
-    const custodian = raw[7];
-
-    const rawHistory = Array.isArray(raw[5]) ? raw[5] : [];
-    const history = rawHistory.map((evt) => ({
-      actor: evt.actor || 'Authorized Facility',
-      actorWallet: evt.actorWallet || '',
-      actorRole: Number(evt.actorRole || 0),
-      location: (evt.location || '').replace(/;/g, ', '),
-      timestamp: evt.timestamp ? Number(evt.timestamp) : Math.floor(Date.now() / 1000),
-      action: Number(evt.action || 0),
-    }));
-
-    let status = 'AUTHENTIC';
-    let verdictTitle = 'Authentic Verified Product';
-    let verdictMessage = 'Cryptographic origin verified against Ethereum Sepolia immutable ledger.';
-
-    if (stage === 4) {
-      status = 'RECALLED';
-      verdictTitle = 'Manufacturer Recall Alert';
-      verdictMessage = 'This product batch has been flagged as recalled by the brand authority.';
-    } else if (isSold || stage === 3) {
-      status = 'SOLD';
-      verdictTitle = 'Ownership Registered (Sold)';
-      verdictMessage = 'This item has already been marked as sold to a consumer.';
-    }
-
-    return {
-      serialNumber: raw[0] || serialNumber,
-      name: raw[1] || 'Verified Product',
-      brand: raw[2] || 'Certified Brand',
-      description: (raw[3] || '').replace(/;/g, ', '),
-      imageHash: raw[4] || '',
-      stage,
-      custodian,
-      history,
-      isSold,
-      exists: true,
-      status,
-      verdictTitle,
-      verdictMessage,
-      contractAddress: CONTRACT_ADDRESS,
-      verifiedAt: new Date().toISOString(),
-    };
-  } catch (err) {
-    console.error('Direct on-chain check error:', err);
-    throw err;
-  }
+    if (!await contract.productExists(serialNumber)) return normalizeChainProduct(null, serialNumber);
+    return normalizeChainProduct(await contract.getProduct(serialNumber), serialNumber);
+  } finally { provider.destroy(); }
 }
 
-export async function fetchProductWithFallback(serialNumber) {
-  // First try backend API for rich metadata (image URLs, registered location name)
-  try {
-    const res = await axios.get(`${API_BASE_URL}/product/verify/${encodeURIComponent(serialNumber)}`, {
-      timeout: 4500,
-    });
-    if (res.data) {
-      return {
-        ...res.data,
-        serialNumber: res.data.serialNumber || serialNumber,
-        exists: true,
-        status: res.data.isSold ? 'SOLD' : res.data.status || 'AUTHENTIC',
-        verdictTitle: res.data.isSold ? 'Ownership Registered (Sold)' : 'Authentic Verified Product',
-        verdictMessage: 'Cryptographically verified with live manufacturer proof on blockchain.',
-      };
-    }
-  } catch (_apiErr) {
-    // Backend API unreachable or 404, fall through to decentralized on-chain verification
+export function mergeVerificationResults(serialNumber, registry, chain) {
+  const metadata = registry.status === 'fulfilled' && registry.value.data?.exists === true ? registry.value.data : null;
+  if (chain.status === 'fulfilled') {
+    // Never merge stale registry lifecycle fields into a fresh chain read.
+    return { ...chain.value, imageHash: metadata?.imageHash || chain.value.imageHash || '', scanWarnings: ['scan_risk_check_unavailable'] };
   }
-
-  // Fallback to direct decentralized on-chain query
-  return verifyProductOnChain(serialNumber);
+  if (metadata) return {
+    serialNumber, name: metadata.name, brand: metadata.brand, description: metadata.description,
+    imageHash: metadata.imageHash, exists: true, source: 'registry', stage: metadata.stage,
+    recalled: metadata.recalled === true || Number(metadata.stage) === 5,
+    isSold: metadata.isSold === true || Number(metadata.stage) === 4,
+    status: Number(metadata.stage) === 5 || metadata.recalled === true ? 'RECALLED' : 'REGISTERED',
+    registryUpdatedAt: metadata.registryUpdatedAt || null, verifiedAt: null,
+    contractAddress: CONTRACT_ADDRESS, chainId: String(CHAIN_ID), scanWarnings: ['scan_risk_check_unavailable'],
+  };
+  throw new Error('We could not verify this product. Check your connection and try again.');
 }
+
+export function createProductVerifier({ api = axios, readChain = verifyProductOnChain } = {}) {
+  return async function fetchProduct(serialNumber, { eventId = crypto.randomUUID() } = {}) {
+    try {
+      const response = await api.post(`${API_BASE_URL}/v1/assessments`, {
+        serialNumber, contractAddress: CONTRACT_ADDRESS, eventId, purpose: 'consumer',
+      }, { timeout: 12000 });
+      const { product, assessment, flags } = response.data || {};
+      if (![200, 201].includes(response.status) || !assessment?.summary || assessment.policyVersion !== 'v2-evidence-1'
+        || !Array.isArray(assessment.findings) || !Array.isArray(flags) || product?.serialNumber !== serialNumber
+        || product?.contractAddress?.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase() || String(product?.chainId) !== String(CHAIN_ID)) throw new Error('Assessment unavailable');
+      return { ...product, assessment, scanWarnings: flags };
+    } catch {
+      const [registry, chain] = await Promise.allSettled([
+        api.get(`${API_BASE_URL}/product/verify/${encodeURIComponent(serialNumber)}`, { timeout: 4500 }),
+        readChain(serialNumber),
+      ]);
+      return mergeVerificationResults(serialNumber, registry, chain);
+    }
+  };
+}
+
+export const fetchProductWithFallback = createProductVerifier();

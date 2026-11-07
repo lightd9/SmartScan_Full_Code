@@ -1,6 +1,8 @@
 import { Haptics, ImpactStyle, NotificationType } from '@capacitor/haptics';
+import { getHapticsEnabled } from './storage';
 
 export async function vibrateSuccess() {
+  if (!getHapticsEnabled()) return;
   try {
     await Haptics.notification({ type: NotificationType.Success });
   } catch (_e) {
@@ -11,6 +13,7 @@ export async function vibrateSuccess() {
 }
 
 export async function vibrateWarning() {
+  if (!getHapticsEnabled()) return;
   try {
     await Haptics.notification({ type: NotificationType.Warning });
   } catch (_e) {
@@ -21,6 +24,7 @@ export async function vibrateWarning() {
 }
 
 export async function vibrateClick() {
+  if (!getHapticsEnabled()) return;
   try {
     await Haptics.impact({ style: ImpactStyle.Light });
   } catch (_e) {

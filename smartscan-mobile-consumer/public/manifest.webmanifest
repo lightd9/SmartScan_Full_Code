@@ -1,0 +1,10 @@
+{
+  "id": "/",
+  "name": "SmartScan Verify",
+  "short_name": "SmartScan",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#eeeeee",
+  "theme_color": "#eeeeee"
+}

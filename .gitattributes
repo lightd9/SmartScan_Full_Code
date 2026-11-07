@@ -1,0 +1,3 @@
+# Shell build scripts must work on macOS even when edited on Windows.
+scripts/*.sh text eol=lf
+smartscan-mobile-*/android/gradlew text eol=lf
