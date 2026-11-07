@@ -11,7 +11,8 @@ import {
   Volume2,
 } from "lucide-react";
 import { useBusiness, useRefresh } from "../app/context";
-import { enterpriseService } from "../services";
+import { enterpriseService, isLive } from "../services";
+import { signOut } from '../services/session';
 import { type Scenario, roleNames } from "../domain/types";
 import {
   ActionRow,
@@ -51,6 +52,7 @@ export default function More() {
         JSON.stringify(next),
       );
       setPrefs(next);
+      notify("Preference saved");
     } catch {
       notify("Preferences could not be saved on this device.");
     }
@@ -70,7 +72,7 @@ export default function More() {
           <br />
           {roleNames[w.role]} · {f.code}
         </p>
-        <Badge>Demo workspace</Badge>
+        <Badge>{isLive ? 'Connected workspace' : 'Demo workspace'}</Badge>
       </section>
       <SectionTitle title="Your account" />
       <div className="surface">
@@ -122,9 +124,9 @@ export default function More() {
           }
         />
       </div>
-      <SectionTitle title="Explore the demo" />
+      <SectionTitle title={isLive ? 'About SmartScan' : 'Explore the demo'} />
       <div className="surface">
-        <ActionRow
+        {!isLive && <><ActionRow
           icon={<ArrowUpRight size={21} />}
           title="Switch demo role"
           detail="Explore Admin, Manufacturer, Supplier, or Retailer"
@@ -139,7 +141,7 @@ export default function More() {
             setError("");
             setModal("reset");
           }}
-        />
+        /></>}
         <ActionRow
           icon={<Info size={21} />}
           title="How SmartScan works"
@@ -149,10 +151,10 @@ export default function More() {
       </div>
       <button className="sign-out" onClick={() => setModal("logout")}>
         <LogOut size={17} />
-        Leave demo workspace
+        {isLive ? 'Sign out' : 'Leave demo workspace'}
       </button>
       <p className="simulation-note">
-        SmartScan Enterprise · Interface preview 0.1
+        {isLive ? 'SmartScan · Sepolia test network' : 'SmartScan Enterprise · Interface preview 0.1'}
       </p>
       {modal === "profile" && (
         <Sheet title="Business & facility" onClose={() => setModal(null)}>
@@ -173,8 +175,7 @@ export default function More() {
           </div>
           <p className="support">
             Use the facility selector at the top of the app to change your
-            operating location. Live account and password settings will be
-            connected with authentication.
+            operating location.
           </p>
         </Sheet>
       )}
@@ -200,11 +201,9 @@ export default function More() {
               Recalled, unregistered, and already sold items need different
               handling. A scan cannot prove physical authenticity on its own.
             </p>
-            <h3>This is an interactive demo</h3>
+            <h3>{isLive ? 'Connected to your business' : 'This is an interactive demo'}</h3>
             <p>
-              Records stay in this browser. No live identities, funds, or
-              blockchain transactions are involved. Sample records should not be
-              used for real operational decisions.
+              {isLive ? 'Records are stored in the shared SmartScan database. Facility actions are signed on the Sepolia test network. A registered code alone does not prove the contents of a physical product.' : 'Records stay on this device. No live identities, funds, or blockchain transactions are involved.'}
             </p>
           </div>
         </Sheet>
@@ -276,16 +275,16 @@ export default function More() {
       {modal === "logout" && (
         <Sheet title="Leave this workspace?" onClose={() => setModal(null)}>
           <p className="support">
-            Your demo records and scan sessions remain on this device. You can
-            return to any demo role from the welcome screen.
+            {isLive ? 'Your recorded operations remain in SmartScan. You will need your username and password to return.' : 'Your demo records and scan sessions remain on this device.'}
           </p>
           <Primary
             onClick={() => {
+              if (isLive) signOut();
               setWorkspace(null);
               navigate("/welcome", { replace: true });
             }}
           >
-            Leave demo workspace
+            {isLive ? 'Sign out' : 'Leave demo workspace'}
             <LogOut size={17} />
           </Primary>
         </Sheet>

@@ -53,7 +53,7 @@ export default function Welcome() {
       <div className="welcome-brand">
         <BrandMark />
         <span>
-          SmartScan<span>enterprise</span>
+          SmartScan
         </span>
       </div>
       <span className="eyebrow">CONNECTED AT EVERY STEP</span>

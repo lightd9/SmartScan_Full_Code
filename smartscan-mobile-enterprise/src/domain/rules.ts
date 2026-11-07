@@ -5,6 +5,8 @@ import {
   type Filter,
   type Product,
   type Workspace,
+  type Task,
+  type Operation,
 } from "./types";
 
 export function capability(
@@ -13,6 +15,7 @@ export function capability(
   facility: Facility,
   workspace: Workspace,
 ): string | null {
+  if (product.chainAvailable === false) return 'Current blockchain status is unavailable. Reconnect before recording an action.';
   if (
     facility.accountId !== workspace.accountId ||
     facility.id !== workspace.facilityId ||
@@ -76,6 +79,25 @@ export function capability(
       ? null
       : "Only a retailer holding a received item can record its sale.";
   return "This action is unavailable.";
+}
+
+// A suggestion uses the same custody rules as submission. It never transfers
+// stock just because a code was scanned, or bypasses an operation in progress.
+export function nextScanTask(
+  product: Product,
+  facility: Facility,
+  workspace: Workspace,
+  operations: Operation[] = [],
+): Task | null {
+  if (operations.some((op) => op.items.some((item) =>
+    item.productId === product.id && item.status === "submitted"))) return null;
+  return (["receive", "dispatch", "sell"] as const).find((task) =>
+    !capability(product, task, facility, workspace)) || null;
+}
+
+export function canExportLabel(product: Product, workspace: Workspace, facilities: Facility[]): boolean {
+  return workspace.role === "manufacturer" && facilities.some((facility) =>
+    facility.id === product.manufacturerId && facility.accountId === workspace.accountId);
 }
 
 export function eligibleRecipient(

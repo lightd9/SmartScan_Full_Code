@@ -5,6 +5,8 @@ import {
   capability,
   eligibleRecipient,
   parseCode,
+  nextScanTask,
+  canExportLabel,
 } from "./rules";
 import { Stage, type Workspace } from "./types";
 
@@ -169,5 +171,25 @@ describe("V2 custody capabilities", () => {
       parseCode(`https://unrelated.example/verify/${demoSerial(1)}`),
     ).toThrow();
     expect(() => parseCode("SS-invalid")).toThrow();
+  });
+  it("suggests receipt, dispatch, or individual sale from custody rather than the selected scanner tab", () => {
+    expect(nextScanTask(product(1), facility("warehouse"), workspace("warehouse"))).toBe("receive");
+    expect(nextScanTask(product(3), facility("warehouse"), workspace("warehouse"))).toBe("dispatch");
+    expect(nextScanTask(product(6), facility("store"), workspace("store"))).toBe("sell");
+    expect(nextScanTask(product(3), facility("warehouse-2"), workspace("warehouse-2"))).toBeNull();
+    expect(nextScanTask(product(8), facility("warehouse"), workspace("warehouse"))).toBeNull();
+    expect(nextScanTask({ ...product(6), stage: Stage.Sold }, facility("store"), workspace("store"))).toBeNull();
+    expect(nextScanTask(product(3), { ...facility("warehouse"), status: "revoked" }, workspace("warehouse"))).toBeNull();
+    expect(nextScanTask(product(3), facility("warehouse"), workspace("warehouse"), [{
+      id: "pending", requestKey: "pending", accountId: "supply", facilityId: "warehouse", action: "dispatch", createdAt: new Date().toISOString(),
+      items: [{ productId: product(3).id, expectedVersion: 1, status: "submitted", finishAt: Date.now() }],
+    }])).toBeNull();
+  });
+  it("limits label access to the product's manufacturer, including their other facilities", () => {
+    expect(canExportLabel(product(1), workspace("factory"), s.facilities)).toBe(true);
+    for (const id of ["warehouse", "store", "admin-hq"]) {
+      expect(canExportLabel(product(1), workspace(id), s.facilities)).toBe(false);
+    }
+    expect(canExportLabel(product(1), { ...workspace("factory"), accountId: "other-manufacturer" }, s.facilities)).toBe(false);
   });
 });

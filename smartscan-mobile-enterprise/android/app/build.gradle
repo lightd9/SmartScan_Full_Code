@@ -3,6 +3,9 @@ apply plugin: 'com.android.application'
 android {
     namespace "com.smartscan.enterprise"
     compileSdk rootProject.ext.compileSdkVersion
+    sourceSets {
+        main.java.srcDirs += '../../../native/android'
+    }
     defaultConfig {
         applicationId "com.smartscan.enterprise"
         minSdkVersion rootProject.ext.minSdkVersion

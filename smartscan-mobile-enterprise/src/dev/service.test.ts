@@ -43,6 +43,21 @@ function setup(scenario: Scenario = "normal") {
   };
 }
 describe("durable local demo operation lifecycle", () => {
+  it("receives only the passport item and keeps other scan drafts separate on a repeated tap", async () => {
+    const t = setup();
+    await t.service.saveDraft({ facilityId: "warehouse", task: "receive", codes: [demoSerial(1), demoSerial(2)] });
+    await t.service.saveDraft({ facilityId: "warehouse", task: "dispatch", codes: [demoSerial(3)] });
+    const input = { workspace: supplier, requestKey: "passport-receipt", action: "receive" as const, productIds: [demoSerial(1)] };
+    const first = await t.service.submit(input);
+    expect((await t.service.submit(input)).id).toBe(first.id);
+    expect(first.items.map((item) => item.productId)).toEqual([demoSerial(1)]);
+    t.advance();
+    const s = await t.reopen().snapshot();
+    expect(s.products.find((p) => p.id === demoSerial(1))?.custodianId).toBe("warehouse");
+    expect(s.products.find((p) => p.id === demoSerial(2))?.stage).toBe(Stage.Dispatched);
+    expect(s.drafts.find((d) => d.task === "receive")?.codes).toEqual([demoSerial(2)]);
+    expect(s.drafts.find((d) => d.task === "dispatch")?.codes).toEqual([demoSerial(3)]);
+  });
   it("preserves the submitted location across retries, confirmation, and reload", async () => {
     const t = setup();
     const location = {

@@ -1004,3 +1004,16 @@
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+.wallet-summary {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.wallet-summary code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.queue-next-action {
+  margin-top: 8px;
+  min-height: 44px;
+}

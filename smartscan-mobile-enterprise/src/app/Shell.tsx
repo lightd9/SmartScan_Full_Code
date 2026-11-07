@@ -18,10 +18,13 @@ import {
   WifiOff,
   Check,
   ArrowUpRight,
+  Wallet,
 } from "lucide-react";
 import { useBusiness, useRefresh } from "./context";
 import { Badge, BrandMark, ErrorNote, Loading, Sheet } from "../design/ui";
 import { roleNames } from "../domain/types";
+import { isLive } from '../services';
+import { signOut } from '../services/session';
 
 const scrollPositions = new Map<string, number>();
 function Screen() {
@@ -43,7 +46,7 @@ function Screen() {
 }
 
 export default function Shell() {
-  const { workspace, data, error, facility, account, setWorkspace, notice } =
+  const { workspace, data, error, facility, account, setWorkspace, notice, noticeId } =
     useBusiness();
   const [switching, setSwitching] = useState(false);
   const navigate = useNavigate();
@@ -57,7 +60,7 @@ export default function Shell() {
         <h1>Let’s restore your workspace.</h1>
         <ErrorNote>{error.message}</ErrorNote>
         <button className="primary" onClick={() => navigate("/welcome")}>
-          Return to demo setup
+          Return to sign in
         </button>
       </main>
     );
@@ -88,24 +91,24 @@ export default function Shell() {
         <div className="demo-strip">
           <span>
             <i />
-            Demo workspace
+            {isLive ? data.network?.name || 'Connected workspace' : 'Demo workspace'}
           </span>
-          <button onClick={() => navigate("/welcome")}>
+          <button onClick={() => { if (isLive) signOut(); navigate("/welcome"); }}>
             {roleNames[workspace.role]}
             <ArrowUpRight size={12} />
           </button>
         </div>
         <div className="workspace-bar">
           <span className="wordmark">
-            SmartScan<span>enterprise</span>
+            SmartScan
           </span>
           <button
             className="facility-button"
             onClick={() => setSwitching(true)}
-            aria-label="Change active facility"
+            aria-label="View wallet and change active facility"
           >
-            <Building2 size={15} />
-            <span>{facility.code}</span>
+            <Wallet size={15} />
+            <span>{facility.wallet ? `${facility.wallet.slice(0, 6)}…${facility.wallet.slice(-4)}` : "Wallet pending"}</span>
             <ChevronDown size={14} />
           </button>
         </div>
@@ -116,11 +119,12 @@ export default function Shell() {
             drafts stay on this device
           </div>
         )}
+        {data.warnings?.map(warning => <div key={warning} className="offline-banner" role="status">{warning}</div>)}
         {facility.status !== "active" && (
           <div className="offline-banner" role="status">
             {facility.status === "revoked"
               ? "Facility revoked"
-              : "Awaiting facility approval"}{" "}
+              : facility.status === 'suspended' ? 'Facility suspended' : "Awaiting facility approval"}{" "}
             · actions unavailable
           </div>
         )}
@@ -141,11 +145,22 @@ export default function Shell() {
           </NavLink>
         ))}
       </nav>
-      <div className={`toast ${notice ? "visible" : ""}`} role="status">
-        {notice}
+      <div className={`toast ${notice ? "visible" : ""}`} role="status" aria-atomic="true">
+        <span key={noticeId}>{notice}</span>
       </div>
       {switching && (
-        <Sheet title="Your active facility" onClose={() => setSwitching(false)}>
+        <Sheet title="Integrated wallet" onClose={() => setSwitching(false)}>
+          <div className="wallet-summary">
+            <Badge>{isLive ? data.network?.name || 'Integrated wallet' : 'Demo wallet'}</Badge>
+            <strong>{facility.name}</strong>
+            <code>{facility.wallet || (workspace.role === 'admin' ? 'Network administration' : 'Awaiting wallet provisioning')}</code>
+            <p className="support">{isLive ? 'Your facility wallet signs actions on the server. Wallet keys stay off this device.' : 'This is a sample wallet. Demo actions do not send blockchain transactions.'}</p>
+            {isLive && facility.wallet && <>
+              <p>Gas balance: {facility.balanceEth == null ? 'Unavailable' : `${Number(facility.balanceEth).toFixed(6)} test ETH`}</p>
+              <p>Blockchain role: {facility.chainRole || 'Could not be checked'}</p>
+              {facility.balanceEth !== null && Number(facility.balanceEth) < 0.0002 && <p className="support">Gas funding is needed. SmartScan will request a treasury top-up when you record an action.</p>}
+            </>}
+          </div>
           <p className="support">
             Your inventory and actions belong to this facility. Scan sessions
             are saved separately for each location.

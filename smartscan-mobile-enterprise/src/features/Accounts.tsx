@@ -16,7 +16,7 @@ import {
   Truck,
 } from "lucide-react";
 import { useBusiness, useRefresh } from "../app/context";
-import { enterpriseService } from "../services";
+import { enterpriseService, isLive } from "../services";
 import { type Facility, type Role, roleNames } from "../domain/types";
 import {
   ActionRow,
@@ -42,6 +42,7 @@ export default function Accounts() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [business, setBusiness] = useState({
+    password: '',
     name: "",
     username: "",
     role: "manufacturer" as Role,
@@ -84,9 +85,9 @@ export default function Accounts() {
       if (which === "create") {
         const a = await enterpriseService.createAccount(w, business);
         setCreate(false);
-        setBusiness({ name: "", username: "", role: "manufacturer" });
+        setBusiness({ name: "", username: "", password: '', role: "manufacturer" });
         navigate(`/accounts/${a.id}`);
-        notify("Business created in demo. Add its first facility.");
+        notify("Business added");
       } else {
         await enterpriseService.createFacility(w, {
           ...facility,
@@ -94,7 +95,7 @@ export default function Accounts() {
         });
         setProvision(false);
         setFacility({ name: "", code: "", location: "" });
-        notify("Facility created. Review it for approval.");
+        notify("Facility added");
       }
       await refresh();
     } catch (e) {
@@ -116,8 +117,8 @@ export default function Accounts() {
       await refresh();
       notify(
         selected.status === "pending"
-          ? "Facility approved in demo."
-          : "Facility revoked in demo.",
+          ? "Facility approved"
+          : "Facility revoked",
       );
       setSelected(null);
     } catch (e) {
@@ -156,7 +157,7 @@ export default function Accounts() {
               <Badge>{roleNames[account.role]}</Badge>
               <h2>{account.name}</h2>
               <p>@{account.username}</p>
-              <small>Demo business account</small>
+              <small>{isLive ? 'Registered business account' : 'Demo business account'}</small>
             </section>
             <SectionTitle title="Facilities">
               <button className="text-button" onClick={() => open("provision")}>
@@ -243,7 +244,7 @@ export default function Accounts() {
           </div>
           <div className="list-caption">
             <span>{filtered.length} businesses</span>
-            <span>Demo network</span>
+            <span>{isLive ? 'SmartScan network' : 'Demo network'}</span>
           </div>
           <div className="surface">
             {filtered.map((a) => (
@@ -266,8 +267,7 @@ export default function Accounts() {
       {create && (
         <Sheet title="Add a business" onClose={() => setCreate(false)}>
           <p className="support">
-            Create a sample account, then add and approve its operating
-            facilities.
+            {isLive ? 'Create a business account and its integrated wallet. The business will use this username and password to sign in.' : 'Create a sample account, then add and approve its operating facilities.'}
           </p>
           <form
             className="form"
@@ -310,9 +310,14 @@ export default function Accounts() {
               <option value="supplier">Supplier</option>
               <option value="retailer">Retailer</option>
             </select>
+            {isLive && <>
+              <label htmlFor="business-password">Initial password</label>
+              <input id="business-password" type="password" autoComplete="new-password" required minLength={12} maxLength={200}
+                value={business.password} onChange={e => setBusiness({ ...business, password: e.target.value })} />
+            </>}
             <ErrorNote>{error}</ErrorNote>
             <Primary busy={busy}>
-              Create demo business
+              {isLive ? 'Create business' : 'Create demo business'}
               <Plus size={17} />
             </Primary>
           </form>
@@ -407,14 +412,14 @@ export default function Accounts() {
                 : "This facility has been revoked. Its history remains available; provision a replacement for future operations."}
           </p>
           <p className="simulation-note">
-            Demo administration · no live wallet or funding changes.
+            {isLive ? 'This changes the facility’s operational wallet permissions.' : 'Demo administration · no live wallet or funding changes.'}
           </p>
           <ErrorNote>{error}</ErrorNote>
           {selected.status !== "revoked" && (
             <Primary busy={busy} onClick={() => void changeStatus()}>
               {selected.status === "pending"
-                ? "Approve demo facility"
-                : "Revoke demo facility"}
+                ? isLive ? 'Approve facility' : "Approve demo facility"
+                : isLive ? 'Revoke facility' : "Revoke demo facility"}
               <ShieldCheck size={17} />
             </Primary>
           )}

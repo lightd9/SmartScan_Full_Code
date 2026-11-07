@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowRight,
   Check,
@@ -13,7 +12,8 @@ import {
   X,
 } from "lucide-react";
 import { useBusiness, useRefresh } from "../app/context";
-import { enterpriseService } from "../services";
+import { enterpriseService, isLive } from "../services";
+import { explorer } from '../services/config';
 import { RecordedLocation } from "../design/LocationNote";
 import { locationSourceLabel } from "../platform/location";
 import { actionNames, type Operation, type Task } from "../domain/types";
@@ -29,7 +29,7 @@ import {
   timeLabel,
 } from "../design/ui";
 import { feedback } from "../platform/feedback";
-import { verificationUrl } from "./Product";
+import { exportFile } from "../platform/files";
 
 export const operationStatus = (o: Operation) =>
   o.items.some((i) => i.status === "submitted")
@@ -145,12 +145,14 @@ export function Activity() {
 }
 export default function OperationDetail() {
   const { id } = useParams();
-  const { data, workspace: w, facility: f } = useBusiness();
+  const { data, workspace: w, facility: f, notify } = useBusiness();
   const navigate = useNavigate();
   const refresh = useRefresh();
   const [receipt, setReceipt] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const receiptRef = useRef<HTMLElement>(null);
   const notified = useRef(false);
   const o = data?.operations.find(
     (o) => o.id === id && (w?.role === "admin" || o.accountId === w?.accountId),
@@ -203,34 +205,48 @@ export default function OperationDetail() {
       setBusy(false);
     }
   }
+  async function saveFile(blob: Blob, filename: string, title: string) {
+    if (exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      const result = await exportFile(blob, filename, title);
+      if (result === "downloaded") notify("File downloaded");
+    } catch (e) { setError((e as Error).message); }
+    finally { setExporting(false); }
+  }
   function exportManifest() {
-    const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const escape = (value: string) => {
+      const text = /^[\s]*[=+@-]/.test(value) ? `'${value}` : value;
+      return `"${text.replace(/"/g, '""')}"`;
+    };
     const rows = [
-      ["Demo operation", "Action", "Facility", "Serial", "Status", "Note", "Location", "Location source", "Latitude", "Longitude", "Captured at"],
+      ["Operation", "Action", "Facility", "Serial", "Status", "Note", "Location", "Location source", "Latitude", "Longitude", "Captured at", 'Transaction hash'],
       ...o!.items.map((i) => [
         o!.id,
         o!.action,
         acting?.code || "",
         i.productId,
         i.status,
-        i.message || "Demo only",
+        i.message || (isLive ? '' : "Demo only"),
         o!.location?.address || "",
         locationSourceLabel(o!.location),
         o!.location?.latitude?.toString() || "",
         o!.location?.longitude?.toString() || "",
         o!.location?.capturedAt || "",
+        i.txHash || '',
       ]),
     ];
-    const url = URL.createObjectURL(
-      new Blob([rows.map((row) => row.map(escape).join(",")).join("\r\n")], {
+    void saveFile(new Blob([rows.map((row) => row.map(escape).join(",")).join("\r\n")], {
         type: "text/csv;charset=utf-8",
-      }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `smartscan-demo-${o!.id}.csv`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }), `smartscan-operation-${o!.id}.csv`, "Operation manifest");
+  }
+  function exportReceipt() {
+    if (!receiptRef.current) return;
+    // React has already escaped all receipt text. The exported document is
+    // self-contained, with no scripts, remote fonts, or external resources.
+    const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><title>SmartScan receipt</title><style>body{font:16px system-ui,sans-serif;color:#000336;margin:32px auto;padding:0 20px;max-width:600px}article>span,small{display:block}code{display:block;font-size:12px;overflow-wrap:anywhere}.receipt-items>div{padding:16px 0;border-bottom:1px solid #ddd}.recorded-location{margin:20px 0}svg{display:none}h2{font-size:24px}</style></head><body>${receiptRef.current.outerHTML}</body></html>`;
+    void saveFile(new Blob([html], { type: "text/html;charset=utf-8" }), `smartscan-receipt-${o!.id}.html`, "Sale receipt");
   }
   return (
     <main className="page">
@@ -264,7 +280,7 @@ export default function OperationDetail() {
             ? "You can leave this screen. Progress is saved and will be checked when you return."
             : failed.length
               ? "Completed items are saved. Review the remaining items before trying again."
-              : "Your demo records are updated. This operation is saved in your activity."}
+              : isLive ? 'Blockchain confirmation received. This operation is saved in your activity.' : "Your demo records are updated. This operation is saved in your activity."}
         </p>
         <span className="progress-label">
           {complete.length} of {o.items.length} completed
@@ -312,13 +328,22 @@ export default function OperationDetail() {
             detail={
               i.message ||
               (i.status === "confirmed"
-                ? "Recorded in demo"
-                : "Confirmation pending")
+                ? isLive ? 'Confirmed on chain' : "Recorded in demo"
+                : i.phase === 'queued' ? 'Queued for wallet signing' : "Confirmation pending")
             }
             onClick={() => navigate(`/products/${i.productId}`)}
           />
         ))}
       </div>
+      {isLive && o.items.some(i => i.txHash) && <div className="surface">
+        {o.items.filter(i => i.txHash).map(i => <div key={i.productId} style={{ padding: 16 }}>
+          <small>{i.productId}</small><br />
+          <a href={`${explorer}/tx/${i.txHash}`} target="_blank" rel="noopener noreferrer" style={{ overflowWrap: 'anywhere' }}>
+            {i.txHash}
+          </a>
+          {i.blockNumber && <p>Block {i.blockNumber}</p>}
+        </div>)}
+      </div>}
       {o.reason && <p className="info-note">Recall reason: {o.reason}</p>}
       <ErrorNote>{error}</ErrorNote>
       {!pending && failed.length > 0 && (
@@ -345,10 +370,12 @@ export default function OperationDetail() {
               <Primary
                 onClick={async () => {
                   try {
+                    const latest = await enterpriseService.snapshot();
+                    const existing = latest.drafts.find((draft) => draft.facilityId === f.id && draft.task === "dispatch")?.codes || [];
                     await enterpriseService.saveDraft({
                       facilityId: f.id,
                       task: "dispatch",
-                      codes: complete.map((i) => i.productId),
+                      codes: [...new Set([...existing, ...complete.map((i) => i.productId)])],
                     });
                     await refresh();
                     navigate("/scan?task=dispatch");
@@ -361,22 +388,22 @@ export default function OperationDetail() {
                 <ArrowRight size={17} />
               </Primary>
             )}
-          <button className="secondary" onClick={exportManifest}>
+          <button className="secondary" onClick={exportManifest} disabled={exporting}>
             <Download size={17} />
             Export manifest
           </button>
         </div>
       )}
       <p className="simulation-note">
-        Demo operation · no blockchain transaction or payment. Reference{" "}
+        {isLive ? 'Sepolia operation · payment handled separately. Reference ' : 'Demo operation · no blockchain transaction or payment. Reference '}
         {o.id.slice(0, 8)}.
       </p>
       {receipt && (
         <Sheet title="Sale receipt" onClose={() => setReceipt(false)}>
-          <article className="print-area receipt">
-            <span className="eyebrow">SMARTSCAN ENTERPRISE</span>
+          <article className="print-area receipt" ref={receiptRef}>
+            <span className="eyebrow">SMARTSCAN</span>
             <h2>{acting?.name}</h2>
-            <Badge>DEMO SALE RECEIPT</Badge>
+            <Badge>{isLive ? 'SALE RECORD' : 'DEMO SALE RECEIPT'}</Badge>
             <p>{timeLabel(o.createdAt)}</p>
             <RecordedLocation location={o.location} />
             <div className="receipt-items">
@@ -386,24 +413,20 @@ export default function OperationDetail() {
                     {data.products.find((p) => p.id === i.productId)?.name}
                   </strong>
                   <code>{i.productId}</code>
-                  <QRCodeSVG
-                    value={verificationUrl(i.productId)}
-                    size={120}
-                    marginSize={3}
-                  />
                 </div>
               ))}
             </div>
             <p>
-              Sale recorded in the local demo.
+              {isLive ? 'Sale recorded on Sepolia.' : 'Sale recorded in the local demo.'}
               <br />
               This is not a payment receipt or live warranty.
             </p>
             <code>Reference: {o.id}</code>
           </article>
-          <Primary onClick={() => window.print()}>
+          <ErrorNote>{error}</ErrorNote>
+          <Primary onClick={exportReceipt} busy={exporting}>
             <Download size={18} />
-            Print / save receipt
+            Save / share receipt
           </Primary>
         </Sheet>
       )}

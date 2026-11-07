@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { ArrowRight, ImagePlus, X } from "lucide-react";
 import { useBusiness, useRefresh } from "../app/context";
-import { enterpriseService } from "../services";
+import { enterpriseService, isLive } from "../services";
 import { ErrorNote, PageTitle, Primary } from "../design/ui";
 import { LocationPolicy } from "../design/LocationNote";
 
@@ -15,10 +15,10 @@ type Draft = {
   kind: "bottle" | "carton";
 };
 export default function Register() {
-  const { workspace: w, facility: f, data } = useBusiness();
+  const { workspace: w, facility: f, data, notify } = useBusiness();
   const navigate = useNavigate();
   const refresh = useRefresh();
-  const key = `smartscan-enterprise-registration-${w?.facilityId}`;
+  const key = `smartscan-${isLive ? 'live' : 'demo'}-registration-${w?.accountId}-${w?.facilityId}`;
   const [draft, setDraft] = useState<Draft>(() => {
     try {
       const stored = localStorage.getItem(key);
@@ -75,6 +75,7 @@ export default function Register() {
       if (!context) throw new Error("Photo processing is unavailable.");
       context.drawImage(img, 0, 0, canvas.width, canvas.height);
       update({ image: canvas.toDataURL("image/jpeg", 0.76) });
+      notify("Photo added");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -206,7 +207,7 @@ export default function Register() {
         <ErrorNote>{error}</ErrorNote>
         <LocationPolicy address={f.location} />
         <p className="simulation-note">
-          Demo registration · saved locally. No live product is created.
+          {isLive ? 'Creates a database record and submits registration through your integrated wallet on Sepolia.' : 'Demo registration · saved locally. No live product is created.'}
         </p>
         <Primary
           className="full"
@@ -220,7 +221,7 @@ export default function Register() {
             f.status !== "active"
           }
         >
-          Register demo product
+          {isLive ? 'Register product' : 'Register demo product'}
           <ArrowRight size={18} />
         </Primary>
       </form>

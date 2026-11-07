@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WorkspaceProvider } from "./app/context";
 import Shell from "./app/Shell";
 import Welcome from "./features/Welcome";
+import SignIn from './features/SignIn';
+import { isLive, dataMode } from './services/config';
 import Home from "./features/Home";
 import { ErrorNote, Loading } from "./design/ui";
 import "./design/tokens.css";
@@ -38,8 +40,7 @@ class ErrorBoundary extends Component<
       <main className="welcome">
         <h1>Let’s try that again.</h1>
         <ErrorNote>
-          The workspace could not display this screen. Saved demo work is still
-          on this device.
+          The workspace could not display this screen. Reload and check Activity for saved operations.
         </ErrorNote>
         <button className="primary" onClick={() => location.assign("/")}>
           Reload workspace
@@ -52,7 +53,7 @@ class ErrorBoundary extends Component<
 }
 function App() {
   // Fail closed: production integration must provide a real adapter. Never silently fall back to demo records.
-  if ((import.meta.env.VITE_DATA_MODE || "demo") !== "demo")
+  if (!['demo','live'].includes(dataMode))
     return (
       <main className="welcome">
         <h1>Connection not configured</h1>
@@ -68,7 +69,7 @@ function App() {
         <BrowserRouter>
           <Suspense fallback={<Loading />}>
             <Routes>
-              <Route path="/welcome" element={<Welcome />} />
+              <Route path="/welcome" element={isLive ? <SignIn /> : <Welcome />} />
               <Route element={<Shell />}>
                 <Route index element={<Home />} />
                 <Route path="inventory" element={<Inventory />} />

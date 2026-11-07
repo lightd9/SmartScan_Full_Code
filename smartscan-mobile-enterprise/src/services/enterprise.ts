@@ -34,7 +34,7 @@ export interface EnterpriseService {
   ): Promise<void>;
   createAccount(
     workspace: Workspace,
-    input: Omit<Account, "id">,
+    input: Omit<Account, "id"> & { password?: string },
   ): Promise<Account>;
   createFacility(
     workspace: Workspace,

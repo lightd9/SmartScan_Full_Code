@@ -11,9 +11,10 @@ import {
 } from "lucide-react";
 import { useBusiness, useRefresh } from "../app/context";
 import { actionNames, Stage, type Action } from "../domain/types";
-import { capability } from "../domain/rules";
-import { enterpriseService } from "../services";
+import { canExportLabel, capability } from "../domain/rules";
+import { enterpriseService, isLive } from "../services";
 import { LocationPolicy, RecordedLocation } from "../design/LocationNote";
+import { exportLabel } from "../platform/label";
 import {
   Badge,
   Empty,
@@ -31,7 +32,7 @@ export const verificationUrl = (id: string) =>
   `${import.meta.env.VITE_VERIFICATION_ORIGIN || "https://smart-scan-ten.vercel.app"}/verify/${encodeURIComponent(id)}`;
 export default function ProductDetail() {
   const { id } = useParams();
-  const { data, workspace: w, facility: f } = useBusiness();
+  const { data, workspace: w, facility: f, notify } = useBusiness();
   const navigate = useNavigate();
   const refresh = useRefresh();
   const [qr, setQr] = useState(false);
@@ -39,6 +40,10 @@ export default function ProductDetail() {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [labelError, setLabelError] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const qrRef = useRef<SVGSVGElement>(null);
+  const submitting = useRef(false);
   const key = useRef(crypto.randomUUID());
   const p = data?.products.find((p) => p.id === id);
   if (!data || !w || !f) return null;
@@ -47,11 +52,13 @@ export default function ProductDetail() {
       <main className="page">
         <PageTitle back title="Product" />
         <Empty title="Product not found">
-          This serial is not in the demo records.
+          This serial is not in your current inventory.
         </Empty>
       </main>
     );
   const custodian = data.facilities.find((f) => f.id === p.custodianId);
+  const labelsAllowed = canExportLabel(p, w, data.facilities);
+  const offline = data.scenario === "offline" || !navigator.onLine;
   const destination = data.facilities.find((f) => f.id === p.recipientId);
   const action: Action | undefined = (
     ["register", "receive", "dispatch", "sell"] as Action[]
@@ -66,8 +73,9 @@ export default function ProductDetail() {
   const pending = data.operations.find((o) =>
     o.items.some((i) => i.productId === p.id && i.status === "submitted"),
   );
-  async function submit(action: "register" | "recall") {
-    if (!p || !w || busy) return;
+  async function submit(action: "register" | "recall" | "receive") {
+    if (!p || !w || submitting.current || offline) return;
+    submitting.current = true;
     setBusy(true);
     setError("");
     try {
@@ -78,13 +86,26 @@ export default function ProductDetail() {
         productIds: [p.id],
         reason,
       });
-      await refresh();
+      void refresh();
       setRecall(false);
       navigate(`/operations/${op.id}`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
+      submitting.current = false;
     }
+  }
+  async function saveLabel() {
+    if (!p || !qrRef.current || !labelsAllowed || p.registration !== "confirmed" || exporting) return;
+    setExporting(true);
+    setLabelError("");
+    try {
+      const result = await exportLabel(p, qrRef.current);
+      if (result === "downloaded") notify("Label downloaded");
+      // Opening a share sheet does not prove that a file was saved or printed.
+    } catch (e) {
+      setLabelError((e as Error).message || "Label export failed. Please try again.");
+    } finally { setExporting(false); }
   }
   return (
     <main className="page">
@@ -92,10 +113,11 @@ export default function ProductDetail() {
         back
         title="Product passport"
         action={
+          labelsAllowed &&
           <button
             className="circle raised"
             aria-label="Show product QR"
-            onClick={() => setQr(true)}
+            onClick={() => { setLabelError(""); setQr(true); }}
           >
             <QrCode size={21} />
           </button>
@@ -113,7 +135,7 @@ export default function ProductDetail() {
               <small>Registration</small>
               <strong>
                 {p.registration === "confirmed"
-                  ? "Confirmed in demo"
+                  ? isLive ? 'Confirmed on chain' : "Confirmed in demo"
                   : p.registration === "submitted"
                     ? "In progress"
                     : "Awaiting registration"}
@@ -146,12 +168,11 @@ export default function ProductDetail() {
             <Primary
               className="full"
               busy={busy}
+              disabled={offline}
               onClick={() =>
-                action === "register"
-                  ? void submit("register")
-                  : action === "sell"
-                    ? navigate(`/review?task=sell&product=${p.id}`)
-                    : navigate(`/scan?task=${action}&product=${p.id}`)
+                action === "register" || action === "receive"
+                  ? void submit(action)
+                  : navigate(`/review?task=${action}&product=${p.id}`)
               }
             >
               {labels[action]}
@@ -167,7 +188,8 @@ export default function ProductDetail() {
             </p>
           )}
           <ErrorNote>{error}</ErrorNote>
-          {action === "register" && <LocationPolicy address={f.location} />}
+          {action === "receive" && <p className="support">Receive this item only once it has physically arrived. This records receipt immediately.</p>}
+          {(action === "register" || action === "receive") && <LocationPolicy address={f.location} />}
         </div>
       </article>
       <SectionTitle title="The journey so far" />
@@ -180,7 +202,7 @@ export default function ProductDetail() {
               <h3>{actionNames[h.action]} recorded</h3>
               <p>
                 {data.facilities.find((f) => f.id === h.actorId)?.name ||
-                  "Recorded facility"}
+                  h.actorName || "Recorded facility"}
               </p>
               {h.recipientId && (
                 <p>
@@ -188,7 +210,7 @@ export default function ProductDetail() {
                 </p>
               )}
               {h.note && <p>{h.note}</p>}
-              <RecordedLocation location={h.location} />
+              {(h.location || !isLive) && <RecordedLocation location={h.location} />}
             </li>
           ))}
         </ol>
@@ -212,37 +234,40 @@ export default function ProductDetail() {
         </button>
       )}
       <p className="simulation-note">
-        Demo passport · sample identity and custody records.
+        {isLive ? 'Recorded identity and custody on Sepolia. A matching code alone does not prove physical authenticity.' : 'Demo passport · sample identity and custody records.'}
       </p>
-      {qr && (
+      {qr && labelsAllowed && (
         <Sheet title="Product QR & label" onClose={() => setQr(false)}>
           <div className="print-area label-preview">
             <Badge>DEMO LABEL</Badge>
             <h3>{p.name}</h3>
             <p>{p.brand}</p>
             <QRCodeSVG
+              ref={qrRef}
               value={verificationUrl(p.id)}
               size={156}
               level="M"
-              marginSize={3}
+              marginSize={4}
             />
             <code>{p.id}</code>
-            <p>Sample product · for demonstration only</p>
+            <p>{isLive ? 'SmartScan product label · Sepolia' : 'Sample product · for demonstration only'}</p>
           </div>
           <p className="support">
             This uses the configured public verification address. Sample serials
             are not registered on the live network.
           </p>
           {p.registration === "confirmed" ? (
-            <Primary onClick={() => window.print()}>
+            <Primary onClick={() => void saveLabel()} busy={exporting}>
               <FileDown size={18} />
-              Print / save label
+              Save / share label
             </Primary>
           ) : (
             <p className="info-note">
               Label output becomes available after registration is confirmed.
             </p>
           )}
+          <ErrorNote>{labelError}</ErrorNote>
+          <p className="support">Export a clear label image to save or send to your printer app.</p>
         </Sheet>
       )}
       {recall && (
@@ -272,10 +297,10 @@ export default function ProductDetail() {
             <ErrorNote>{error}</ErrorNote>
             <LocationPolicy address={f.location} />
             <p className="simulation-note">
-              Demo only · no live product will be affected.
+              {isLive ? 'Your wallet will record a recall for this product on Sepolia.' : 'Demo only · no live product will be affected.'}
             </p>
             <Primary busy={busy} disabled={!reason.trim()}>
-              Confirm demo recall
+              {isLive ? 'Confirm recall' : 'Confirm demo recall'}
               <Flag size={17} />
             </Primary>
           </form>

@@ -1,7 +1,7 @@
 import type { TransactionLocation } from "../platform/location";
 export type Role = "admin" | "manufacturer" | "supplier" | "retailer";
 export type BusinessRole = Exclude<Role, "admin">;
-export type FacilityStatus = "active" | "pending" | "revoked";
+export type FacilityStatus = "active" | "pending" | "revoked" | "suspended";
 export type Registration =
   | "pending_wallet"
   | "submitted"
@@ -42,6 +42,8 @@ export interface Facility {
   status: FacilityStatus;
   location: string;
   wallet: string;
+  balanceEth?: string | null;
+  chainRole?: string | null;
 }
 export interface Workspace {
   accountId: string;
@@ -49,6 +51,7 @@ export interface Workspace {
   role: Role;
 }
 export interface Movement {
+  actorName?: string;
   location?: TransactionLocation;
   id: string;
   action: Action;
@@ -58,6 +61,9 @@ export interface Movement {
   note?: string;
 }
 export interface Product {
+  chainAvailable?: boolean;
+  chainId?: string;
+  contractAddress?: string;
   id: string;
   name: string;
   brand: string;
@@ -75,6 +81,9 @@ export interface Product {
   failOnce?: boolean;
 }
 export interface OperationItem {
+  phase?: 'queued' | 'submitted' | 'confirmed' | 'failed';
+  txHash?: string | null;
+  blockNumber?: string | number | null;
   productId: string;
   expectedVersion: number;
   status: "submitted" | "confirmed" | "failed";
@@ -113,6 +122,8 @@ export interface ScanAlert {
   at: string;
 }
 export interface DemoState {
+  warnings?: string[];
+  network?: { chainId: string; contractAddress: string; name: string };
   version: 1;
   scenario: Scenario;
   accounts: Account[];

@@ -10,8 +10,8 @@ import {
   X,
 } from "lucide-react";
 import { useBusiness, useRefresh } from "../app/context";
-import { enterpriseService } from "../services";
-import { capability, parseCode } from "../domain/rules";
+import { enterpriseService, isLive } from "../services";
+import { capability, nextScanTask, parseCode } from "../domain/rules";
 import { type Product, type Task } from "../domain/types";
 import {
   ErrorNote,
@@ -32,7 +32,7 @@ export const taskNames: Record<Task, string> = {
   sell: "Sell",
 };
 export default function Scan() {
-  const { data, workspace: w, facility: f } = useBusiness();
+  const { data, workspace: w, facility: f, notify } = useBusiness();
   const refresh = useRefresh();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -50,6 +50,7 @@ export default function Scan() {
   const [error, setError] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
   const [scanNotice, setScanNotice] = useState("");
+  const [suggestion, setSuggestion] = useState<{ product: Product; task: Task } | null>(null);
   const processing = useRef(Promise.resolve());
   const seeded = useRef("");
   const draft = data?.drafts.find(
@@ -58,8 +59,10 @@ export default function Scan() {
   const codes = draft?.codes || [];
   const offline = data?.scenario === "offline" || !navigator.onLine;
   function reason(p?: Product) {
+    if (p && data?.operations.some((op) => op.items.some((item) => item.productId === p.id && item.status === "submitted")))
+      return "An action is already in progress for this item.";
     return !p
-      ? "Not found in demo records."
+      ? isLive ? 'Not found in the current SmartScan inventory.' : "Not found in demo records."
       : offline
         ? "Waiting for verification. Reconnect to continue."
         : w && f
@@ -78,6 +81,17 @@ export default function Scan() {
               "https://smart-scan-ten.vercel.app",
           );
           const latest = await enterpriseService.snapshot();
+          const product = latest.products.find((p) => p.id === serial);
+          const next = product && !offline ? nextScanTask(product, f, w, latest.operations) : null;
+          if (product && next && next !== task) {
+            setSamples(false);
+            setManual(false);
+            setSuggestion({ product, task: next });
+            setError("");
+            setCode("");
+            void feedback("captured");
+            return;
+          }
           const existing =
             latest.drafts.find((d) => d.facilityId === f.id && d.task === task)
               ?.codes || [];
@@ -100,6 +114,7 @@ export default function Scan() {
               : "Item captured. Ready for the next one.",
           );
           void feedback(issue ? "exception" : "captured");
+          if (!issue) notify("Product added");
           setError("");
           setCode("");
         } catch (e) {
@@ -144,13 +159,14 @@ export default function Scan() {
         codes: id ? current.filter((c) => c !== id) : [],
       });
       await refresh();
+      notify(id ? "Product removed" : "Session cleared");
     } catch (e) {
       setError((e as Error).message);
     }
   }
   return (
     <main className="page scan-page">
-      <PageTitle title={`${taskNames[task]} products`} subtitle={f.name} />
+      <PageTitle title="Scan product" subtitle={f.name} />
       <div className="task-switch" role="group" aria-label="Scanner task">
         {tasks.map((t) => (
           <button
@@ -161,6 +177,7 @@ export default function Scan() {
               setParams({ task: t }, { replace: true });
               setError("");
               setScanNotice("");
+              setSuggestion(null);
             }}
           >
             {taskNames[t]}
@@ -168,7 +185,7 @@ export default function Scan() {
         ))}
       </div>
       <Suspense fallback={<Loading />}>
-        <Camera onCode={addCode} paused={manual || samples || confirmClear} />
+        <Camera onCode={addCode} paused={manual || samples || confirmClear || !!suggestion} />
       </Suspense>
       <div className="capture-actions">
         <button onClick={() => setManual(true)}>
@@ -177,7 +194,7 @@ export default function Scan() {
         </button>
         <button onClick={() => setSamples(true)}>
           <Plus size={18} />
-          {task === "sell" ? "Choose from inventory" : "Try demo items"}
+          {isLive || task === "sell" ? "Choose from inventory" : "Try demo items"}
         </button>
       </div>
       <p className="capture-feedback" role="status">
@@ -208,6 +225,7 @@ export default function Scan() {
           {codes.map((id) => {
             const p = data.products.find((p) => p.id === id);
             const issue = reason(p);
+            const next = p && !offline ? nextScanTask(p, f, w, data.operations) : null;
             return (
               <div
                 className={`queue-item ${issue ? "has-issue" : ""}`}
@@ -217,9 +235,15 @@ export default function Scan() {
                   {issue ? "!" : <Check size={13} />}
                 </span>
                 <div>
-                  <strong>{p?.name || "Unknown demo item"}</strong>
+                  <strong>{p?.name || "Unknown item"}</strong>
                   <small>…{id.slice(-12)}</small>
                   {issue && <p>{issue}</p>}
+                  {issue && next && next !== task && (
+                    <button className="text-button queue-next-action" onClick={() => navigate(`/review?task=${next}&product=${id}`)}>
+                      Review {next === "receive" ? "receipt" : next === "sell" ? "sale" : "dispatch"}
+                      <ArrowRight size={15} />
+                    </button>
+                  )}
                 </div>
                 <button
                   className="remove-item"
@@ -287,7 +311,7 @@ export default function Scan() {
       )}
       {samples && (
         <Sheet
-          title={task === "sell" ? "Choose items to sell" : "Try a demo item"}
+          title={task === "sell" ? "Choose items to sell" : isLive ? 'Choose from inventory' : "Try a demo item"}
           onClose={() => setSamples(false)}
         >
           <p className="support">
@@ -346,6 +370,22 @@ export default function Scan() {
           >
             Clear session
             <Trash2 size={17} />
+          </Primary>
+        </Sheet>
+      )}
+      {suggestion && (
+        <Sheet title={`Ready to ${suggestion.task}`} onClose={() => setSuggestion(null)}>
+          <ProductRow product={suggestion.product} />
+          <p className="support">
+            {suggestion.task === "dispatch"
+              ? "This product is already in your custody. You can prepare its next dispatch."
+              : suggestion.task === "sell"
+                ? "This product is in your store’s custody and ready for sale."
+                : "This product is awaiting receipt at your facility."}
+          </p>
+          <Primary onClick={() => navigate(`/review?task=${suggestion.task}&product=${suggestion.product.id}`)}>
+            Review {suggestion.task === "receive" ? "receipt" : suggestion.task === "sell" ? "sale" : "dispatch"}
+            <ArrowRight size={17} />
           </Primary>
         </Sheet>
       )}

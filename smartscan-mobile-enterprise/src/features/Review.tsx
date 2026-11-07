@@ -9,7 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useBusiness, useRefresh, useWorkspace } from "../app/context";
-import { enterpriseService } from "../services";
+import { enterpriseService, isLive } from "../services";
 import { LocationPolicy } from "../design/LocationNote";
 import { capability, eligibleRecipient } from "../domain/rules";
 import { type Product, type Task } from "../domain/types";
@@ -26,7 +26,7 @@ export default function Review() {
   const [params] = useSearchParams();
   const { workspace } = useWorkspace();
   const task = params.get("task") as Task;
-  const productId = task === "sell" ? params.get("product") : null;
+  const productId = params.get("product");
   if (!["receive", "dispatch", "sell"].includes(task))
     return <Navigate to="/scan" replace />;
   return (
@@ -232,7 +232,7 @@ function ReviewTask({
       {!products.length && (
         <Empty title="No eligible items">
           {productId
-            ? "This item is no longer available for sale at this facility. Return to inventory to check its status."
+            ? "This item is no longer eligible for this action. Return to its passport to check its status."
             : "Return to scanning to review or add items for this task."}
         </Empty>
       )}
@@ -244,7 +244,7 @@ function ReviewTask({
         </p>
       )}
       <p className="simulation-note">
-        Demo action · saved on this device. No live transaction will be sent.
+        {isLive ? 'Your facility wallet will sign this action on Sepolia. Track its confirmation in Activity.' : 'Demo action · saved on this device. No live transaction will be sent.'}
       </p>
       <Primary
         className="full"
