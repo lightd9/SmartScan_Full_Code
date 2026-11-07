@@ -1,6 +1,17 @@
 import { API_BASE_URL } from '../config/constants.js';
 
+export function needsPurchaseDetails(product) {
+  return product?.exists === true && Boolean(product.assessment?.score) && product.purchaseAnswers?.completed !== true;
+}
+
+export function canShowEvidenceScore(product) {
+  return Boolean(product?.assessment?.score) && !needsPurchaseDetails(product);
+}
+
 export function productStatus(product) {
+  if (needsPurchaseDetails(product) && product.assessment.summary?.status !== 'RECALLED') {
+    return { label: 'Two quick questions', title: 'Finish your verification.', tone: 'neutral', description: 'Confirm where you got the product and when you are checking to see your result.' };
+  }
   if (product?.assessment?.summary) return product.assessment.summary;
   const status = String(product?.status || '').toUpperCase();
   if (Number(product?.stage) === 5 || product?.recalled === true || (product?.stage == null && status === 'RECALLED')) {

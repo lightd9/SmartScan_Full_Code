@@ -4,19 +4,19 @@ import ProductCard, { ProductRow } from './ProductCard';
 import Sheet from './Sheet';
 import SupplyMap from './SupplyMap';
 import { getScanHistory, saveScanToHistory } from '../utils/storage';
-import PurchaseChecks from './PurchaseChecks';
-import { productStatus, supplyChain } from '../utils/product';
+import { vibrateSuccess, vibrateWarning } from '../utils/haptics';
+import { canShowEvidenceScore, needsPurchaseDetails, productStatus, supplyChain } from '../utils/product';
 
-export default function PassportView({ product, onScanAgain, onReportProduct, onBack, title = 'History' }) {
-  const [updated,setUpdated]=useState({});
-  const items = useMemo(() => {
+export default function PassportView({ product, promptPurchase = false, onScanAgain, onReportProduct, onBack, title = 'History' }) {
+  const [items, setItems] = useState(() => {
     const history = getScanHistory();
-    return (product ? [product, ...history.filter(item => item.serialNumber !== product.serialNumber)] : history).map(p=>updated[p.serialNumber] || p);
-  }, [product,updated]);
+    return product ? [product, ...history.filter(item => item.serialNumber !== product.serialNumber)] : history;
+  });
   const [mode, setMode] = useState('carousel');
   const [index, setIndex] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [details, setDetails] = useState(false);
+  const [editingSerial, setEditingSerial] = useState(() => promptPurchase && needsPurchaseDetails(product) ? product.serialNumber : null);
   const strip = useRef(null);
   const settleTimer = useRef(null);
   const activeIndex = useRef(index);
@@ -24,6 +24,16 @@ export default function PassportView({ product, onScanAgain, onReportProduct, on
   const active = items[index] || items[0];
   const hasMultipleScans = items.length > 1;
   const journey = useMemo(() => supplyChain(active), [active]);
+  const showScore = canShowEvidenceScore(active);
+
+  function finishPurchase(updated) {
+    saveScanToHistory(updated);
+    // Replace the answered card in place; keep the selected slide and map.
+    setItems(previous => previous.map(item => item.serialNumber === updated.serialNumber ? updated : item));
+    setEditingSerial(current => current === updated.serialNumber ? null : current);
+    if (productStatus(updated).tone === 'authentic') vibrateSuccess();
+    else vibrateWarning();
+  }
 
   function scrollToSlide(slideIndex, smooth = true) {
     const el = strip.current;
@@ -76,7 +86,7 @@ export default function PassportView({ product, onScanAgain, onReportProduct, on
           {items.map((item, slideIndex) => {
             const isCurrent = slideIndex === index;
             return <div className="passport-slide" key={item.serialNumber} role="group" aria-roledescription="slide" aria-label={`${slideIndex + 1} of ${items.length}`} aria-hidden={!isCurrent} inert={isCurrent ? undefined : ''}>
-              <ProductCard product={item} onDetails={() => setDetails(true)} onReport={() => onReportProduct(item)} />
+              <ProductCard product={item} editingPurchase={editingSerial === item.serialNumber} onStartPurchase={() => setEditingSerial(item.serialNumber)} onUpdated={finishPurchase} onDetails={() => setDetails(true)} onReport={() => onReportProduct(item)} />
             </div>;
           })}
         </div>
@@ -87,30 +97,39 @@ export default function PassportView({ product, onScanAgain, onReportProduct, on
         </div>
       </> : <div className={`history-list-panel ${expanded ? 'expanded' : ''}`}>
         <button className="list-expand" aria-label={expanded ? 'Show more map' : 'Expand scan list'} aria-expanded={expanded} onClick={() => setExpanded(value => !value)}><span /></button>
-        <div className="history-list" aria-label="Previous scans">{items.map((item, itemIndex) => <ProductRow key={item.serialNumber} product={item} selected={itemIndex === index} onClick={() => { setIndex(itemIndex); setMode('carousel'); }} />)}</div>
+        <div className="history-list" aria-label="Previous scans">{items.map((item, itemIndex) => <ProductRow key={item.serialNumber} product={item} selected={itemIndex === index} onClick={() => { setIndex(itemIndex); if (needsPurchaseDetails(item)) setEditingSerial(item.serialNumber); setMode('carousel'); }} />)}</div>
       </div>}
     </>}
     {details && active && <Sheet title="Product journey" onClose={() => setDetails(false)}>
-      <span className={`status-badge ${productStatus(active).tone}`}>{productStatus(active).label}</span>
-      <h3>{active.name || 'Unregistered product'}</h3><p className="supporting-copy">{productStatus(active).description}</p>
+      <h3 className="journey-product-name">{active.name || 'Unregistered product'}</h3>
       <div className="serial-box"><span>Serial number</span><code>{active.serialNumber}</code></div>
-      <section className="verification-evidence" aria-label="Verification findings">
+      <section className="verification-summary" aria-label="Verification findings">
         <h4>Verification findings</h4>
+        <span className={`status-badge ${productStatus(active).tone}`}>{productStatus(active).label}</span>
+        <p className="supporting-copy">{productStatus(active).description}</p>
         {active.assessment ? <>
-          {active.assessment.score && <p className="supporting-copy"><strong>Evidence score: {active.assessment.score.value}/100</strong>. {active.assessment.score.passed} of {active.assessment.score.total} scored checks passed. Unknown checks are not failures; this is not a probability of authenticity.</p>}
+          {showScore && <p className="supporting-copy"><strong>Evidence score: {active.assessment.score.value}/100</strong>. {active.assessment.score.passed} of {active.assessment.score.total} scored checks passed.</p>}
           <p className="supporting-copy">{active.assessment.coverage.assessed} of {active.assessment.coverage.expected} evidence areas assessed.</p>
-          {active.exists && <PurchaseChecks key={active.serialNumber} product={active} onUpdated={p=>{saveScanToHistory(p);setUpdated(values=>({...values,[p.serialNumber]:p}));}}/>}
-          <ul>{active.assessment.findings.map(finding => <li key={finding.code} data-state={finding.state}>
-            <strong>{finding.domain.charAt(0).toUpperCase() + finding.domain.slice(1)}</strong>
-            <span className="check-state">{finding.state==='supported' ? 'Passed' : finding.state==='concern' ? 'Concern' : 'Unknown'}{active.assessment.score?.checks?.find(c=>c.domain===finding.domain) ? ` · ${active.assessment.score.checks.find(c=>c.domain===finding.domain).earned}/${active.assessment.score.checks.find(c=>c.domain===finding.domain).weight}` : ''}</span>
-            <p>{finding.explanation}</p>
-          </li>)}</ul>
-          {active.assessment.custodian && <p className="supporting-copy">Last confirmed custodian: {active.assessment.custodian.name || active.assessment.custodian.wallet}. {active.assessment.custodian.recordedLocation || 'Location not recorded.'}</p>}
         </> : <p className="supporting-copy">Detailed assessment and scan anomaly checks are unavailable for this saved result. Scan again to request current checks.</p>}
+        {active.purchaseLocationNote && <p className="supporting-copy">{active.purchaseLocationNote}</p>}
         <p className="supporting-copy">{active.verifiedAt ? `Record checked ${new Date(active.verifiedAt).toLocaleString()}. Saved results do not update automatically.` : 'Current blockchain status has not been confirmed.'}</p>
       </section>
-      <p className="supporting-copy">Map points show recorded or approximate locations. Connecting lines do not show an observed travel route.</p>
-      {journey.length ? <ol className="journey-timeline">{journey.map(stop => <li key={stop.id}><span className="timeline-point" /><div><span className="eyebrow">{stop.role}</span><h4>{stop.name}</h4><p><MapPin size={13} />{stop.location || 'Location not recorded'}</p></div></li>)}</ol> : <p className="supporting-copy">The registry has no recorded supply-chain stops for this product yet.</p>}
+      <section className="journey-supply-chain" aria-label="Supply chain">
+        <h4>Supply chain</h4>
+        {active.assessment?.custodian && <p className="supporting-copy">Last confirmed custodian: {active.assessment.custodian.name || active.assessment.custodian.wallet}. {active.assessment.custodian.recordedLocation || 'Location not recorded.'}</p>}
+        <p className="supporting-copy">Map points show recorded or approximate locations. Connecting lines do not show an observed travel route.</p>
+        {journey.length ? <ol className="journey-timeline">{journey.map(stop => <li key={stop.id}><span className="timeline-point" /><div><span className="eyebrow">{stop.role}</span><h4>{stop.name}</h4><p><MapPin size={13} />{stop.location || 'Location not recorded'}</p></div></li>)}</ol> : <p className="supporting-copy">The registry has no recorded supply-chain stops for this product yet.</p>}
+      </section>
+      {active.assessment && <section className="verification-evidence" aria-label="Check breakdown">
+        <h4>Check breakdown</h4>
+        <p className="supporting-copy">Unknown checks are not failures. The evidence score is not a probability of authenticity.</p>
+        <ul>{active.assessment.findings.map(finding => <li key={finding.code} data-state={finding.state}>
+          <strong>{finding.domain.charAt(0).toUpperCase() + finding.domain.slice(1)}</strong>
+          <span className="check-state">{finding.state === 'supported' ? 'Passed' : finding.state === 'concern' ? 'Concern' : 'Unknown'}{showScore && active.assessment.score.checks?.find(c => c.domain === finding.domain) ? ` · ${active.assessment.score.checks.find(c => c.domain === finding.domain).earned}/${active.assessment.score.checks.find(c => c.domain === finding.domain).weight}` : ''}</span>
+          <p>{finding.explanation}</p>
+        </li>)}</ul>
+      </section>}
+      {active.exists && active.assessment?.score && <button className="text-button" onClick={() => { setDetails(false); setEditingSerial(active.serialNumber); }}>Edit purchase details</button>}
       <button className="dark-button" onClick={() => { setDetails(false); onReportProduct(active); }}>Report an issue<ArrowRight size={18} /></button>
     </Sheet>}
   </section>;

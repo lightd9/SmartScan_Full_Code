@@ -118,12 +118,30 @@
   .app-content { grid-column: 2; grid-row: 1; padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
   .bottom-nav-bar { grid-column: 1; grid-row: 1; flex-direction: column; justify-content: center; gap: 20px; padding: calc(24px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 10px calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))); border-right: 1px solid var(--line); }
   .bottom-nav-bar .nav-item { flex: 0 0 auto; min-height: 72px; border-radius: 20px; }
-  .bottom-nav-bar .nav-item.active { background: var(--accent-surface); }
+  .bottom-nav-bar .nav-item.active { background: #f1f1f1; }
 }
-.purchase-checks {display:grid;gap:12px;padding:18px 0;border-block:1px solid #e3e6ef;margin:18px 0;}
-.purchase-checks h4,.purchase-checks p {margin:0;}
-.purchase-checks label {font-size:13px;font-weight:650;}
-.purchase-checks select,.purchase-checks input {box-sizing:border-box;min-width:0;width:100%;padding:13px;border:1px solid #d9ddeb;border-radius:12px;background:#fff;color:#000336;font:inherit;font-size:16px;}
+.answering-purchase .passport-card-body { padding:20px 19px; margin-top:0; }
+.card-purchase-intro { margin-bottom:18px; }
+.card-purchase-intro .supporting-copy { font-size:13px; }
+.purchase-checks { display:grid; gap:18px; }
+.purchase-question { display:grid; gap:10px; min-width:0; }
+.purchase-question > label { display:flex; align-items:center; gap:9px; font-size:14px; line-height:1.5; font-weight:600; }
+.purchase-question .other-seller-label { font-size:12px; }
+.question-number { width:24px; height:24px; flex-shrink:0; border-radius:50%; display:grid; place-items:center; font-size:12px; background:#eee; }
+.purchase-question .supporting-copy { font-size:13px; }
+.purchase-checks select,.purchase-checks input:not([type=checkbox]) { min-width:0; width:100%; min-height:52px; padding:13px; border:1px solid #dedede; border-radius:14px; background:#f7f7f7; color:var(--ink); font:inherit; font-size:16px; }
+.purchase-checks .dark-button { width:100%; min-width:0; white-space:normal; }
+.purchase-question .purchase-location { align-items:flex-start; padding:12px 0; font-size:13px; font-weight:500; }
+.purchase-location input { width:20px; height:20px; margin:0; flex-shrink:0; accent-color:var(--ink); }
+.purchase-location svg { margin-right:5px; }
+.purchase-location small { display:block; font-size:12px; color:var(--muted); font-weight:400; margin-top:6px; }
+.purchase-warning { display:flex; gap:12px; padding:16px; border-radius:18px; background:#fff1e7; color:var(--danger); margin-bottom:20px; }
+.purchase-warning > svg { flex-shrink:0; }
+.purchase-warning p { font-size:13px; line-height:1.6; margin-top:6px; }
+.verification-summary, .journey-supply-chain { display:grid; gap:12px; margin:16px 0; }
+.verification-summary .status-badge { justify-self:start; }
+.journey-product-name { margin-bottom:4px; }
+@media (max-width:380px) { .answering-purchase .passport-card-body { padding:16px; } }
 .evidence-score {display:flex;align-items:center;gap:12px;margin:8px 0;color:#000336;}
 .evidence-score strong {font-size:27px;letter-spacing:-1px;}
 .evidence-score small {font-size:14px;font-weight:500;}

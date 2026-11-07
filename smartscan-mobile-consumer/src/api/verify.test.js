@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseQrPayload, normalizeChainProduct, mergeVerificationResults, createProductVerifier } from './verify.js';
-import { productStatus, supplyChain } from '../utils/product.js';
+import { canShowEvidenceScore, needsPurchaseDetails, productStatus, supplyChain } from '../utils/product.js';
 import { CONTRACT_ADDRESS, CHAIN_ID } from '../config/constants.js';
 import cases from '../../../test-fixtures/verification-v2.json' with { type: 'json' };
 
@@ -72,4 +72,23 @@ test('server mismatch or unavailable assessment falls back without claiming clea
   const api = { async post() { return { status: 201, data: { product: { serialNumber: 'wrong' }, assessment: { summary: {} }, flags: [] } }; }, async get() { throw new Error('offline'); } };
   const result = await createProductVerifier({ api, readChain: async () => normalizeChainProduct(null, serial) })(serial,{contractAddress:CONTRACT_ADDRESS});
   assert.equal(result.status, 'NOT_FOUND'); assert.deepEqual(result.scanWarnings, ['scan_risk_check_unavailable']);
+});
+
+test('fresh and older saved scores wait for explicit purchase answers', () => {
+  const product = { exists: true, assessment: { score: { value: 90 }, summary: { status: 'VERIFIED', title: 'Authenticity checks passed.' } } };
+  assert.equal(needsPurchaseDetails(product), true);
+  assert.equal(canShowEvidenceScore(product), false);
+  assert.equal(productStatus(product).title, 'Finish your verification.');
+  const completed = { ...product, purchaseAnswers: { completed: true, seller: 'recorded', context: 'after_purchase' } };
+  assert.equal(needsPurchaseDetails(completed), false);
+  assert.equal(canShowEvidenceScore(completed), true);
+  assert.equal(productStatus(completed), product.assessment.summary);
+});
+
+test('a recall remains visible before purchase questions and unknown products have no score gate', () => {
+  const recalled = { exists: true, assessment: { score: { value: 90 }, summary: { status: 'RECALLED', title: 'This product has been recalled.' } } };
+  assert.equal(canShowEvidenceScore(recalled), false);
+  assert.equal(productStatus(recalled), recalled.assessment.summary);
+  assert.equal(needsPurchaseDetails({ exists: false }), false);
+  assert.equal(needsPurchaseDetails({ exists: true, source: 'registry' }), false);
 });
