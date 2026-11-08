@@ -1,5 +1,7 @@
 # SmartScan receipt and verification pilot
 
+Consumer UI update: [1.1.1-testing, 8 November 2026](CONSUMER_BUILD_2026-11-08.md). That update replaces the Consumer package and purchase-question flow described here; the backend and Enterprise release below remain unchanged.
+
 This implements the authorized parts of packages 1, 2, 5 and 6 from the [workflow correction plan](SMARTSCAN_WORKFLOW_CORRECTION_PLAN.md), with manufacturer serialization and unit/pack aggregation explicitly deferred. The older planning document describes the pre-release state; this record describes the deployed pilot.
 
 ## Deployment and compatibility
